@@ -1,0 +1,37 @@
+import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { CompositeScreenProps } from '@react-navigation/native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+
+export type RootStackParamList = {
+  MainTabs: undefined;
+  AnimeDetail: { animeId: string };
+  VideoPlayer: { 
+    episodeId: string; 
+    animeId: string;
+    autoPlay?: boolean;
+  };
+  Search: { query?: string };
+};
+
+export type MainTabParamList = {
+  Home: undefined;
+  Lists: undefined;
+  Catalog: undefined;
+  Downloads: undefined;
+  Settings: undefined;
+};
+
+export type RootStackScreenProps<Screen extends keyof RootStackParamList> =
+  NativeStackScreenProps<RootStackParamList, Screen>;
+
+export type MainTabScreenProps<Screen extends keyof MainTabParamList> =
+  CompositeScreenProps<
+    BottomTabScreenProps<MainTabParamList, Screen>,
+    NativeStackScreenProps<RootStackParamList>
+  >;
+
+declare global {
+  namespace ReactNavigation {
+    interface RootParamList extends RootStackParamList {}
+  }
+} 
