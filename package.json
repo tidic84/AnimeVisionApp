@@ -25,17 +25,18 @@
     "expo-screen-orientation": "^8.1.6",
     "expo-sqlite": "~15.2.10",
     "expo-status-bar": "~2.2.3",
+    "expo-video": "~2.2.1",
     "react": "19.0.0",
     "react-native": "0.79.2",
     "react-native-async-storage": "^0.0.1",
     "react-native-dotenv": "^3.4.11",
+    "react-native-gesture-handler": "^2.25.0",
     "react-native-html-parser": "^0.1.0",
     "react-native-progress": "^5.0.1",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
     "react-native-vector-icons": "^10.2.0",
-    "react-native-webview": "^13.14.1",
-    "expo-video": "~2.2.1"
+    "react-native-webview": "^13.14.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

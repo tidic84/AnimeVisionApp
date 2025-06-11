@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useVideoPlayer, VideoView, VideoSource } from 'expo-video';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { PanGestureHandler, State } from 'react-native-gesture-handler';
 
 import { RootStackScreenProps } from '../../types/navigation';
 import { Episode } from '../../types/anime';
@@ -78,6 +79,13 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
 
   // Gestion barre de progression simplifiée
   const [progressBarWidth, setProgressBarWidth] = useState(200); // Largeur par défaut
+  const [seekingToPosition, setSeekingToPosition] = useState<number | null>(null); // Position cible après clic
+  
+  // États pour le drag fluide
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragPosition, setDragPosition] = useState(0); // Position pendant le drag (0-1)
+  const progressBarRef = useRef<View>(null);
+  const [useFallbackDrag, setUseFallbackDrag] = useState(false); // Fallback si PanGestureHandler échoue
 
   useEffect(() => {
     loadEpisodeData();
@@ -278,13 +286,18 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
 
   // Gestion barre de progression simplifiée
   const handleProgressPress = (event: any) => {
+    // Éviter les conflits avec le drag
+    if (isDragging) return;
+    
     const { locationX } = event.nativeEvent;
     const percentage = Math.max(0, Math.min(1, locationX / progressBarWidth));
     const newTime = percentage * duration;
     
-    console.log(`[Progress SIMPLE] Click à ${locationX}px / ${progressBarWidth}px = ${(percentage * 100).toFixed(1)}%, temps: ${newTime.toFixed(1)}s`);
+    // Approche simple pour éviter les bugs de drag
+    setSeekingToPosition(newTime);
     seekTo(newTime);
     showControlsFunc();
+    console.log(`[Progress CLICK] Click à ${locationX}px / ${progressBarWidth}px = ${(percentage * 100).toFixed(1)}%, temps: ${newTime.toFixed(1)}s`);
   };
 
   // Gestion des gestures avec vraies zones
@@ -377,12 +390,88 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
     }
   };
 
+  // Gestionnaire de drag fluide pour la barre de progression
+  const handleProgressGesture = (event: any) => {
+    const { state, x } = event.nativeEvent;
+    
+    switch (state) {
+      case State.BEGAN:
+        setIsDragging(true);
+        showControlsFunc();
+        // Calculer la position initiale
+        const initialPercentage = Math.max(0, Math.min(1, x / progressBarWidth));
+        setDragPosition(initialPercentage);
+        console.log(`[Progress DRAG] Began à ${(initialPercentage * 100).toFixed(1)}%`);
+        break;
+        
+      case State.ACTIVE:
+        // Mettre à jour la position pendant le drag
+        const percentage = Math.max(0, Math.min(1, x / progressBarWidth));
+        setDragPosition(percentage);
+        showControlsFunc();
+        console.log(`[Progress DRAG] Active à ${(percentage * 100).toFixed(1)}%`);
+        break;
+        
+      case State.END:
+      case State.CANCELLED:
+        // Appliquer la position finale
+        const finalPercentage = Math.max(0, Math.min(1, x / progressBarWidth));
+        const newTime = finalPercentage * duration;
+        
+        setIsDragging(false);
+        setSeekingToPosition(newTime);
+        seekTo(newTime);
+        showControlsFunc();
+        console.log(`[Progress DRAG] End à ${(finalPercentage * 100).toFixed(1)}%, appliqué: ${newTime.toFixed(1)}s`);
+        break;
+    }
+  };
+
+  // Version fallback avec responders natifs
+  const handleProgressDragStart = (event: any) => {
+    setIsDragging(true);
+    const { locationX } = event.nativeEvent;
+    const percentage = Math.max(0, Math.min(1, locationX / progressBarWidth));
+    setDragPosition(percentage);
+    showControlsFunc();
+    console.log(`[Progress DRAG FALLBACK] Start à ${(percentage * 100).toFixed(1)}%`);
+  };
+
+  const handleProgressDragMove = (event: any) => {
+    if (!isDragging) return;
+    const { locationX } = event.nativeEvent;
+    const percentage = Math.max(0, Math.min(1, locationX / progressBarWidth));
+    setDragPosition(percentage);
+    showControlsFunc();
+  };
+
+  const handleProgressDragEnd = (event: any) => {
+    if (!isDragging) return;
+    const { locationX } = event.nativeEvent;
+    const percentage = Math.max(0, Math.min(1, locationX / progressBarWidth));
+    const newTime = percentage * duration;
+    
+    setIsDragging(false);
+    setSeekingToPosition(newTime);
+    seekTo(newTime);
+    showControlsFunc();
+    console.log(`[Progress DRAG FALLBACK] End à ${(percentage * 100).toFixed(1)}%, appliqué: ${newTime.toFixed(1)}s`);
+  };
+
   // Formatage temps
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  useEffect(() => {
+    // Vérifier si la vidéo a fini de chercher à la position cible
+    if (seekingToPosition !== null && Math.abs(currentTime - seekingToPosition) < 0.5) {
+      setSeekingToPosition(null);
+      console.log(`[Progress SYNC] Position synchronisée: ${currentTime.toFixed(1)}s`);
+    }
+  }, [currentTime, seekingToPosition]);
 
   if (loading || !episode) {
     return (
@@ -591,33 +680,54 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
             <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
             
             <TouchableWithoutFeedback onPress={handleProgressPress}>
-              <View 
-                style={styles.progressTrack}
-                onLayout={(event) => {
-                  const { width } = event.nativeEvent.layout;
-                  setProgressBarWidth(width);
-                  console.log(`[Progress] Largeur mesurée: ${width}px`);
-                }}
+              <PanGestureHandler 
+                onGestureEvent={handleProgressGesture}
+                onHandlerStateChange={handleProgressGesture}
               >
-                <View style={styles.progressBackground}>
-                  <View 
-                    style={[
-                      styles.progressForeground, 
-                      { width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }
-                    ]} 
-                  />
-                  {/* Indicateur de position pour améliorer la précision */}
-                  <View 
-                    style={[
-                      styles.progressThumb,
-                      { 
-                        left: `${duration > 0 ? (currentTime / duration) * 100 : 0}%`,
-                        transform: [{ translateX: -6 }] // Centrer le thumb
-                      }
-                    ]}
-                  />
+                <View 
+                  ref={progressBarRef}
+                  style={styles.progressTrack}
+                  onLayout={(event) => {
+                    const { width } = event.nativeEvent.layout;
+                    setProgressBarWidth(width);
+                    console.log(`[Progress] Largeur mesurée: ${width}px`);
+                  }}
+                >
+                  <View style={styles.progressBackground}>
+                    <View 
+                      style={[
+                        styles.progressForeground, 
+                        { 
+                          width: `${
+                            isDragging
+                              ? dragPosition * 100
+                              : seekingToPosition !== null
+                              ? (seekingToPosition / duration) * 100
+                              : duration > 0 ? (currentTime / duration) * 100 : 0
+                          }%` 
+                        }
+                      ]} 
+                    />
+                    {/* Indicateur de position pour améliorer la précision */}
+                    <View 
+                      style={[
+                        styles.progressThumb,
+                        { 
+                          left: `${
+                            isDragging
+                              ? dragPosition * 100
+                              : seekingToPosition !== null
+                              ? (seekingToPosition / duration) * 100
+                              : duration > 0 ? (currentTime / duration) * 100 : 0
+                          }%`,
+                          backgroundColor: (isDragging || seekingToPosition !== null) ? '#FF8C5A' : '#FF6B35', // Couleur différente pendant le drag/seeking
+                          transform: [{ translateX: -6 }, { scale: (isDragging || seekingToPosition !== null) ? 1.3 : 1 }], // Agrandir pendant le drag/seeking
+                        }
+                      ]}
+                    />
+                  </View>
                 </View>
-              </View>
+              </PanGestureHandler>
             </TouchableWithoutFeedback>
             
             <Text style={styles.timeText}>{formatTime(duration)}</Text>
@@ -740,7 +850,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     pointerEvents: 'auto',
     zIndex: 10, // S'assurer que le bouton play/pause reste cliquable
-    backgroundColor: 'rgba(255, 255, 0, 0.3)', // Jaune semi-transparent pour debug
     borderRadius: 40, // Rendre la zone circulaire pour mieux voir
   },
   progressSection: {
@@ -866,7 +975,6 @@ const styles = StyleSheet.create({
     width: '47.5%', // Zone gauche agrandie (au lieu de 40%)
     bottom: 0, // Plein écran
     pointerEvents: 'auto',
-    backgroundColor: 'rgba(255, 0, 0, 0.3)', // Rouge semi-transparent pour debug
   },
   rightTapZone: {
     position: 'absolute',
@@ -875,17 +983,12 @@ const styles = StyleSheet.create({
     width: '47.5%', // Zone droite agrandie (au lieu de 40%)
     bottom: 0, // Plein écran
     pointerEvents: 'auto',
-    backgroundColor: 'rgba(0, 255, 0, 0.3)', // Vert semi-transparent pour debug
   },
   fallbackGestureArea: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 4, // Sous l'overlay des contrôles
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     pointerEvents: 'auto',
-    backgroundColor: 'rgba(0, 0, 255, 0.2)', // Bleu semi-transparent pour debug
   },
 });
 
