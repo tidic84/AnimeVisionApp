@@ -18,7 +18,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 
 import { RootStackScreenProps } from '../../types/navigation';
 import { Anime, Episode } from '../../types/anime';
-import animeSamaService from '../../services/animeSamaService';
+import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
 import { SkeletonCard } from '../../components';
 
@@ -70,25 +70,86 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
   const loadAnimeDetails = async () => {
     try {
       setLoading(true);
+      console.log(`[AnimeDetail] Chargement de l'anime ${animeId} via API`);
       
-      // Charger les détails de l'animé
-      const animeDetails = await animeSamaService.getAnimeDetails(animeId);
-      setAnime(animeDetails);
+      let animeDetails = null;
+      let animeEpisodes: Episode[] = [];
 
-      // Charger les épisodes
-      const animeEpisodes = await animeSamaService.getAnimeEpisodes(animeId);
+      try {
+        // Essayer d'abord de charger les épisodes (cela fonctionne)
+        animeEpisodes = await apiService.getAnimeEpisodes(animeId);
+        console.log(`[AnimeDetail] ${animeEpisodes.length} épisodes chargés`);
+
+        // Si on a des épisodes, on peut créer les détails basiques de l'anime
+        if (animeEpisodes.length > 0 && animeEpisodes[0].animeTitle) {
+          animeDetails = {
+            id: animeId,
+            title: animeEpisodes[0].animeTitle,
+            originalTitle: animeEpisodes[0].animeTitle,
+            synopsis: 'Synopsis non disponible via l\'API',
+            genres: [],
+            studio: 'Studio inconnu',
+            year: new Date().getFullYear(),
+            rating: 0,
+            status: 'ONGOING' as any,
+            thumbnail: animeEpisodes[0].thumbnail || '',
+            banner: animeEpisodes[0].thumbnail || '',
+            episodeCount: animeEpisodes.length,
+            duration: 24
+          };
+          console.log('[AnimeDetail] Détails anime créés depuis les épisodes:', animeDetails.title);
+        }
+      } catch (episodeError) {
+        console.warn('[AnimeDetail] Erreur lors du chargement des épisodes:', episodeError);
+      }
+
+      // Si on n'a pas réussi à avoir les détails via les épisodes, essayer l'API directe
+      if (!animeDetails) {
+        try {
+          animeDetails = await apiService.getAnimeDetails(animeId);
+          console.log('[AnimeDetail] Détails anime chargés via API:', animeDetails.title);
+        } catch (apiError) {
+          console.warn('[AnimeDetail] API détails non disponible:', apiError);
+          
+          // Fallback final : créer un anime basique
+          animeDetails = {
+            id: animeId,
+            title: `Anime ${animeId}`,
+            originalTitle: `Anime ${animeId}`,
+            synopsis: 'Les détails de cet anime ne sont pas disponibles pour le moment.',
+            genres: [],
+            studio: 'Studio inconnu',
+            year: new Date().getFullYear(),
+            rating: 0,
+            status: 'ONGOING' as any,
+            thumbnail: '',
+            banner: '',
+            episodeCount: animeEpisodes.length,
+            duration: 24
+          };
+          console.log('[AnimeDetail] Utilisation des détails fallback');
+        }
+      }
+
+      setAnime(animeDetails);
       setEpisodes(animeEpisodes);
 
-      // Sauvegarder l'animé dans la base de données locale
-      await databaseService.saveAnime(animeDetails);
+      // Sauvegarder en base locale
+      if (animeDetails) {
+        await databaseService.saveAnime(animeDetails);
+      }
       
-      // Sauvegarder les épisodes
       for (const episode of animeEpisodes) {
         await databaseService.saveEpisode(episode);
       }
+      
     } catch (error) {
       console.error('Erreur lors du chargement des détails:', error);
-      Alert.alert('Erreur', 'Impossible de charger les détails de l\'animé');
+      Alert.alert(
+        'Erreur', 
+        'Impossible de charger les détails de l\'animé. L\'API semble avoir un problème.',
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
     } finally {
       setLoading(false);
     }

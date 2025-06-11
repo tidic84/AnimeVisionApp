@@ -17,6 +17,7 @@ import SettingsScreen from '../screens/Settings/SettingsScreen';
 import AnimeDetailScreen from '../screens/AnimeDetail/AnimeDetailScreen';
 import VideoPlayerScreen from '../screens/VideoPlayer/VideoPlayerScreen';
 
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -220,6 +221,7 @@ export default function AppNavigator() {
             animation: 'slide_from_bottom',
           }}
         />
+
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   useColorScheme,
   RefreshControl,
   Alert,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +17,9 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Episode, Anime } from '../../types/anime';
 import hybridScrapingService from '../../services/hybridScrapingService';
 import databaseService from '../../services/databaseService';
+import SkeletonCardComponent from '../../components/SkeletonCard/SkeletonCard';
+import EpisodeCard from '../../components/EpisodeCard/EpisodeCard';
+import AnimeCard from '../../components/AnimeCard/AnimeCard';
 
 // Composant de message d'erreur simple
 const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ message, onRetry }) => {
@@ -38,18 +42,14 @@ const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ mess
 // Composant de skeleton simple
 const SkeletonCard: React.FC<{ width: number; height: number; style?: any }> = ({ width, height, style }) => {
   const colorScheme = useColorScheme();
-  const skeletonColors = {
-    light: { border: '#e2e8f0' },
-    dark: { border: '#334155' },
-  }[colorScheme ?? 'light'];
-
+  
   return (
     <View 
       style={[
         { 
           width, 
           height, 
-          backgroundColor: skeletonColors.border,
+          backgroundColor: colorScheme === 'dark' ? '#1e293b' : '#f1f5f9',
           borderRadius: 12,
           marginRight: 12,
         }, 
@@ -304,60 +304,14 @@ const HomeScreen: React.FC = () => {
       });
   };
 
-  const showScrapingLimitation = () => {
-    Alert.alert(
-      "🔍 Contenu Dynamique Détecté",
-      "Anime-sama.fr utilise du JavaScript pour charger le contenu dynamiquement. Seuls 1-2 éléments par section sont récupérés avec l'approche actuelle.\n\nSolution recommandée : Serveur de scraping avec Puppeteer (voir SOLUTION-CONTENU-DYNAMIQUE.md)",
-      [
-        { text: "Compris", style: "default" },
-        { 
-          text: "Voir Documentation", 
-          onPress: () => console.log("Consultez SOLUTION-CONTENU-DYNAMIQUE.md pour les détails complets")
-        }
-      ]
-    );
-  };
-
-  const showServiceDiagnostic = async () => {
-    try {
-      const status = await hybridScrapingService.getServiceStatus();
-      const apiCacheStats = await hybridScrapingService.getApiCacheStats();
-      
-      const message = `
-🔧 État du Service de Scraping:
-
-🌐 Serveur API: ${status.apiServer ? '✅ DISPONIBLE' : '❌ INDISPONIBLE'}
-🔄 Fallback Local: ${status.fallback ? '✅ ACTIVÉ' : '❌ DÉSACTIVÉ'}
-📍 Source Actuelle: ${status.currentSource.toUpperCase()}
-
-📊 Cache Serveur API:
-${apiCacheStats.keys ? `- ${apiCacheStats.keys.length} entrées` : '- Aucune donnée'}
-
-💡 Le serveur API utilise Puppeteer pour un scraping complet du contenu dynamique, tandis que le fallback utilise l'ancien système limité.
-      `.trim();
-
-      Alert.alert(
-        "🔍 Diagnostic du Service",
-        message,
-        [
-          { text: "Fermer", style: "default" },
-          { 
-            text: "Redémarrer Serveur", 
-            onPress: () => {
-              console.log("Pour redémarrer le serveur: cd ../anime-scraping-server && npm run dev");
-              Alert.alert("Info", "Consultez les logs pour redémarrer le serveur de scraping");
-            }
-          }
-        ]
-      );
-    } catch (error) {
-      Alert.alert("Erreur", "Impossible de récupérer l'état du service");
-    }
-  };
-
   const playEpisode = (episode: Episode) => {
     console.log('[HomeScreen] Navigation vers VideoPlayer pour:', episode.title);
-    (navigation as any).navigate('VideoPlayer', { episode });
+    console.log('[HomeScreen] AnimeId:', episode.animeId, 'EpisodeId:', episode.id);
+    (navigation as any).navigate('VideoPlayer', { 
+      episodeId: episode.id, 
+      animeId: episode.animeId,
+      autoPlay: true 
+    });
   };
 
   const navigateToAnimeDetail = (animeId: string) => {
@@ -366,55 +320,28 @@ ${apiCacheStats.keys ? `- ${apiCacheStats.keys.length} entrées` : '- Aucune don
   };
 
   const renderEpisodeCard = ({ item: episode }: { item: Episode }) => (
-    <TouchableOpacity
-      style={[styles.episodeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
-      onPress={() => playEpisode(episode)}
-    >
-      <View style={styles.episodeImageContainer}>
-        <View style={[styles.episodePlaceholder, { backgroundColor: colors.border }]}>
-          <Ionicons name="play-circle" size={32} color={colors.primary} />
-        </View>
-      </View>
-      <View style={styles.episodeInfo}>
-        <Text style={[styles.episodeTitle, { color: colors.text }]} numberOfLines={2}>
-          {episode.title}
-        </Text>
-        <Text style={[styles.episodeSubtitle, { color: colors.textSecondary }]} numberOfLines={1}>
-          Épisode {episode.number} • {Math.floor(episode.duration / 60)} min
-        </Text>
-      </View>
-    </TouchableOpacity>
+    <EpisodeCard
+      episode={episode}
+      onPress={playEpisode}
+      size="medium"
+      showProgress={true}
+    />
   );
 
   const renderAnimeCard = ({ item: anime }: { item: Anime }) => (
-    <TouchableOpacity
-      style={[styles.animeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
-      onPress={() => navigateToAnimeDetail(anime.id)}
-    >
-      <View style={styles.animeImageContainer}>
-        <View style={[styles.animePlaceholder, { backgroundColor: colors.border }]}>
-          <Ionicons name="film" size={24} color={colors.primary} />
-        </View>
-      </View>
-      <Text style={[styles.animeTitle, { color: colors.text }]} numberOfLines={2}>
-        {anime.title}
-      </Text>
-      <View style={styles.animeGenres}>
-        {anime.genres.slice(0, 2).map((genre, index) => (
-          <View key={index} style={[styles.genreTag, { backgroundColor: colors.primary + '20' }]}>
-            <Text style={[styles.genreText, { color: colors.primary }]}>{genre}</Text>
-          </View>
-        ))}
-      </View>
-    </TouchableOpacity>
+    <AnimeCard
+      anime={anime}
+      onPress={navigateToAnimeDetail}
+      size="medium"
+    />
   );
 
   const renderEpisodeSkeleton = () => (
-    <SkeletonCard width={160} height={120} style={styles.episodeCard} />
+    <SkeletonCardComponent type="episode" size="medium" />
   );
 
   const renderAnimeSkeleton = () => (
-    <SkeletonCard width={140} height={180} style={styles.animeCard} />
+    <SkeletonCardComponent type="anime" size="medium" />
   );
 
   const renderSkeletonList = (count: number, type: 'anime' | 'episode') => (
@@ -450,33 +377,7 @@ ${apiCacheStats.keys ? `- ${apiCacheStats.keys.length} entrées` : '- Aucune don
             Données en direct d'anime-sama.fr
           </Text>
           
-          <View style={styles.buttonRow}>
-            {/* Bouton d'information sur les limitations */}
-            <TouchableOpacity 
-              style={[styles.infoButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              onPress={showScrapingLimitation}
-            >
-              <View style={styles.infoButtonContent}>
-                <Ionicons name="information-circle" size={16} color={colors.primary} />
-                <Text style={[styles.infoButtonText, { color: colors.primary }]}>
-                  Limitation du scraping
-                </Text>
-              </View>
-            </TouchableOpacity>
 
-            {/* Bouton de diagnostic du service */}
-            <TouchableOpacity 
-              style={[styles.infoButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
-              onPress={showServiceDiagnostic}
-            >
-              <View style={styles.infoButtonContent}>
-                <Ionicons name="analytics" size={16} color={colors.primary} />
-                <Text style={[styles.infoButtonText, { color: colors.primary }]}>
-                  Diagnostic
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* Section Continuer à regarder */}
@@ -620,68 +521,6 @@ const styles = StyleSheet.create({
   horizontalList: {
     paddingHorizontal: 16,
   },
-  episodeCard: {
-    width: 160,
-    marginRight: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  episodeImageContainer: {
-    height: 90,
-  },
-  episodePlaceholder: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  episodeInfo: {
-    padding: 8,
-  },
-  episodeTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  episodeSubtitle: {
-    fontSize: 12,
-  },
-  animeCard: {
-    width: 140,
-    marginRight: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-    paddingBottom: 8,
-  },
-  animeImageContainer: {
-    height: 120,
-  },
-  animePlaceholder: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  animeTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-    marginHorizontal: 8,
-  },
-  animeGenres: {
-    flexDirection: 'row',
-    paddingHorizontal: 8,
-    gap: 4,
-  },
-  genreTag: {
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  genreText: {
-    fontSize: 10,
-    fontWeight: '500',
-  },
   errorContainer: {
     margin: 16,
     padding: 16,
@@ -689,7 +528,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   errorText: {
-    fontSize: 14,
+    fontSize: 16,
     textAlign: 'center',
     marginBottom: 12,
   },
@@ -699,14 +538,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   retryButtonText: {
-    color: 'white',
+    color: '#ffffff',
     fontSize: 14,
-    fontWeight: '500',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 8,
+    fontWeight: '600',
   },
 });
 
 export default HomeScreen; 
+

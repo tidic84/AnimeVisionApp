@@ -18,6 +18,7 @@ export interface Anime {
 export interface Episode {
   id: string;
   animeId: string;
+  animeTitle?: string; // Titre de l'anime pour l'affichage et les logs
   number: number;
   title: string;
   thumbnail: string;

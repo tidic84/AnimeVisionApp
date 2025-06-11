@@ -4,12 +4,9 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 export type RootStackParamList = {
   MainTabs: undefined;
+  Home: undefined;
   AnimeDetail: { animeId: string };
-  VideoPlayer: { 
-    episodeId: string; 
-    animeId: string;
-    autoPlay?: boolean;
-  };
+  VideoPlayer: { episodeId: string; animeId: string; autoPlay?: boolean };
   Search: { query?: string };
 };
 

@@ -2,6 +2,7 @@ import axios from 'axios';
 import { Anime, Episode, AnimeStatus, VideoQuality } from '../types/anime';
 import animeSamaScrapingService from './animeSamaScrapingService';
 import databaseService from './databaseService';
+import apiService from './apiService';
 
 interface StreamingUrl {
   quality: string;
@@ -13,6 +14,7 @@ interface StreamingUrl {
 class AnimeSamaService {
   private baseUrl = 'https://anime-sama.fr';
   private useRealScraping: boolean = true;
+  private useApi: boolean = true;
 
   constructor() {
     // Configuration globale d'axios pour le service
@@ -36,11 +38,39 @@ class AnimeSamaService {
   }
 
   /**
+   * Active l'utilisation de l'API
+   */
+  enableApi(): void {
+    this.useApi = true;
+    console.log('[AnimeSamaService] API activée');
+  }
+
+  /**
+   * Désactive l'utilisation de l'API (fallback vers scraping)
+   */
+  disableApi(): void {
+    this.useApi = false;
+    console.log('[AnimeSamaService] API désactivée - fallback vers scraping');
+  }
+
+  /**
    * Récupère les derniers épisodes ajoutés
    */
   async getLatestEpisodes(): Promise<Episode[]> {
     try {
-      const episodes = await animeSamaScrapingService.getLatestEpisodes();
+      let episodes: Episode[];
+      
+      if (this.useApi) {
+        console.log('[AnimeSamaService] Utilisation de l\'API pour les derniers épisodes');
+        try {
+          episodes = await apiService.getLatestEpisodes();
+        } catch (apiError) {
+          console.warn('[AnimeSamaService] Erreur API, fallback vers scraping:', apiError);
+          episodes = await animeSamaScrapingService.getLatestEpisodes();
+        }
+      } else {
+        episodes = await animeSamaScrapingService.getLatestEpisodes();
+      }
       
       // Enrichir avec les données locales (statut de visionnage, etc.)
       const enrichedEpisodes = await this.enrichEpisodesWithLocalData(episodes);
@@ -57,7 +87,19 @@ class AnimeSamaService {
    */
   async searchAnime(query: string): Promise<Anime[]> {
     try {
-      const animes = await animeSamaScrapingService.searchAnime(query);
+      let animes: Anime[];
+      
+      if (this.useApi) {
+        console.log('[AnimeSamaService] Utilisation de l\'API pour la recherche');
+        try {
+          animes = await apiService.searchAnimes(query);
+        } catch (apiError) {
+          console.warn('[AnimeSamaService] Erreur API, fallback vers scraping:', apiError);
+          animes = await animeSamaScrapingService.searchAnime(query);
+        }
+      } else {
+        animes = await animeSamaScrapingService.searchAnime(query);
+      }
       
       // Enrichir avec les données locales (favoris, statut de visionnage, etc.)
       const enrichedAnimes = await this.enrichAnimesWithLocalData(animes);
@@ -74,7 +116,19 @@ class AnimeSamaService {
    */
   async getAnimeDetails(animeId: string): Promise<Anime | null> {
     try {
-      const anime = await animeSamaScrapingService.getAnimeDetails(animeId);
+      let anime: Anime | null = null;
+      
+      if (this.useApi) {
+        console.log('[AnimeSamaService] Utilisation de l\'API pour les détails d\'animé');
+        try {
+          anime = await apiService.getAnimeById(animeId);
+        } catch (apiError) {
+          console.warn('[AnimeSamaService] Erreur API, fallback vers scraping:', apiError);
+          anime = await animeSamaScrapingService.getAnimeDetails(animeId);
+        }
+      } else {
+        anime = await animeSamaScrapingService.getAnimeDetails(animeId);
+      }
       
       if (!anime) return null;
       
@@ -110,7 +164,19 @@ class AnimeSamaService {
    */
   async getPopularAnimes(): Promise<Anime[]> {
     try {
-      const animes = await animeSamaScrapingService.getPopularAnimes();
+      let animes: Anime[];
+      
+      if (this.useApi) {
+        console.log('[AnimeSamaService] Utilisation de l\'API pour les animés populaires');
+        try {
+          animes = await apiService.getPopularAnimes();
+        } catch (apiError) {
+          console.warn('[AnimeSamaService] Erreur API, fallback vers scraping:', apiError);
+          animes = await animeSamaScrapingService.getPopularAnimes();
+        }
+      } else {
+        animes = await animeSamaScrapingService.getPopularAnimes();
+      }
       
       // Enrichir avec les données locales
       const enrichedAnimes = await this.enrichAnimesWithLocalData(animes);
@@ -256,6 +322,49 @@ class AnimeSamaService {
    */
   async testFetch(): Promise<{success: boolean, details: string}> {
     return await animeSamaScrapingService.testFetch();
+  }
+
+  /**
+   * Teste la connectivité à l'API
+   */
+  async testApiConnection(): Promise<{success: boolean, details: string}> {
+    try {
+      const isConnected = await apiService.testConnection();
+      if (isConnected) {
+        return {
+          success: true,
+          details: 'API accessible et fonctionnelle'
+        };
+      } else {
+        return {
+          success: false,
+          details: 'API non accessible'
+        };
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        details: `Erreur API: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Force l'utilisation du scraping en cas de problème d'API
+   */
+  async checkAndFallbackToScraping(): Promise<void> {
+    try {
+      const apiTest = await this.testApiConnection();
+      if (!apiTest.success) {
+        console.warn('[AnimeSamaService] API non disponible, basculement vers scraping');
+        this.disableApi();
+      } else {
+        this.enableApi();
+      }
+    } catch (error) {
+      console.warn('[AnimeSamaService] Erreur test API, basculement vers scraping');
+      this.disableApi();
+    }
   }
 
   /**

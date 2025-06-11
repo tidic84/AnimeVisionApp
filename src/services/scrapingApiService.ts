@@ -1,4 +1,5 @@
 import { Episode, Anime } from '../types/anime';
+import { API_ADDRESS } from '@env';
 
 interface ScrapingApiConfig {
   baseUrl: string;
@@ -20,12 +21,21 @@ class ScrapingApiService {
   private config: ScrapingApiConfig;
 
   constructor() {
+    // Utiliser la variable d'environnement du fichier .env
+    const apiAddress = API_ADDRESS || 'http://localhost:8001';
+    
     this.config = {
-      baseUrl: 'http://192.168.10.176:3001/api', // Serveur de scraping sur IP locale
+      baseUrl: `${apiAddress}`, // API principale AnimeVisionAPI
       timeout: 15000, // 15 secondes
       retryAttempts: 3,
       retryDelay: 1000, // 1 seconde
     };
+    
+    console.log(`[ScrapingApiService] Utilisation de l'API: ${this.config.baseUrl}`);
+    
+    if (!API_ADDRESS) {
+      console.warn('[ScrapingApiService] Variable API_ADDRESS non définie dans .env, utilisation du fallback localhost:8001');
+    }
   }
 
   private async fetchWithRetry<T>(
@@ -125,7 +135,7 @@ class ScrapingApiService {
       return response;
     } catch (error: any) {
       console.error('[ScrapingAPI] Erreur health check:', error);
-      throw new Error(`Serveur de scraping inaccessible: ${error.message}`);
+      throw new Error(`Serveur API inaccessible: ${error.message}`);
     }
   }
 

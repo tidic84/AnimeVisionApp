@@ -186,6 +186,32 @@ src/
 - ✅ Historique de visionnage
 - ✅ Synchronisation des données scrapées
 
+## ⚙️ Configuration
+
+### Configuration de l'API
+
+L'application utilise la variable d'environnement `API_ADDRESS` pour se connecter à l'API AnimeVisionAPI.
+
+**Configuration via app.json :**
+```json
+{
+  "expo": {
+    "extra": {
+      "API_ADDRESS": "http://votre-serveur:8001"
+    }
+  }
+}
+```
+
+**Exemples de configuration :**
+- **Local :** `http://localhost:8001`
+- **Réseau :** `http://192.168.1.100:8001` 
+- **Production :** `https://api.tidic.fr`
+
+📋 Consultez [`CONFIG.md`](CONFIG.md) pour la documentation complète de configuration.
+
+📋 Consultez [`readme-api.md`](readme-api.md) pour la documentation de l'API AnimeVisionAPI.
+
 ## 📱 Installation et Développement
 
 ### Prérequis
@@ -193,6 +219,7 @@ src/
 - npm ou yarn
 - Expo CLI
 - Émulateur Android/iOS ou appareil physique
+- **API AnimeVisionAPI** en cours d'exécution (voir readme-api.md)
 
 ### Installation
 ```bash

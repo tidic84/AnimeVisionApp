@@ -19,6 +19,9 @@ export default function App() {
       await databaseService.initializeDatabase();
       console.log('[App] Base de données initialisée');
       
+      // Tester la connectivité API et configurer le fallback
+      await animeSamaService.checkAndFallbackToScraping();
+      
       // Initialiser le cache en arrière-plan (non bloquant)
       initializeCacheInBackground();
       
