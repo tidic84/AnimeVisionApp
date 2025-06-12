@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useColorScheme, View } from 'react-native';
 
 import { RootStackParamList, MainTabParamList } from '../types/navigation';
+import { useApi } from '../contexts/ApiContext';
 
 // Importation des écrans
 import HomeScreen from '../screens/Home/HomeScreen';
@@ -16,7 +17,6 @@ import DownloadsScreen from '../screens/Downloads/DownloadsScreen';
 import SettingsScreen from '../screens/Settings/SettingsScreen';
 import AnimeDetailScreen from '../screens/AnimeDetail/AnimeDetailScreen';
 import VideoPlayerScreen from '../screens/VideoPlayer/VideoPlayerScreen';
-
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -57,9 +57,19 @@ const FallbackIcon: React.FC<{ size: number; color: string }> = ({ size, color }
 function MainTabNavigator() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const { isApiAvailable, isOfflineMode } = useApi();
+
+  // Déterminer la route initiale en fonction de la disponibilité de l'API
+  const getInitialRouteName = () => {
+    if (isOfflineMode || !isApiAvailable) {
+      return "Downloads";
+    }
+    return "Home";
+  };
 
   return (
     <Tab.Navigator
+      initialRouteName={getInitialRouteName()}
       screenOptions={({ route }) => ({
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: keyof typeof Ionicons.glyphMap;
@@ -82,7 +92,12 @@ function MainTabNavigator() {
           const iconSize = size || 24;
           const iconColor = color || colors.tabBarInactive;
 
-          return <Ionicons name={iconName} size={iconSize} color={iconColor} />;
+          // Griser les onglets désactivés en mode offline
+          const finalColor = (!isApiAvailable && route.name !== 'Downloads' && route.name !== 'Settings') 
+            ? colors.tabBarInactive + '50' // Semi-transparent
+            : iconColor;
+
+          return <Ionicons name={iconName} size={iconSize} color={finalColor} />;
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.tabBarInactive,
@@ -108,35 +123,46 @@ function MainTabNavigator() {
           fontWeight: '600',
         },
         headerTintColor: colors.text,
+        // Désactiver la navigation pour les onglets qui nécessitent l'API
+        tabBarButton: (!isApiAvailable && route.name !== 'Downloads' && route.name !== 'Settings') 
+          ? () => null // Masquer complètement les onglets désactivés
+          : undefined,
       })}
     >
-      <Tab.Screen 
-        name="Home" 
-        component={HomeScreen}
-        options={{
-          title: 'Accueil',
-          headerTitle: 'AnimeVision',
-        }}
-      />
-      <Tab.Screen 
-        name="Lists" 
-        component={ListsScreen}
-        options={{
-          title: 'Mes Listes',
-        }}
-      />
-      <Tab.Screen 
-        name="Catalog" 
-        component={CatalogScreen}
-        options={{
-          title: 'Catalogue',
-        }}
-      />
+      {isApiAvailable && (
+        <Tab.Screen 
+          name="Home" 
+          component={HomeScreen}
+          options={{
+            title: 'Accueil',
+            headerTitle: 'AnimeVision',
+          }}
+        />
+      )}
+      {isApiAvailable && (
+        <Tab.Screen 
+          name="Lists" 
+          component={ListsScreen}
+          options={{
+            title: 'Mes Listes',
+          }}
+        />
+      )}
+      {isApiAvailable && (
+        <Tab.Screen 
+          name="Catalog" 
+          component={CatalogScreen}
+          options={{
+            title: 'Catalogue',
+          }}
+        />
+      )}
       <Tab.Screen 
         name="Downloads" 
         component={DownloadsScreen}
         options={{
           title: 'Téléchargements',
+          headerTitle: isOfflineMode ? 'Mode Hors Ligne' : 'Téléchargements',
         }}
       />
       <Tab.Screen 
@@ -221,7 +247,6 @@ export default function AppNavigator() {
             animation: 'slide_from_bottom',
           }}
         />
-
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -20,6 +20,7 @@ import databaseService from '../../services/databaseService';
 import SkeletonCardComponent from '../../components/SkeletonCard/SkeletonCard';
 import EpisodeCard from '../../components/EpisodeCard/EpisodeCard';
 import AnimeCard from '../../components/AnimeCard/AnimeCard';
+import ApiGuard from '../../components/ApiGuard';
 
 // Composant de message d'erreur simple
 const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ message, onRetry }) => {
@@ -60,6 +61,14 @@ const SkeletonCard: React.FC<{ width: number; height: number; style?: any }> = (
 };
 
 const HomeScreen: React.FC = () => {
+  return (
+    <ApiGuard fallbackMessage="L'accueil nécessite une connexion à l'API pour afficher les derniers épisodes et recommandations.">
+      <HomeScreenContent />
+    </ApiGuard>
+  );
+};
+
+const HomeScreenContent: React.FC = () => {
   const navigation = useNavigation();
   const colorScheme = useColorScheme();
   const [latestEpisodes, setLatestEpisodes] = useState<Episode[]>([]);

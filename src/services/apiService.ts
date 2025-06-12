@@ -39,7 +39,7 @@ class ApiService {
 
   constructor() {
     // Utiliser la variable d'environnement du fichier .env
-    this.baseUrl = API_ADDRESS || 'http://localhost:8000';
+    this.baseUrl = API_ADDRESS || 'https://formally-liberal-drum.ngrok-free.app';
     console.log(`[ApiService] Utilisation de l'API: ${this.baseUrl}`);
     
     if (!API_ADDRESS) {
@@ -58,6 +58,11 @@ class ApiService {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
+          // Headers pour contourner les restrictions de tunnel
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15',
+          'Referer': this.baseUrl,
+          // Header ngrok pour éviter le warning
+          'ngrok-skip-browser-warning': 'true',
         },
       });
       
@@ -375,6 +380,25 @@ class ApiService {
     } catch (error: any) {
       console.error(`[ApiService] Erreur récupération épisodes anime ${animeId}:`, error);
       throw error;
+    }
+  }
+
+  async getEpisodeEmbedUrls(episodeId: string): Promise<string[]> {
+    try {
+      const response = await this.fetchWithErrorHandling<any>(`/api/v1/mobile/episode/${episodeId}/streaming/embeds`);
+      
+      if (response && typeof response === 'object') {
+        if ('success' in response && 'embed_urls' in response && response.success && Array.isArray(response.embed_urls)) {
+          return response.embed_urls;
+        }
+      }
+      
+      console.warn(`[ApiService] Endpoint embeds non disponible pour épisode ${episodeId}, fallback vers streaming`);
+      return [];
+      
+    } catch (error: any) {
+      console.log(`[ApiService] Fallback vers endpoint streaming pour épisode ${episodeId}`);
+      return [];
     }
   }
 
