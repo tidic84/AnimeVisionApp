@@ -60,10 +60,8 @@ function MainTabNavigator() {
   const { isApiAvailable, isOfflineMode } = useApi();
 
   // Déterminer la route initiale en fonction de la disponibilité de l'API
-  const getInitialRouteName = () => {
-    if (isOfflineMode || !isApiAvailable) {
-      return "Downloads";
-    }
+  const getInitialRouteName = (): keyof MainTabParamList => {
+    // Toujours démarrer sur Home - l'app gérera la redirection si l'API n'est pas disponible
     return "Home";
   };
 

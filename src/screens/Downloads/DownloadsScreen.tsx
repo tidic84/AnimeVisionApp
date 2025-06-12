@@ -78,7 +78,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#ffffff',
   },
   offlineContainer: {
     flex: 1,
@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
   },
   offlineMessage: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
+    color: '#666666',
     textAlign: 'center',
     marginBottom: 10,
   },
@@ -121,22 +121,24 @@ const styles = StyleSheet.create({
   },
   subtext: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.7)',
+    color: '#666666',
     textAlign: 'center',
     marginBottom: 30,
   },
   infoContainer: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#f5f5f5',
     padding: 20,
     borderRadius: 10,
     marginVertical: 20,
     width: '100%',
     maxWidth: 350,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   infoTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: 'white',
+    color: '#333333',
     marginBottom: 15,
     textAlign: 'center',
   },
@@ -147,7 +149,7 @@ const styles = StyleSheet.create({
   },
   featureText: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
+    color: '#555555',
     marginLeft: 10,
     flex: 1,
   },

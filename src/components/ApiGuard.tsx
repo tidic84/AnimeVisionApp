@@ -54,7 +54,7 @@ const ApiGuard: React.FC<ApiGuardProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#ffffff',
   },
   errorContainer: {
     flex: 1,
@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
   },
   message: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
+    color: '#666666',
     textAlign: 'center',
     marginBottom: 20,
   },

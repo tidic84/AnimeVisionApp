@@ -24,7 +24,7 @@ interface ApiProviderProps {
 }
 
 export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
-  const [isApiAvailable, setIsApiAvailable] = useState(false);
+  const [isApiAvailable, setIsApiAvailable] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
 
