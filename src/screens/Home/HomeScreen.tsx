@@ -10,10 +10,14 @@ import {
   RefreshControl,
   Alert,
   Animated,
+  Dimensions,
+  ImageBackground,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { Episode, Anime } from '../../types/anime';
 import hybridScrapingService from '../../services/hybridScrapingService';
 import databaseService from '../../services/databaseService';
@@ -68,6 +72,8 @@ const HomeScreen: React.FC = () => {
   );
 };
 
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
 const HomeScreenContent: React.FC = () => {
   const navigation = useNavigation();
   const colorScheme = useColorScheme();
@@ -79,6 +85,10 @@ const HomeScreenContent: React.FC = () => {
   const [loadingAnimes, setLoadingAnimes] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [currentCarouselIndex, setCurrentCarouselIndex] = useState(0);
+  
+  // Animations pour la pagination
+  const animatedValues = useRef(Array(5).fill(0).map(() => new Animated.Value(0))).current;
   
   // États d'erreur séparés pour chaque section
   const [episodesError, setEpisodesError] = useState<string | null>(null);
@@ -102,6 +112,17 @@ const HomeScreenContent: React.FC = () => {
       primary: '#818cf8',
     },
   }[colorScheme ?? 'light'];
+
+  // Animation pour la pagination
+  useEffect(() => {
+    animatedValues.forEach((value, index) => {
+      Animated.timing(value, {
+        toValue: index === currentCarouselIndex ? 1 : 0,
+        duration: 300,
+        useNativeDriver: false,
+      }).start();
+    });
+  }, [currentCarouselIndex]);
 
   // Chargement initial seulement
   useEffect(() => {
@@ -364,10 +385,83 @@ const HomeScreenContent: React.FC = () => {
     />
   );
 
+  const renderCarouselItem = ({ item: anime, index }: { item: Anime; index: number }) => (
+    <TouchableOpacity
+      style={styles.carouselItem}
+      onPress={() => navigateToAnimeDetail(anime.id)}
+      activeOpacity={1}
+    >
+      <ImageBackground
+        source={{ uri: anime.thumbnail }}
+        style={styles.carouselBackground}
+        resizeMode="cover"
+      >
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.6)', colorScheme === 'dark' ? 'rgba(15,23,42,1)' : 'rgba(255,255,255,1)']}
+          locations={[0, 0.7, 0.98]}
+          style={styles.carouselGradient}
+        >
+          <View style={styles.carouselContent}>
+            <View style={styles.carouselInfo}>
+              <Text style={styles.carouselTitle} numberOfLines={2}>
+                {anime.title}
+              </Text>
+              <Text style={styles.carouselDescription} numberOfLines={3}>
+                {anime.synopsis}
+              </Text>
+              <View style={styles.carouselMetadata}>
+                <View style={styles.carouselRating}>
+                  <Ionicons name="star" size={16} color="#fbbf24" />
+                  <Text style={styles.carouselRatingText}>
+                    {anime.rating.toFixed(1)}
+                  </Text>
+                </View>
+                <Text style={styles.carouselYear}>{anime.year}</Text>
+                <Text style={styles.carouselGenres}>
+                  {anime.genres.slice(0, 2).join(' • ')}
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity 
+              style={styles.playButton}
+              onPress={() => navigateToAnimeDetail(anime.id)}
+            >
+              <Ionicons name="play" size={24} color="#ffffff" />
+              <Text style={styles.playButtonText}>LECTURE</Text>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+      </ImageBackground>
+    </TouchableOpacity>
+  );
+
+  const renderCarouselSkeleton = () => (
+    <View style={styles.carouselItem}>
+      <View style={[styles.carouselBackground, { backgroundColor: colorScheme === 'dark' ? '#1e293b' : '#f1f5f9' }]}>
+        <View style={styles.carouselGradient}>
+          <View style={styles.carouselContent}>
+            <View style={styles.carouselInfo}>
+              <View style={[styles.skeletonText, { width: '80%', height: 24, marginBottom: 8 }]} />
+              <View style={[styles.skeletonText, { width: '100%', height: 16, marginBottom: 4 }]} />
+              <View style={[styles.skeletonText, { width: '90%', height: 16, marginBottom: 4 }]} />
+              <View style={[styles.skeletonText, { width: '70%', height: 16, marginBottom: 16 }]} />
+              <View style={[styles.skeletonText, { width: '60%', height: 14 }]} />
+            </View>
+            <View style={[styles.playButton, { backgroundColor: 'rgba(255,255,255,0.3)' }]}>
+              <View style={[styles.skeletonText, { width: 80, height: 20 }]} />
+            </View>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar style="light" translucent />
       <ScrollView
         style={styles.scrollView}
+        contentInsetAdjustmentBehavior="never"
         refreshControl={
           <RefreshControl 
             refreshing={isRefreshing} 
@@ -377,16 +471,62 @@ const HomeScreenContent: React.FC = () => {
           />
         }
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.welcomeText, { color: colors.text }]}>
-            Bonjour ! 👋
-          </Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Données en direct d'anime-sama.fr
-          </Text>
+        {/* Caroussel Principal */}
+        <View style={styles.carouselContainer}>
+          {loadingAnimes ? (
+            renderCarouselSkeleton()
+          ) : animesError ? (
+            <View style={styles.carouselItem}>
+              <View style={[styles.carouselBackground, { backgroundColor: colors.surface }]}>
+                <View style={styles.carouselGradient}>
+                  <ErrorMessage 
+                    message={animesError} 
+                    onRetry={retryLoadAnimes}
+                  />
+                </View>
+              </View>
+            </View>
+          ) : (
+            <FlatList
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              data={recommendedAnimes.slice(0, 5)}
+              renderItem={renderCarouselItem}
+              keyExtractor={item => item.id}
+              onMomentumScrollEnd={(event) => {
+                const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                setCurrentCarouselIndex(index);
+              }}
+            />
+          )}
           
-
+          {/* Indicateurs de pagination */}
+          {!loadingAnimes && !animesError && recommendedAnimes.length > 0 && (
+            <View style={styles.pagination}>
+              {recommendedAnimes.slice(0, 5).map((_, index) => (
+                <Animated.View
+                  key={index}
+                  style={[
+                    styles.paginationDot,
+                    {
+                      backgroundColor: colorScheme === 'dark' ? 
+                        (index === currentCarouselIndex ? '#ffffff' : 'rgba(255, 255, 255, 0.4)') :
+                        (index === currentCarouselIndex ? '#1e293b' : 'rgba(30, 41, 59, 0.4)'),
+                      transform: [
+                        {
+                          scaleX: animatedValues[index].interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1, 1.5],
+                          }),
+                        }
+                      ],
+                    }
+                  ]}
+                />
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Section Continuer à regarder */}
@@ -438,11 +578,11 @@ const HomeScreenContent: React.FC = () => {
           )}
         </View>
 
-        {/* Section Animés recommandés */}
+        {/* Section Notre sélection */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Animés populaires
+              Notre sélection pour vous
             </Text>
             {animesError && (
               <TouchableOpacity onPress={retryLoadAnimes} style={styles.retryIconButton}>
@@ -469,17 +609,22 @@ const HomeScreenContent: React.FC = () => {
             />
           )}
         </View>
+        
+        {/* Espacement pour la navbar */}
+        <View style={{ height: 90 }} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   scrollView: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   header: {
     paddingHorizontal: 16,
@@ -509,6 +654,121 @@ const styles = StyleSheet.create({
   infoButtonText: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  // Styles du caroussel
+  carouselContainer: {
+    position: 'relative',
+    marginBottom: 0,
+  },
+  carouselItem: {
+    width: screenWidth,
+    height: screenHeight * 0.85,
+  },
+  carouselBackground: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  carouselGradient: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 20,
+    paddingBottom: 120,
+  },
+  carouselContent: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  carouselInfo: {
+    marginBottom: 20,
+  },
+  carouselTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  carouselDescription: {
+    fontSize: 16,
+    color: '#ffffff',
+    lineHeight: 22,
+    marginBottom: 12,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  carouselMetadata: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  carouselRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  carouselRatingText: {
+    fontSize: 14,
+    color: '#ffffff',
+    marginLeft: 4,
+    fontWeight: '600',
+  },
+  carouselYear: {
+    fontSize: 14,
+    color: '#ffffff',
+    marginRight: 12,
+    fontWeight: '500',
+  },
+  carouselGenres: {
+    fontSize: 14,
+    color: '#ffffff',
+    fontWeight: '500',
+  },
+  playButton: {
+    backgroundColor: '#ff6b35',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  playButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  pagination: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paginationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginHorizontal: 4,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+  },
+  skeletonText: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 4,
   },
   section: {
     marginBottom: 24,

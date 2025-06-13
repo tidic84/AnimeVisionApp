@@ -21,10 +21,12 @@
     "expo-av": "~15.1.4",
     "expo-constants": "^17.1.6",
     "expo-file-system": "~18.1.10",
+    "expo-linear-gradient": "^14.1.5",
     "expo-notifications": "^0.31.2",
     "expo-screen-orientation": "^8.1.6",
     "expo-sqlite": "~15.2.10",
     "expo-status-bar": "~2.2.3",
+    "expo-system-ui": "~5.0.8",
     "expo-video": "~2.2.1",
     "react": "19.0.0",
     "react-native": "0.79.2",
@@ -36,8 +38,7 @@
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
     "react-native-vector-icons": "^10.2.0",
-    "react-native-webview": "^13.14.1",
-    "expo-system-ui": "~5.0.8"
+    "react-native-webview": "^13.14.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

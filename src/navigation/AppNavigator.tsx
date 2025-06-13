@@ -103,9 +103,10 @@ function MainTabNavigator() {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: 8,
+          height: 90,
+          paddingBottom: 32,
           paddingTop: 8,
+          position: 'absolute',
         },
         tabBarLabelStyle: {
           fontSize: 12,
@@ -133,7 +134,7 @@ function MainTabNavigator() {
           component={HomeScreen}
           options={{
             title: 'Accueil',
-            headerTitle: 'AnimeVision',
+            headerShown: false,
           }}
         />
       )}
