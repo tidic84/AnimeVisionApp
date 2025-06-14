@@ -436,6 +436,95 @@ class DatabaseService {
       AND updatedAt < datetime('now', '-7 days')
     `);
   }
+
+  // Méthodes supplémentaires pour les listes
+  async getAllLists(): Promise<AnimeList[]> {
+    return this.getAnimeLists();
+  }
+
+  async getAnimesInList(listId: string): Promise<Anime[]> {
+    if (!this.db) throw new Error('Base de données non initialisée');
+
+    const results = await this.db.getAllAsync(
+      `SELECT a.* FROM animes a
+       INNER JOIN listAnimes la ON a.id = la.animeId
+       WHERE la.listId = ?
+       ORDER BY la.addedAt DESC`,
+      [listId]
+    ) as any[];
+
+    return results.map(result => ({
+      ...result,
+      genres: JSON.parse(result.genres || '[]'),
+    }));
+  }
+
+  async createList(name: string): Promise<string> {
+    return this.createAnimeList(name);
+  }
+
+  async updateListName(listId: string, name: string): Promise<void> {
+    if (!this.db) throw new Error('Base de données non initialisée');
+
+    // Vérifier que ce n'est pas la liste par défaut
+    const list = await this.db.getFirstAsync(
+      'SELECT isDefault FROM animeLists WHERE id = ?',
+      [listId]
+    ) as any;
+
+    if (list?.isDefault) {
+      throw new Error('Impossible de modifier la liste par défaut');
+    }
+
+    await this.db.runAsync(
+      'UPDATE animeLists SET name = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
+      [name, listId]
+    );
+  }
+
+  async deleteList(listId: string): Promise<void> {
+    return this.deleteAnimeList(listId);
+  }
+
+  // Nettoyer les données d'animés avec des IDs invalides (probablement anciens)
+  async clearInvalidAnimes(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error('Database not initialized'));
+        return;
+      }
+      
+      (this.db as any).transaction(
+        (tx: any) => {
+          // Supprimer les animés avec des IDs inférieurs à 1000 (probablement anciens IDs locaux)
+          tx.executeSql(
+            'DELETE FROM animes WHERE CAST(id AS INTEGER) < 1000',
+            [],
+            (_: any, result: any) => {
+              console.log(`[Database] ${result.rowsAffected} animés avec IDs invalides supprimés`);
+              
+              // Supprimer aussi les épisodes orphelins
+              tx.executeSql(
+                'DELETE FROM episodes WHERE animeId NOT IN (SELECT id FROM animes)',
+                [],
+                (_: any, episodeResult: any) => {
+                  console.log(`[Database] ${episodeResult.rowsAffected} épisodes orphelins supprimés`);
+                }
+              );
+            }
+          );
+        },
+        (error: any) => {
+          console.error('Erreur lors du nettoyage des données invalides:', error);
+          reject(error);
+        },
+        () => {
+          console.log('Nettoyage des données invalides terminé');
+          resolve();
+        }
+      );
+    });
+  }
 }
 
 export default new DatabaseService(); 

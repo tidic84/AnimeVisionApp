@@ -34,6 +34,40 @@ interface ApiAnime {
   nombre_episodes_total?: number;
 }
 
+interface PaginatedAnimeResponse {
+  success: boolean;
+  data: ApiAnime[];
+  pagination: {
+    current_page: number;
+    total_pages: number;
+    total_items: number;
+    items_per_page: number;
+    has_next: boolean;
+    has_previous: boolean;
+  };
+}
+
+interface AnimeStatsResponse {
+  success: boolean;
+  stats: {
+    total_animes: number;
+    total_pages: number;
+    items_per_page: number;
+    animes_with_rating: number;
+    animes_current_year: number;
+    status_distribution: {
+      en_cours: number;
+      termine: number;
+      a_venir: number;
+    };
+  };
+  pagination_info: {
+    recommended_limit: number;
+    max_limit: number;
+    total_pages_with_default: number;
+  };
+}
+
 class ApiService {
   private baseUrl: string;
 
@@ -489,7 +523,159 @@ class ApiService {
   // Configuration dynamique de l'URL
   setBaseUrl(newBaseUrl: string): void {
     this.baseUrl = newBaseUrl;
-    console.log(`[ApiService] URL mise à jour: ${newBaseUrl}`);
+    console.log(`[ApiService] URL de base mise à jour: ${this.baseUrl}`);
+  }
+
+  // Méthode utilitaire pour rechercher des animes avec des filtres spécifiques
+  async searchAnimesByFilters(filters: {
+    query?: string;
+    genre?: string;
+    year?: number;
+    status?: 'en_cours' | 'termine' | 'a_venir';
+    sortBy?: 'titre' | 'note_kitsu' | 'annee_sortie' | 'date_ajout';
+    sortOrder?: 'asc' | 'desc';
+    page?: number;
+    limit?: number;
+  }): Promise<{ 
+    animes: Anime[], 
+    hasMore: boolean, 
+    totalPages?: number, 
+    totalItems?: number,
+    currentPage?: number
+  }> {
+    return this.getAnimeList(
+      filters.page || 1,
+      filters.limit || 20,
+      {
+        search: filters.query,
+        genre: filters.genre,
+        statut: filters.status,
+        annee: filters.year,
+        sort_by: filters.sortBy,
+        sort_order: filters.sortOrder
+      }
+    );
+  }
+
+  // Méthode pour récupérer une liste paginée d'animés avec filtres avancés
+  async getAnimeList(
+    page: number = 1, 
+    limit: number = 20,
+    options?: {
+      search?: string;
+      genre?: string;
+      statut?: string;
+      annee?: number;
+      sort_by?: 'titre' | 'note_kitsu' | 'annee_sortie' | 'date_ajout';
+      sort_order?: 'asc' | 'desc';
+    }
+  ): Promise<{ 
+    animes: Anime[], 
+    hasMore: boolean, 
+    totalPages?: number, 
+    totalItems?: number,
+    currentPage?: number
+  }> {
+    try {
+      // Construire les paramètres de la requête
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+      });
+
+      if (options?.search) params.append('search', options.search);
+      if (options?.genre) params.append('genre', options.genre);
+      if (options?.statut) params.append('statut', options.statut);
+      if (options?.annee) params.append('annee', options.annee.toString());
+      if (options?.sort_by) params.append('sort_by', options.sort_by);
+      if (options?.sort_order) params.append('sort_order', options.sort_order);
+
+      const response = await this.fetchWithErrorHandling<any>(`/api/v1/mobile/animes?${params.toString()}`);
+      
+      // Nouveau format avec pagination
+      if (response && response.success && Array.isArray(response.data)) {
+        console.log(`[ApiService] getAnimeList page ${page}: ${response.data.length} animés trouvés`);
+        return {
+          animes: response.data.map((anime: any) => this.mapApiAnimeToAnime(anime)),
+          hasMore: response.pagination?.has_next || false,
+          totalPages: response.pagination?.total_pages,
+          totalItems: response.pagination?.total_items,
+          currentPage: response.pagination?.current_page || page
+        };
+      }
+      
+      // Format ancien (fallback)
+      if (response && Array.isArray(response)) {
+        console.log(`[ApiService] getAnimeList format ancien - ${response.length} animés`);
+        return {
+          animes: response.map((anime: any) => this.mapApiAnimeToAnime(anime)),
+          hasMore: response.length === limit
+        };
+      }
+      
+      console.warn('[ApiService] Format de réponse inattendu pour anime list:', response);
+      throw new Error('Format de réponse invalide');
+      
+    } catch (error: any) {
+      console.error('[ApiService] Erreur récupération liste d\'animés:', error);
+      
+      // Fallback vers les animes populaires en cas d'erreur
+      console.log('[ApiService] Tentative de fallback vers popular animes');
+      try {
+        const fallbackResponse = await this.getPopularAnimes();
+        const startIndex = (page - 1) * limit;
+        const endIndex = page * limit;
+        return {
+          animes: fallbackResponse.slice(startIndex, endIndex),
+          hasMore: fallbackResponse.length > endIndex
+        };
+      } catch (fallbackError) {
+        console.error('[ApiService] Erreur fallback popular animes:', fallbackError);
+        throw error;
+      }
+    }
+  }
+
+  // Méthode pour récupérer les statistiques des animes
+  async getAnimeStats(): Promise<{
+    total_animes: number;
+    total_pages: number;
+    items_per_page: number;
+    animes_with_rating: number;
+    animes_current_year: number;
+    status_distribution: {
+      en_cours: number;
+      termine: number;
+      a_venir: number;
+    };
+    pagination_info: {
+      recommended_limit: number;
+      max_limit: number;
+      total_pages_with_default: number;
+    };
+  } | null> {
+    try {
+      const response = await this.fetchWithErrorHandling<any>('/api/v1/mobile/animes/stats');
+      
+      if (response && response.success && response.stats) {
+        console.log('[ApiService] Statistiques animés récupérées:', response.stats);
+        return {
+          ...response.stats,
+          pagination_info: response.pagination_info || {
+            recommended_limit: 20,
+            max_limit: 100,
+            total_pages_with_default: Math.ceil(response.stats.total_animes / 20)
+          }
+        };
+      }
+      
+      console.warn('[ApiService] Format de réponse inattendu pour anime stats:', response);
+      return null;
+      
+    } catch (error: any) {
+      console.error('[ApiService] Erreur récupération statistiques animés:', error);
+      return null;
+    }
   }
 }
 

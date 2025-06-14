@@ -75,18 +75,45 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
       let animeDetails = null;
       let animeEpisodes: Episode[] = [];
 
+      // 1. Essayer d'abord de charger via l'API directe avec gestion d'erreur
       try {
-        // Essayer d'abord de charger les épisodes (cela fonctionne)
+        animeDetails = await apiService.getAnimeDetails(animeId);
+        console.log('[AnimeDetail] Détails anime chargés via API:', animeDetails.title);
+      } catch (apiError: any) {
+        console.warn('[AnimeDetail] API détails non disponible pour ID', animeId, ':', apiError.message);
+        
+        // Si l'anime n'existe pas (404, "not found", etc.), on essaie une approche différente
+        if (apiError.message.includes('not found') || apiError.message.includes('404')) {
+          console.log('[AnimeDetail] ID invalide détecté, tentative de récupération via liste d\'animés...');
+          
+          // Essayer de trouver l'anime dans la liste des animés populaires/récents
+          try {
+            const animeList = await apiService.getAnimeList(1, 50); // Récupérer plus d'animés
+            const foundAnime = animeList.animes.find(anime => anime.id === animeId);
+            
+            if (foundAnime) {
+              animeDetails = foundAnime;
+              console.log('[AnimeDetail] Anime trouvé dans la liste:', foundAnime.title);
+            }
+          } catch (listError) {
+            console.warn('[AnimeDetail] Impossible de récupérer la liste d\'animés:', listError);
+          }
+        }
+      }
+
+      // 2. Essayer de charger les épisodes (pour récupérer des infos supplémentaires)
+      try {
         animeEpisodes = await apiService.getAnimeEpisodes(animeId);
         console.log(`[AnimeDetail] ${animeEpisodes.length} épisodes chargés`);
 
-        // Si on a des épisodes, on peut créer les détails basiques de l'anime
-        if (animeEpisodes.length > 0 && animeEpisodes[0].animeTitle) {
+        // Si on n'a pas les détails de l'anime mais qu'on a des épisodes, 
+        // créer les détails basiques depuis les épisodes
+        if (!animeDetails && animeEpisodes.length > 0 && animeEpisodes[0].animeTitle) {
           animeDetails = {
             id: animeId,
             title: animeEpisodes[0].animeTitle,
             originalTitle: animeEpisodes[0].animeTitle,
-            synopsis: 'Synopsis non disponible via l\'API',
+            synopsis: 'Synopsis disponible après consultation des épisodes.',
             genres: [],
             studio: 'Studio inconnu',
             year: new Date().getFullYear(),
@@ -103,39 +130,53 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
         console.warn('[AnimeDetail] Erreur lors du chargement des épisodes:', episodeError);
       }
 
-      // Si on n'a pas réussi à avoir les détails via les épisodes, essayer l'API directe
+      // 3. Si on n'a toujours rien, créer un fallback avec l'ID fourni
       if (!animeDetails) {
-        try {
-          animeDetails = await apiService.getAnimeDetails(animeId);
-          console.log('[AnimeDetail] Détails anime chargés via API:', animeDetails.title);
-        } catch (apiError) {
-          console.warn('[AnimeDetail] API détails non disponible:', apiError);
-          
-          // Fallback final : créer un anime basique
-          animeDetails = {
-            id: animeId,
-            title: `Anime ${animeId}`,
-            originalTitle: `Anime ${animeId}`,
-            synopsis: 'Les détails de cet anime ne sont pas disponibles pour le moment.',
-            genres: [],
-            studio: 'Studio inconnu',
-            year: new Date().getFullYear(),
-            rating: 0,
-            status: 'ONGOING' as any,
-            thumbnail: '',
-            banner: '',
-            episodeCount: animeEpisodes.length,
-            duration: 24
-          };
-          console.log('[AnimeDetail] Utilisation des détails fallback');
+        // Vérifier si l'ID semble invalide (trop petit, probablement ancien)
+        const numericId = parseInt(animeId);
+        if (numericId < 1000) {
+          console.warn('[AnimeDetail] ID suspect détecté (< 1000), probablement un ancien ID local');
+          Alert.alert(
+            'Anime introuvable', 
+            'Cet anime n\'est plus disponible. Il s\'agit probablement d\'anciennes données. Veuillez actualiser la liste des animés.',
+            [
+              { text: 'Retour', onPress: () => navigation.goBack() },
+              { 
+                text: 'Voir le catalogue', 
+                onPress: () => {
+                  navigation.goBack();
+                  (navigation as any).navigate('Catalog');
+                }
+              }
+            ]
+          );
+          return;
         }
+
+        // Sinon, créer un anime basique
+        animeDetails = {
+          id: animeId,
+          title: `Anime ${animeId}`,
+          originalTitle: `Anime ${animeId}`,
+          synopsis: 'Les détails de cet anime ne sont pas disponibles pour le moment. Il s\'agit peut-être d\'un nouvel anime ou les données sont en cours de mise à jour.',
+          genres: [],
+          studio: 'Studio inconnu',
+          year: new Date().getFullYear(),
+          rating: 0,
+          status: 'ONGOING' as any,
+          thumbnail: '',
+          banner: '',
+          episodeCount: animeEpisodes.length,
+          duration: 24
+        };
+        console.log('[AnimeDetail] Utilisation des détails fallback pour ID:', animeId);
       }
 
       setAnime(animeDetails);
       setEpisodes(animeEpisodes);
 
-      // Sauvegarder en base locale
-      if (animeDetails) {
+      // Sauvegarder en base locale si on a des données valides
+      if (animeDetails && animeDetails.title !== `Anime ${animeId}`) {
         await databaseService.saveAnime(animeDetails);
       }
       
@@ -146,9 +187,12 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
     } catch (error) {
       console.error('Erreur lors du chargement des détails:', error);
       Alert.alert(
-        'Erreur', 
-        'Impossible de charger les détails de l\'animé. L\'API semble avoir un problème.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
+        'Erreur de chargement', 
+        'Impossible de charger les détails de cet anime. Vérifiez votre connexion internet.',
+        [
+          { text: 'Retour', onPress: () => navigation.goBack() },
+          { text: 'Réessayer', onPress: () => loadAnimeDetails() }
+        ]
       );
     } finally {
       setLoading(false);
@@ -262,36 +306,178 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
       <ScrollView style={styles.scrollView}>
-        {/* Header Skeleton */}
+        {/* Header Banner Skeleton */}
         <View style={styles.header}>
-          <SkeletonCard type="anime" size="large" />
-        </View>
-
-        {/* Info Section Skeleton */}
-        <View style={styles.infoSection}>
-          <View style={[styles.skeletonText, { height: 20, width: '60%', marginBottom: 10 }]} />
-          <View style={[styles.skeletonText, { height: 16, width: '40%', marginBottom: 15 }]} />
-          <View style={styles.genreRow}>
-            {Array(3).fill(null).map((_, index) => (
-              <View key={index} style={[styles.skeletonText, { height: 25, width: 80, marginRight: 8, borderRadius: 12 }]} />
-            ))}
+          <View style={[styles.bannerSkeleton, { 
+            backgroundColor: colorScheme === 'dark' ? '#1e293b' : '#f1f5f9' 
+          }]}>
+            {/* Back button skeleton */}
+            <View style={[styles.backButtonSkeleton, {
+              backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+            }]} />
+            
+            {/* Watchlist button skeleton */}
+            <View style={[styles.watchlistButtonSkeleton, {
+              backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+            }]} />
           </View>
         </View>
 
-        {/* Synopsis Skeleton */}
-        <View style={styles.synopsisSection}>
-          <View style={[styles.skeletonText, { height: 20, width: '30%', marginBottom: 10 }]} />
-          {Array(4).fill(null).map((_, index) => (
-            <View key={index} style={[styles.skeletonText, { height: 16, width: `${90 - index * 10}%`, marginBottom: 8 }]} />
-          ))}
-        </View>
+        {/* Main Info Section Skeleton */}
+        <View style={styles.mainInfoSkeleton}>
+          {/* Poster + Info Section */}
+          <View style={styles.posterSectionSkeleton}>
+            {/* Poster Skeleton */}
+            <View style={[styles.posterSkeleton, {
+              backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+            }]}>
+              <View style={[styles.posterIconSkeleton, {
+                backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'
+              }]} />
+            </View>
+            
+            {/* Info Section */}
+            <View style={styles.infoSectionSkeleton}>
+              {/* Title */}
+              <View style={[styles.skeletonLine, { 
+                width: '85%', 
+                height: 28, 
+                marginBottom: 12,
+                backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'
+              }]} />
+              
+              {/* Metadata items */}
+              <View style={styles.metadataSkeleton}>
+                <View style={[styles.skeletonLine, { 
+                  width: 70, 
+                  height: 18, 
+                  marginBottom: 6,
+                  backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'
+                }]} />
+                <View style={[styles.skeletonLine, { 
+                  width: 60, 
+                  height: 18, 
+                  marginBottom: 6,
+                  backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'
+                }]} />
+                <View style={[styles.skeletonLine, { 
+                  width: 90, 
+                  height: 18, 
+                  marginBottom: 12,
+                  backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'
+                }]} />
+              </View>
+              
+              {/* Studio */}
+              <View style={[styles.skeletonLine, { 
+                width: 120, 
+                height: 16,
+                backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)'
+              }]} />
+            </View>
+          </View>
 
-        {/* Episodes Skeleton */}
-        <View style={styles.episodesSection}>
-          <View style={[styles.skeletonText, { height: 20, width: '25%', marginBottom: 15 }]} />
-          {Array(6).fill(null).map((_, index) => (
-            <SkeletonCard key={index} type="episode" size="medium" />
-          ))}
+          {/* Genres Section Skeleton */}
+          <View style={styles.genresSectionSkeleton}>
+            <View style={[styles.skeletonLine, { 
+              width: 80, 
+              height: 22, 
+              marginBottom: 12,
+              backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'
+            }]} />
+            <View style={styles.genresRowSkeleton}>
+              {Array(4).fill(null).map((_, index) => (
+                <View key={index} style={[styles.genreTagSkeleton, {
+                  backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'
+                }]} />
+              ))}
+            </View>
+          </View>
+
+          {/* Synopsis Section Skeleton */}
+          <View style={styles.synopsisSectionSkeleton}>
+            <View style={[styles.skeletonLine, { 
+              width: 100, 
+              height: 22, 
+              marginBottom: 12,
+              backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'
+            }]} />
+            {Array(5).fill(null).map((_, index) => (
+              <View key={index} style={[styles.skeletonLine, { 
+                width: `${95 - index * 8}%`, 
+                height: 18, 
+                marginBottom: 8,
+                backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)'
+              }]} />
+            ))}
+          </View>
+
+          {/* Action Buttons Skeleton */}
+          <View style={styles.actionsSectionSkeleton}>
+            <View style={[styles.actionButtonSkeleton, {
+              backgroundColor: colorScheme === 'dark' ? 'rgba(99, 102, 241, 0.3)' : 'rgba(99, 102, 241, 0.2)'
+            }]} />
+            <View style={[styles.actionButtonSkeleton, {
+              backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+              marginLeft: 16
+            }]} />
+          </View>
+
+          {/* Episodes Section Skeleton */}
+          <View style={styles.episodesSectionSkeleton}>
+            <View style={[styles.skeletonLine, { 
+              width: 140, 
+              height: 22, 
+              marginBottom: 15,
+              backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'
+            }]} />
+            {Array(6).fill(null).map((_, index) => (
+              <View key={index} style={[styles.episodeItemSkeleton, {
+                backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                borderColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+              }]}>
+                {/* Episode thumbnail */}
+                <View style={[styles.episodeThumbnailSkeleton, {
+                  backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+                }]}>
+                  <View style={[styles.episodePlayIconSkeleton, {
+                    backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'
+                  }]} />
+                </View>
+                
+                {/* Episode info */}
+                <View style={styles.episodeInfoSkeleton}>
+                  <View style={[styles.skeletonLine, { 
+                    width: '80%', 
+                    height: 18, 
+                    marginBottom: 6,
+                    backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'
+                  }]} />
+                  <View style={[styles.skeletonLine, { 
+                    width: '60%', 
+                    height: 16, 
+                    marginBottom: 4,
+                    backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)'
+                  }]} />
+                  <View style={[styles.skeletonLine, { 
+                    width: '40%', 
+                    height: 14,
+                    backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'
+                  }]} />
+                </View>
+                
+                {/* Episode status */}
+                <View style={styles.episodeStatusSkeleton}>
+                  <View style={[styles.skeletonLine, { 
+                    width: 24, 
+                    height: 24, 
+                    borderRadius: 12,
+                    backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
+                  }]} />
+                </View>
+              </View>
+            ))}
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -302,9 +488,7 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar backgroundColor={colors.background} barStyle={colorScheme === 'dark' ? 'light-content' : 'dark-content'} />
-      
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
       <ScrollView style={styles.scrollView}>
         {/* Header avec image de bannière */}
         <View style={styles.header}>
@@ -650,9 +834,123 @@ const styles = StyleSheet.create({
     backgroundColor: '#e2e8f0',
     borderRadius: 4,
   },
+  skeletonLine: {
+    borderRadius: 6,
+    opacity: 0.7,
+  },
   genreRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+  },
+  // Nouveaux styles pour le skeleton moderne
+  bannerSkeleton: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    borderRadius: 0,
+  },
+  backButtonSkeleton: {
+    position: 'absolute',
+    top: 40,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  watchlistButtonSkeleton: {
+    position: 'absolute',
+    top: 40,
+    right: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  mainInfoSkeleton: {
+    padding: 16,
+    marginTop: -50,
+  },
+  posterSectionSkeleton: {
+    flexDirection: 'row',
+    marginBottom: 24,
+  },
+  posterSkeleton: {
+    width: 120,
+    height: 180,
+    borderRadius: 12,
+    marginRight: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  posterIconSkeleton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  infoSectionSkeleton: {
+    flex: 1,
+    paddingTop: 40,
+  },
+  metadataSkeleton: {
+    marginBottom: 12,
+  },
+  genresSectionSkeleton: {
+    marginBottom: 24,
+  },
+  genresRowSkeleton: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  genreTagSkeleton: {
+    width: 70,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  synopsisSectionSkeleton: {
+    marginBottom: 24,
+  },
+  actionsSectionSkeleton: {
+    flexDirection: 'row',
+    marginBottom: 32,
+  },
+  actionButtonSkeleton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 8,
+    marginRight: 8,
+  },
+  episodesSectionSkeleton: {
+    marginBottom: 24,
+  },
+  episodeItemSkeleton: {
+    flexDirection: 'row',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  episodeThumbnailSkeleton: {
+    width: 80,
+    height: 60,
+    borderRadius: 8,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  episodePlayIconSkeleton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
+  episodeInfoSkeleton: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  episodeStatusSkeleton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 40,
   },
 });
 
