@@ -6,7 +6,13 @@ export type RootStackParamList = {
   MainTabs: undefined;
   Home: undefined;
   AnimeDetail: { animeId: string };
-  VideoPlayer: { episodeId: string; animeId: string; autoPlay?: boolean };
+  VideoPlayer: { 
+    episodeId: string; 
+    animeId: string; 
+    autoPlay?: boolean;
+    localFilePath?: string; // Chemin du fichier téléchargé localement
+    isOfflineMode?: boolean; // Indique si c'est un fichier local (hors ligne)
+  };
   Search: { query?: string };
 };
 

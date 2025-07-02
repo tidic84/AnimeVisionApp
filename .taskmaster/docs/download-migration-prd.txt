@@ -1,0 +1,55 @@
+# PRD: Migration du Système de Téléchargement HLS
+
+## Problème Actuel
+- Le système de téléchargement actuel avec Expo FileSystem crash pour les fichiers > 50MB
+- Les épisodes d'anime (25min, 720p) font généralement 100-300MB
+- Erreurs "bad base-64" lors de l'assemblage des segments HLS
+- Performance limitée par l'assemblage en mémoire JavaScript
+
+## Objectifs
+- Téléchargement fiable pour des fichiers jusqu'à 500MB
+- Performance rapide avec téléchargement parallèle
+- Assemblage binaire natif (pas de conversion base64)
+- Compatibilité avec l'architecture actuelle de l'app
+
+## Solution Technique
+Migration vers react-native-fs avec EAS Build pour :
+- Téléchargement parallèle des segments HLS (8 simultanés)
+- Assemblage binaire direct sans passer par JavaScript
+- Écriture native en C++/Java pour éviter les limites mémoire
+- Gestion robuste des erreurs et retry
+
+## Architecture Cible
+1. **Configuration EAS Build**
+   - Mise à jour de app.json/app.config.js
+   - Configuration des plugins natifs
+   - Build profile pour development et production
+
+2. **Installation react-native-fs**
+   - Package react-native-fs pour manipulation fichiers native
+   - Configuration automatique via EAS Build
+   - Migration des méthodes FileSystem existantes
+
+3. **Refactoring du DownloadService**
+   - Nouvelle méthode downloadSegmentsNative()
+   - Assemblage binaire avec RNFS.appendFile()
+   - Gestion parallèle optimisée
+   - Progress tracking amélioré
+
+4. **Tests et Validation**
+   - Test avec différentes tailles d'épisodes
+   - Validation de l'intégrité des fichiers téléchargés
+   - Test de performance vs ancien système
+
+## Contraintes
+- Maintenir la compatibilité avec l'UI existante
+- Conserver la même API pour les écrans
+- Garder la structure des DownloadItem
+- Support Android et iOS
+
+## Critères de Succès
+- Téléchargement fiable d'épisodes 200-300MB
+- Temps de téléchargement < 2 minutes pour 200MB
+- Aucun crash mémoire
+- Progress bar qui fonctionne correctement
+- Fichiers vidéo lisibles après téléchargement 

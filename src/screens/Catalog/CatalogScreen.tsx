@@ -16,6 +16,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MainTabScreenProps } from '../../types/navigation';
 import { Anime, AnimeStatus } from '../../types/anime';
 import apiService from '../../services/apiService';
@@ -271,52 +272,55 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
       onPress={() => navigateToAnimeDetail(item)}
       activeOpacity={0.7}
     >
-      <View style={styles.animeThumbnail}>
-        {item.thumbnail ? (
-          <Image
-            source={{ uri: item.thumbnail }}
-            style={styles.animePoster}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={[styles.animePlaceholder, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.animeInitial, { color: colors.textSecondary }]}>
-              {item.title[0]}
-            </Text>
-          </View>
-        )}
-      </View>
+      {item.thumbnail ? (
+        <Image
+          source={{ uri: item.thumbnail }}
+          style={styles.animePoster}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={[styles.animePlaceholder, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.animeInitial, { color: colors.textSecondary }]}>
+            {item.title[0]}
+          </Text>
+        </View>
+      )}
       
-      <View style={styles.animeInfo}>
-        <Text style={[styles.animeTitle, { color: colors.text }]} numberOfLines={2}>
-          {item.title}
-        </Text>
-        
-        <View style={styles.animeMetadata}>
-          <Text style={[styles.animeYear, { color: colors.textSecondary }]}>
-            {item.year}
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.8)']}
+        style={styles.animeOverlay}
+      >
+        <View style={styles.animeInfo}>
+          <Text style={[styles.animeTitle, { color: '#ffffff' }]} numberOfLines={2}>
+            {item.title}
           </Text>
-          <View style={styles.ratingContainer}>
-            <Ionicons name="star" size={14} color="#fbbf24" />
-            <Text style={[styles.animeRating, { color: colors.textSecondary }]}>
-              {item.rating.toFixed(1)}
+          
+          <View style={styles.animeMetadata}>
+            <Text style={[styles.animeYear, { color: '#ffffff' }]}>
+              {item.year}
+            </Text>
+            <View style={styles.ratingContainer}>
+              <Ionicons name="star" size={14} color="#fbbf24" />
+              <Text style={[styles.animeRating, { color: '#ffffff' }]}>
+                {item.rating.toFixed(1)}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={[styles.animeGenres, { color: '#ffffff' }]} numberOfLines={1}>
+            {item.genres.slice(0, 3).join(', ')}
+          </Text>
+
+          <View style={[
+            styles.statusBadge,
+            { backgroundColor: getStatusColor(item.status) + '90' }
+          ]}>
+            <Text style={[styles.statusText, { color: '#ffffff' }]}>
+              {getStatusText(item.status)}
             </Text>
           </View>
         </View>
-
-        <Text style={[styles.animeGenres, { color: colors.textSecondary }]} numberOfLines={1}>
-          {item.genres.slice(0, 3).join(', ')}
-        </Text>
-
-        <View style={[
-          styles.statusBadge,
-          { backgroundColor: getStatusColor(item.status) + '20' }
-        ]}>
-          <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-            {getStatusText(item.status)}
-          </Text>
-        </View>
-      </View>
+      </LinearGradient>
     </TouchableOpacity>
   );
 
@@ -698,8 +702,8 @@ const styles = StyleSheet.create({
   },
   animeCard: {
     width: (screenWidth - 60) / 2,
+    height: 280,
     borderRadius: 12,
-    padding: 12,
     marginBottom: 16,
     borderWidth: 1,
     shadowColor: '#000',
@@ -707,28 +711,35 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
-  },
-  animeThumbnail: {
-    width: '100%',
-    height: 120,
-    borderRadius: 8,
-    marginBottom: 8,
     overflow: 'hidden',
+    position: 'relative',
   },
   animePoster: {
     width: '100%',
     height: '100%',
+    position: 'absolute',
+    top: 0,
+    left: 0,
   },
   animePlaceholder: {
     width: '100%',
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 8,
+    position: 'absolute',
+    top: 0,
+    left: 0,
   },
   animeInitial: {
     fontSize: 32,
     fontWeight: 'bold',
+  },
+  animeOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 12,
   },
   animeInfo: {
     flex: 1,

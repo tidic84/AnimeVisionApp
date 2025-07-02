@@ -17,7 +17,7 @@ interface ExtractionResult {
 }
 
 // Extracteur HLS côté client pour contourner les restrictions IP
-class VideoUrlExtractor {
+export class VideoUrlExtractor {
   private readonly PROXY_SERVICES = [
     'https://api.codetabs.com/v1/proxy?quest=',
     'https://cors-anywhere.herokuapp.com/',
@@ -145,173 +145,70 @@ class VideoUrlExtractor {
    */
   private async getEmbedUrlsFromAPI(episodeId: string): Promise<string[]> {
     try {
-      const baseUrl = API_ADDRESS || 'http://localhost:8000';
+      const baseUrl = API_ADDRESS || 'https://formally-liberal-drum.ngrok-free.app';
       
-      // Essayer l'endpoint pour récupérer les embeds (nouveau format)
-      const response = await fetch(`${baseUrl}/api/v1/mobile/episode/${episodeId}/streaming/embeds`, {
+      // Utiliser la nouvelle API pour récupérer l'épisode avec ses streaming_servers
+      const response = await fetch(`${baseUrl}/api/episode/${episodeId}`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
       });
 
       if (!response.ok) {
-        // Fallback: utiliser l'endpoint normal et extraire les embeds
-        return await this.getEmbedUrlsFromStreamingEndpoint(episodeId);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
       
-      if (data.success && Array.isArray(data.servers)) {
-        // Nouveau format : servers avec embed_url
-        const embedUrls = data.servers
-          .filter((server: any) => server.embed_url)
+      if (data.data && Array.isArray(data.data.streaming_servers)) {
+        // Nouveau format de l'API : streaming_servers avec URL
+        const embedUrls = data.data.streaming_servers
+          .filter((server: any) => server.url)
           .sort((a: any, b: any) => {
-            // Priorité : vidmoly > sendvid > autres
-            if (a.server_type === 'vidmoly') return -1;
-            if (b.server_type === 'vidmoly') return 1;
-            if (a.server_type === 'sendvid') return -1;
-            if (b.server_type === 'sendvid') return 1;
+            // Priorité : HD > SD, serveur 2 > serveur 1 > sibnet
+            const priorityA = a.quality === 'HD' ? 2 : (a.quality === 'SD' ? 1 : 0);
+            const priorityB = b.quality === 'HD' ? 2 : (b.quality === 'SD' ? 1 : 0);
+            
+            if (priorityA !== priorityB) return priorityB - priorityA;
+            
+            // Priorité par nom de serveur
+            if (a.name.includes('Serveur 2')) return -1;
+            if (b.name.includes('Serveur 2')) return 1;
+            if (a.name.includes('Serveur 1')) return -1;
+            if (b.name.includes('Serveur 1')) return 1;
             return 0;
           })
-          .map((server: any) => server.embed_url);
+          .map((server: any) => server.url);
         
-        console.log(`[HLS Extractor] 📊 ${data.servers.length} serveurs trouvés, ${embedUrls.length} embeds extraits`);
-        console.log('[HLS Extractor] 🎯 Serveurs:', data.servers.map((s: any) => `${s.name} (${s.server_type})`));
+        console.log(`[HLS Extractor] 📊 ${data.data.streaming_servers.length} serveurs trouvés, ${embedUrls.length} embeds extraits`);
+        console.log('[HLS Extractor] 🎯 Serveurs:', data.data.streaming_servers.map((s: any) => `${s.name} (${s.quality})`));
         return embedUrls;
       }
 
       return [];
-    } catch (error) {
-      console.log('[HLS Extractor] ⚠️ Endpoint embeds indisponible, fallback');
-      return await this.getEmbedUrlsFromStreamingEndpoint(episodeId);
+    } catch (error: any) {
+      console.error('[HLS Extractor] ❌ Erreur récupération embeds:', error.message);
+      return [];
     }
   }
 
-     /**
-    * Fallback : récupérer embeds depuis l'endpoint streaming normal
-    */
-   private async getEmbedUrlsFromStreamingEndpoint(episodeId: string): Promise<string[]> {
-     const baseUrl = API_ADDRESS || 'http://localhost:8000';
-     
-     const response = await fetch(`${baseUrl}/api/v1/mobile/episode/${episodeId}/streaming`, {
-       method: 'GET',
-       headers: {
-         'Accept': 'application/json',
-         'Content-Type': 'application/json',
-       },
-     });
 
-     if (!response.ok) {
-       throw new Error(`Erreur API: ${response.status}`);
-     }
-
-     const data = await response.json();
-     
-     // Chercher les URLs embed dans la réponse selon votre format API
-     const embedUrls: string[] = [];
-     
-     if (data.success) {
-       // Nouveau format : base_servers avec embed_url
-       if (Array.isArray(data.base_servers)) {
-         embedUrls.push(...data.base_servers
-           .filter((server: any) => server.embed_url && 
-             (server.embed_url.includes('embed') || 
-              server.embed_url.includes('vidmoly') || 
-              server.embed_url.includes('sibnet') ||
-              server.embed_url.includes('sendvid')))
-           .map((server: any) => server.embed_url)
-         );
-       }
-       
-       // Format actuel : streaming_servers avec url
-       if (data.data && Array.isArray(data.data.streaming_servers)) {
-         console.log(`[HLS Extractor] 📊 ${data.data.streaming_servers.length} serveurs trouvés dans streaming_servers`);
-         embedUrls.push(...data.data.streaming_servers
-           .filter((server: any) => server.url && server.type === 'embed')
-           .map((server: any) => server.url)
-         );
-       }
-       
-       // Fallback : hls_url direct
-       if (data.data && data.data.hls_url) {
-         console.log(`[HLS Extractor] 📺 hls_url trouvé: ${data.data.hls_url}`);
-         embedUrls.push(data.data.hls_url);
-       }
-       
-       // Ancien format pour compatibilité
-       if (Array.isArray(data.embed_urls)) {
-         embedUrls.push(...data.embed_urls);
-       }
-       
-       if (data.data && Array.isArray(data.data.embed_urls)) {
-         embedUrls.push(...data.data.embed_urls);
-       }
-     }
-
-     console.log(`[HLS Extractor] ✅ ${embedUrls.length} URLs embed extraites:`, embedUrls);
-     return embedUrls;
-   }
 
   /**
    * Fallback vers l'extraction backend si le client échoue
    */
   private async fallbackToBackendExtraction(episodeId: string, startTime: number): Promise<ExtractionResult> {
-    const baseUrl = API_ADDRESS || 'http://localhost:8000';
+    console.log(`[HLS Extractor] ❌ Pas de fallback backend disponible pour la nouvelle API`);
     
-    try {
-      console.log(`[HLS Extractor] 🔄 Tentative extraction backend pour épisode ${episodeId}`);
-      
-      // Créer un timeout manuel compatible React Native
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-      const response = await fetch(`${baseUrl}/api/v1/mobile/episode/${episodeId}/streaming/fresh`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`API backend error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (data.success && data.fresh_hls_urls && data.fresh_hls_urls.length > 0) {
-        console.log(`[HLS Extractor] ✅ Backend extraction réussie: ${data.fresh_hls_urls.length} URLs`);
-        
-        return {
-          success: true,
-          urls: data.fresh_hls_urls.map((item: any) => ({
-            url: item.url,
-            quality: item.quality || 'auto',
-            type: 'hls' as const,
-            extractedAt: item.extracted_at || Date.now(),
-            source: 'server' as const
-          })),
-          extractionTime: Date.now() - startTime
-        };
-      } else {
-        throw new Error('Backend API returned no valid HLS URLs');
-      }
-
-    } catch (error: any) {
-      console.log(`[HLS Extractor] ❌ Backend extraction échouée:`, error.message);
-      
-      return {
-        success: false,
-        urls: [],
-        error: `Échec extraction client et backend: ${error.message}`,
-        extractionTime: Date.now() - startTime
-      };
-    }
+    return {
+      success: false,
+      urls: [],
+      error: 'Aucun fallback backend disponible pour cette API',
+      extractionTime: Date.now() - startTime
+    };
   }
 
   /**
@@ -359,22 +256,15 @@ class VideoUrlExtractor {
     try {
       console.log(`[HLS Extractor] 🌐 Début extraction pour: ${this.getHostFromUrl(url)}`);
       
-      // Headers simplifiés SANS compression pour éviter le HTML corrompu
-      const headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'Referer': this.getRefererForUrl(url),
-        'DNT': '1'
-      };
+      // Headers adaptés selon l'hébergeur
+      const hostname = this.getHostFromUrl(url);
+      const headers = this.getHeadersForHost(hostname);
 
       // Créer un timeout manuel compatible React Native
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // Plus de temps pour les serveurs lents
 
-      console.log(`[HLS Extractor] 📤 Envoi requête HTTP...`);
+      console.log(`[HLS Extractor] 📤 Envoi requête HTTP vers ${hostname}...`);
       
       const response = await fetch(url, {
         method: 'GET',
@@ -391,9 +281,9 @@ class VideoUrlExtractor {
       }
 
       const html = await response.text();
-      console.log(`[HLS Extractor] 📄 HTML récupéré: ${html.length} caractères pour ${this.getHostFromUrl(url)}`);
+      console.log(`[HLS Extractor] 📄 HTML récupéré: ${html.length} caractères pour ${hostname}`);
       
-      // Vérifier si le HTML est valide (commence par < ou contient des balises HTML)
+      // Vérifier si le HTML est valide
       const isValidHtml = html.trim().startsWith('<') || html.includes('<html') || html.includes('<script') || html.includes('<div');
       
       if (!isValidHtml) {
@@ -403,44 +293,45 @@ class VideoUrlExtractor {
         throw new Error('HTML corrompu ou compressé');
       }
       
-      // Log un échantillon propre du HTML
-      if (html.length > 0) {
-        const sample = html.substring(0, 300);
-        console.log(`[HLS Extractor] 📋 Début HTML:`, sample);
-        
-        // Chercher les parties intéressantes dans le HTML
-        const interestingParts = this.extractInterestingSections(html);
-        if (interestingParts.length > 0) {
-          console.log(`[HLS Extractor] 🔍 Sections intéressantes trouvées:`, interestingParts);
-        } else {
-          console.log(`[HLS Extractor] ⚠️ Aucune section intéressante trouvée dans le HTML`);
-        }
-      }
-
       // Essayer d'abord l'extraction spécifique à l'hébergeur
-      console.log(`[HLS Extractor] 🎯 Tentative extraction spécifique...`);
+      console.log(`[HLS Extractor] 🎯 Tentative extraction spécifique pour ${hostname}...`);
       const specificResult = this.extractWithSpecificStrategy(url, html);
       if (specificResult.length > 0) {
-        console.log(`[HLS Extractor] 🎯 ${specificResult.length} URLs trouvées avec stratégie spécifique:`, specificResult);
+        console.log(`[HLS Extractor] ✅ ${specificResult.length} URLs trouvées avec stratégie spécifique:`, specificResult);
         return {
           success: true,
           urls: specificResult.map(url => ({
             url,
             quality: 'auto',
-            type: 'hls' as const,
+            type: this.getVideoType(url),
             extractedAt: Date.now(),
             source: 'client' as const
           }))
         };
-      } else {
-        console.log(`[HLS Extractor] ❌ Stratégie spécifique n'a rien trouvé`);
+      }
+
+      // Patterns améliorés pour serveurs de streaming populaires
+      console.log(`[HLS Extractor] 🔄 Tentative extraction avancée...`);
+      const advancedResult = this.extractWithAdvancedPatterns(html);
+      if (advancedResult.length > 0) {
+        console.log(`[HLS Extractor] ✅ ${advancedResult.length} URLs trouvées avec patterns avancés:`, advancedResult);
+        return {
+          success: true,
+          urls: advancedResult.map(url => ({
+            url,
+            quality: 'auto',
+            type: this.getVideoType(url),
+            extractedAt: Date.now(),
+            source: 'client' as const
+          }))
+        };
       }
 
       // Fallback sur l'extraction générique
       console.log(`[HLS Extractor] 🔄 Tentative extraction générique...`);
       const hlsUrls = this.extractHLSFromHTML(html);
       if (hlsUrls.length > 0) {
-        console.log(`[HLS Extractor] 🎯 ${hlsUrls.length} URLs HLS trouvées (générique):`, hlsUrls);
+        console.log(`[HLS Extractor] ✅ ${hlsUrls.length} URLs HLS trouvées (générique):`, hlsUrls);
         return {
           success: true,
           urls: hlsUrls.map(url => ({
@@ -451,33 +342,29 @@ class VideoUrlExtractor {
             source: 'client' as const
           }))
         };
-      } else {
-        console.log(`[HLS Extractor] ❌ Extraction générique n'a rien trouvé`);
       }
 
-      // Si pas de HLS trouvé, chercher d'autres patterns
+      // Si pas de HLS trouvé, chercher d'autres patterns vidéo
       console.log(`[HLS Extractor] 🔄 Tentative patterns alternatifs...`);
       const alternativeUrls = this.extractAlternativeVideoUrls(html);
       if (alternativeUrls.length > 0) {
-        console.log(`[HLS Extractor] 📺 ${alternativeUrls.length} URLs alternatives trouvées:`, alternativeUrls);
+        console.log(`[HLS Extractor] ✅ ${alternativeUrls.length} URLs alternatives trouvées:`, alternativeUrls);
         return {
           success: true,
           urls: alternativeUrls.map(url => ({
             url,
             quality: 'auto',
-            type: 'hls' as const,
+            type: this.getVideoType(url),
             extractedAt: Date.now(),
             source: 'client' as const
           }))
         };
-      } else {
-        console.log(`[HLS Extractor] ❌ Patterns alternatifs n'ont rien trouvé`);
       }
 
       return {
         success: false,
         urls: [],
-        error: `Aucun HLS trouvé dans ${html.length} caractères de HTML pour ${this.getHostFromUrl(url)}`
+        error: `Aucune URL vidéo trouvée dans ${html.length} caractères de HTML pour ${hostname}. Le serveur utilise peut-être du JavaScript dynamique ou de l'obfuscation avancée.`
       };
 
     } catch (error: any) {
@@ -488,6 +375,128 @@ class VideoUrlExtractor {
         error: `Erreur fetch pour ${this.getHostFromUrl(url)}: ${error.message}`
       };
     }
+  }
+
+  /**
+   * Retourne les headers appropriés selon l'hébergeur
+   */
+  private getHeadersForHost(hostname: string): Record<string, string> {
+    const baseHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+      'DNT': '1'
+    };
+
+    // Headers spécifiques selon l'hébergeur
+    if (hostname.includes('sibnet')) {
+      return {
+        ...baseHeaders,
+        'Referer': 'https://video.sibnet.ru/',
+        'Accept-Language': 'ru,en;q=0.9',
+      };
+    } else if (hostname.includes('vidmoly')) {
+      return {
+        ...baseHeaders,
+        'Referer': 'https://vidmoly.to/',
+      };
+    } else if (hostname.includes('oneupload')) {
+      return {
+        ...baseHeaders,
+        'Referer': 'https://oneupload.to/',
+      };
+    } else if (hostname.includes('sendvid')) {
+      return {
+        ...baseHeaders,
+        'Referer': 'https://sendvid.com/',
+      };
+    }
+
+    return {
+      ...baseHeaders,
+      'Referer': this.getRefererForUrl(`https://${hostname}/`)
+    };
+  }
+
+  /**
+   * Détermine le type de vidéo selon l'URL
+   */
+  private getVideoType(url: string): 'hls' | 'mp4' | 'webm' {
+    if (url.includes('.m3u8')) return 'hls';
+    if (url.includes('.mp4')) return 'mp4';
+    if (url.includes('.webm')) return 'webm';
+    return 'hls'; // Par défaut
+  }
+
+  /**
+   * Extraction avec patterns avancés pour serveurs modernes
+   */
+  private extractWithAdvancedPatterns(html: string): string[] {
+    const urls = new Set<string>();
+    
+    // Patterns JavaScript courants pour players vidéo
+    const jsPatterns = [
+      // JWPlayer configurations
+      /jwplayer\([^)]*\)\.setup\([^}]*file[:\s]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^}]*\)/gi,
+      
+      // Video.js et players HTML5
+      /new\s+Video[^}]*source[:\s]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^}]*/gi,
+      
+      // Configurations player modernes
+      /player[^}]*url[:\s]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^}]*/gi,
+      
+      // Variables JavaScript contenant des URLs
+      /(?:var|let|const)\s+[^=]*=\s*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"];/gi,
+      
+      // Appels AJAX ou fetch pour récupérer des URLs
+      /fetch\([^)]*['"](https?:\/\/[^'"]*(?:api|stream|video)[^'"]*)['"][^)]*/gi,
+      
+      // URLs dans des objets de configuration
+      /\{[^}]*(?:url|src|file)[:\s]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^}]*\}/gi,
+      
+      // Patterns pour serveurs populaires
+      /(?:sibnet|vidmoly|oneupload|sendvid)[^'"]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^"]*/gi,
+    ];
+    
+    for (const pattern of jsPatterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const url = match[1];
+        if (url && this.isValidVideoUrl(url)) {
+          urls.add(url);
+        }
+      }
+    }
+    
+    // Recherche dans les data-attributes HTML5
+    const dataAttrPatterns = [
+      /data-(?:src|url|file)[=:]\s*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"]?/gi,
+    ];
+    
+    for (const pattern of dataAttrPatterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const url = match[1];
+        if (url && this.isValidVideoUrl(url)) {
+          urls.add(url);
+        }
+      }
+    }
+    
+    return Array.from(urls);
+  }
+
+  /**
+   * Vérifie si une URL est une URL vidéo valide
+   */
+  private isValidVideoUrl(url: string): boolean {
+    if (!url || url.length < 10) return false;
+    if (!url.startsWith('http')) return false;
+    if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('.webm')) return true;
+    if (url.includes('stream') || url.includes('video') || url.includes('hls')) return true;
+    return false;
   }
 
   /**

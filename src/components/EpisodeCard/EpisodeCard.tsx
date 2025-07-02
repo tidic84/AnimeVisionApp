@@ -99,7 +99,7 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
     >
       <View style={styles.thumbnailContainer}>
         <Image
-          source={{ uri: episode.thumbnail }}
+          source={{ uri: episode.thumbnail || episode.anime_poster || '' }}
           style={[styles.thumbnail, { height: sizeStyles.thumbnailHeight }]}
         />
         
@@ -146,7 +146,7 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
       
       <View style={styles.info}>
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
-          {episode.title}
+          {episode.animeTitle || episode.title}
         </Text>
         
         <Text style={[styles.episodeNumber, { color: colors.textSecondary }]}>

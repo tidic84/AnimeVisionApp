@@ -103,9 +103,9 @@ function MainTabNavigator() {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 90,
-          paddingBottom: 32,
-          paddingTop: 8,
+          height: 95,
+          paddingBottom: 36,
+          paddingTop: 12,
           position: 'absolute',
         },
         tabBarLabelStyle: {
@@ -234,7 +234,7 @@ export default function AppNavigator() {
           name="AnimeDetail" 
           component={AnimeDetailScreen}
           options={{ 
-            title: 'Détails',
+            headerShown: false,
             presentation: 'modal',
           }}
         />

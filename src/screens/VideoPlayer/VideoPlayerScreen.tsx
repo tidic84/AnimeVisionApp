@@ -15,13 +15,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useVideoPlayer, VideoView, VideoSource } from 'expo-video';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as FileSystem from 'expo-file-system';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 
 import { RootStackScreenProps } from '../../types/navigation';
-import { Episode } from '../../types/anime';
+import { Episode, DownloadStatus, VideoQuality as AnimeVideoQuality } from '../../types/anime';
 import apiService from '../../services/apiService';
 import videoUrlExtractor from '../../services/VideoUrlExtractor';
 import VideoOptionsModal, { VideoQuality } from '../../components/VideoOptionsModal';
+import WebViewVideoPlayer from '../../components/WebViewVideoPlayer';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -30,7 +32,7 @@ type VideoPlayerScreenProps = RootStackScreenProps<'VideoPlayer'>;
 const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
   const navigation = useNavigation();
   const route = useRoute<VideoPlayerScreenProps['route']>();
-  const { episodeId, animeId, autoPlay = false } = route.params;
+  const { episodeId, animeId, autoPlay = false, localFilePath, isOfflineMode = false } = route.params;
 
   // États du player
   const [episode, setEpisode] = useState<Episode | null>(null);
@@ -69,21 +71,121 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
     { label: 'Auto', value: 'auto', url: '' }
   ]);
 
-  // Configuration vidéo
-  const videoSource: VideoSource | null = episode?.streamingUrls?.[0]?.url ? {
-    uri: episode.streamingUrls[0].url
-  } : null;
+  // États pour la vidéo
+  const [videoSource, setVideoSource] = useState<VideoSource | null>(null);
+  
+  // États pour le fallback WebView
+  const [useWebViewPlayer, setUseWebViewPlayer] = useState(false);
+  const [webViewUrl, setWebViewUrl] = useState<string>('');
+  const [showFallbackButton, setShowFallbackButton] = useState(false);
 
-  // Créer le player TOUJOURS
-  const player = useVideoPlayer(videoSource || { uri: '' }, (player) => {
+  // Configuration du player avec fallback
+  const player = useVideoPlayer(
+    videoSource || { uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' }, 
+    (player) => {
     if (player && videoSource) {
+        console.log('[VideoPlayer] 🎬 Initialisation du player avec URL:', typeof videoSource === 'object' ? videoSource.uri : videoSource);
       player.timeUpdateEventInterval = 0.5;
       player.playbackRate = playbackSpeed;
       if (autoPlay) {
         player.play();
       }
     }
-  });
+    }
+  );
+
+  // Mettre à jour la source vidéo quand l'épisode change
+  useEffect(() => {
+    // Si on a un fichier local, l'utiliser en priorité
+    if (isOfflineMode && localFilePath) {
+      (async () => {
+        try {
+          // D'abord, chercher une playlist M3U8 locale associée
+          const playlistPath = localFilePath.replace('.ts', '.m3u8');
+          const playlistInfo = await FileSystem.getInfoAsync(playlistPath);
+          
+          let finalUri = localFilePath;
+          
+          if (playlistInfo.exists) {
+            // Utiliser la playlist M3U8 si elle existe (meilleure qualité)
+            finalUri = playlistPath;
+            console.log('[VideoPlayer] 🎬 Playlist M3U8 locale trouvée, utilisation de la playlist complète');
+          } else {
+            // Sinon, vérifier que le fichier principal existe
+            const fileInfo = await FileSystem.getInfoAsync(localFilePath);
+            if (!fileInfo.exists) {
+              console.error('[VideoPlayer] ❌ Fichier local non trouvé:', localFilePath);
+              Alert.alert('Erreur', 'Le fichier vidéo téléchargé est introuvable');
+              return;
+            }
+            console.log('[VideoPlayer] 📁 Utilisation du segment principal uniquement');
+          }
+          
+          // Formater l'URI pour expo-video
+          let localUri = finalUri;
+          if (!finalUri.startsWith('file://')) {
+            localUri = `file://${finalUri}`;
+          }
+          
+          console.log(`[VideoPlayer] 📁 Fichier local configuré:`, localUri);
+          
+          const localVideoSource = { uri: localUri };
+          setVideoSource(localVideoSource);
+          
+          // Ajouter un timer pour détecter si la vidéo locale ne se charge pas
+          const localVideoTimer = setTimeout(() => {
+            if (playerStatus === 'idle' || playerStatus === 'error') {
+              console.warn('[VideoPlayer] ⚠️ Vidéo locale ne se charge pas, possibilité de problème de format');
+              Alert.alert(
+                'Problème de lecture', 
+                'Le fichier vidéo téléchargé ne peut pas être lu. Cela peut être dû à un problème de format.',
+                [
+                  { text: 'OK', style: 'default' },
+                  { text: 'Retélécharger', onPress: () => {
+                    // TODO: Ajouter logique pour relancer le téléchargement
+                    console.log('[VideoPlayer] 🔄 Demande de retéléchargement');
+                  }}
+                ]
+              );
+            }
+          }, 5000); // 5 secondes pour se charger
+          
+          return () => clearTimeout(localVideoTimer);
+          
+        } catch (error) {
+          console.error('[VideoPlayer] ❌ Erreur vérification fichier local:', error);
+          Alert.alert('Erreur', 'Impossible de lire le fichier téléchargé');
+        }
+      })();
+      return; // Sortir tôt, pas besoin de configurer les URLs de streaming
+    }
+    
+    // Sinon, utiliser les URLs de streaming comme avant
+    if (episode?.streamingUrls?.[0]?.url) {
+      const newVideoSource = { uri: episode.streamingUrls[0].url };
+      console.log('[VideoPlayer] 📺 Configuration nouvelle source vidéo:', newVideoSource.uri);
+      setVideoSource(newVideoSource);
+      
+      // Si c'est une URL embed, préparer le fallback WebView
+      if (episode.streamingUrls[0].url.includes('embed') || 
+          episode.streamingUrls[0].url.includes('shell.php')) {
+        setWebViewUrl(episode.streamingUrls[0].url);
+        
+        // Démarrer un timer pour détecter si la vidéo ne se charge pas
+        const fallbackTimer = setTimeout(() => {
+          if (playerStatus === 'idle' || playerStatus === 'error') {
+            console.log('[VideoPlayer] 🔄 Vidéo ne se charge pas, proposition fallback WebView');
+            setShowFallbackButton(true);
+          }
+        }, 8000); // 8 secondes pour laisser le temps au player de se charger
+        
+        return () => clearTimeout(fallbackTimer);
+      }
+    } else {
+      console.log('[VideoPlayer] ❌ Aucune URL de streaming disponible');
+      setVideoSource(null);
+    }
+  }, [episode, playerStatus, isOfflineMode, localFilePath]);
 
   const duration = player?.duration || 0;
 
@@ -201,38 +303,88 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
       setLoading(true);
       setExtractingHLS(false);
 
-      const [episodeData, allEpisodesData] = await Promise.all([
-        apiService.getEpisodeById(episodeId),
-        apiService.getAnimeEpisodes(animeId)
-      ]);
+      // Si on est en mode hors ligne avec un fichier local, pas besoin de charger depuis l'API
+      if (isOfflineMode && localFilePath) {
+        console.log('[VideoPlayer] 📁 Mode hors ligne - utilisation fichier local:', localFilePath);
+        
+        // Créer un épisode minimal pour l'interface
+        const offlineEpisode: Episode = {
+          id: episodeId,
+          title: `Épisode téléchargé`,
+          animeId: animeId,
+          animeTitle: 'Téléchargement local',
+          number: 1,
+          thumbnail: '',
+          duration: 0,
+          watchProgress: 0,
+          isWatched: false,
+          downloadStatus: DownloadStatus.DOWNLOADED,
+          streamingUrls: [{ quality: AnimeVideoQuality.HIGH, url: localFilePath }]
+        };
+        
+        setEpisode(offlineEpisode);
+        setAllEpisodes([offlineEpisode]);
+        setAnimeTitle('Téléchargement local');
+        
+        console.log('[VideoPlayer] ✅ Mode hors ligne configuré');
+        return;
+      }
+
+      // D'abord récupérer l'épisode depuis l'API (mode en ligne)
+      const episodeData = await apiService.getEpisodeById(episodeId);
 
       if (!episodeData) {
         throw new Error('Épisode non trouvé');
       }
 
       setEpisode(episodeData);
+
+      // Utiliser l'animeId de l'épisode ou celui passé en paramètre
+      const actualAnimeId = episodeData.animeId || animeId;
+      
+      // Ensuite récupérer tous les épisodes de l'animé avec l'animeId correct
+      let allEpisodesData: Episode[] = [];
+      if (actualAnimeId && actualAnimeId.trim() !== '' && !actualAnimeId.startsWith('season_')) {
+        try {
+          allEpisodesData = await apiService.getAnimeEpisodes(actualAnimeId);
+        } catch (error) {
+          console.warn('[VideoPlayer] Impossible de récupérer tous les épisodes:', error);
+          // Si on ne peut pas récupérer tous les épisodes, au moins avoir l'épisode actuel
+          allEpisodesData = [episodeData];
+        }
+      } else {
+        // Si pas d'animeId valide, au moins avoir l'épisode actuel
+        allEpisodesData = [episodeData];
+      }
+
       setAllEpisodes(allEpisodesData);
       
       // Récupérer le vrai titre de l'animé
       if (episodeData.animeTitle) {
         setAnimeTitle(episodeData.animeTitle);
-      } else {
+      } else if (actualAnimeId && actualAnimeId.trim() !== '' && !actualAnimeId.startsWith('season_')) {
         // Si pas de titre dans l'épisode, récupérer depuis l'API
         try {
-          const animeDetails = await apiService.getAnimeDetails(animeId);
+          const animeDetails = await apiService.getAnimeDetails(actualAnimeId);
           setAnimeTitle(animeDetails.title || 'Titre inconnu');
         } catch (error) {
           console.warn('[VideoPlayer] Impossible de récupérer le titre de l\'animé:', error);
           setAnimeTitle('Titre inconnu');
         }
+      } else {
+        setAnimeTitle('Titre inconnu');
       }
 
-      if (!episodeData.streamingUrls || episodeData.streamingUrls.length === 0) {
+      // Toujours essayer d'extraire les vraies URLs de streaming
+      // car l'API nous donne des URLs d'embed, pas des URLs directes
+      console.log('[VideoPlayer] 🎬 Début extraction HLS pour épisode', episodeData.id);
         setExtractingHLS(true);
         
         const extractionResult = await videoUrlExtractor.extractHLSForEpisode(episodeData.id);
+      console.log('[VideoPlayer] 📊 Résultat extraction:', extractionResult);
 
         if (extractionResult.success && extractionResult.urls.length > 0) {
+        console.log('[VideoPlayer] ✅ Extraction HLS réussie:', extractionResult.urls.length, 'URLs trouvées');
           const updatedEpisode = { 
             ...episodeData, 
             streamingUrls: extractionResult.urls.map(url => ({
@@ -241,8 +393,54 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
             }))
           };
           setEpisode(updatedEpisode);
+        console.log('[VideoPlayer] URLs HLS configurées:', updatedEpisode.streamingUrls);
         } else {
-          throw new Error(extractionResult.error || 'Aucune URL de streaming trouvée');
+        // Si l'extraction échoue, essayer d'utiliser les URLs d'embed directement
+        console.warn('[VideoPlayer] ❌ Extraction HLS échouée:', extractionResult.error);
+        console.warn('[VideoPlayer] 🔄 Tentative avec URLs d\'embed directement');
+        
+        if (episodeData.streaming_servers && episodeData.streaming_servers.length > 0) {
+          // Stratégie de fallback intelligente: prioriser les serveurs par compatibilité
+          const sortedServers = [...episodeData.streaming_servers].sort((a, b) => {
+            // Priorité par qualité
+            const qualityPriorityA = a.quality === '1080p' ? 4 : (a.quality === 'HD' ? 3 : (a.quality === 'SD' ? 2 : 1));
+            const qualityPriorityB = b.quality === '1080p' ? 4 : (b.quality === 'HD' ? 3 : (b.quality === 'SD' ? 2 : 1));
+            
+            if (qualityPriorityA !== qualityPriorityB) {
+              return qualityPriorityB - qualityPriorityA;
+            }
+            
+            // Priorité par serveur (certains plus compatibles avec React Native)
+            const getServerPriority = (name: string) => {
+              if (name.includes('OneUpload')) return 4;
+              if (name.includes('Serveur 2')) return 3;
+              if (name.includes('Serveur 1')) return 2;
+              return 1;
+            };
+            
+            return getServerPriority(b.name) - getServerPriority(a.name);
+          });
+          
+          const embedUrls = sortedServers.map(server => ({
+            quality: server.quality.includes('HD') || server.quality.includes('1080p') ? 'HIGH' as any : 'MEDIUM' as any,
+            url: server.url
+          }));
+          
+          const updatedEpisode = { 
+            ...episodeData, 
+            streamingUrls: embedUrls
+          };
+          setEpisode(updatedEpisode);
+          
+          console.log('[VideoPlayer] 🔄 Mode fallback activé - utilisation URLs embed');
+          console.log(`[VideoPlayer] 📺 Serveur prioritaire: ${sortedServers[0].name} (${sortedServers[0].quality})`);
+          console.log(`[VideoPlayer] 🔗 URL: ${sortedServers[0].url}`);
+          
+          // Note: Pas d'alerte, on essaie silencieusement avec les embed URLs
+          // Si ça ne marche pas, l'utilisateur verra un écran noir et pourra essayer un autre serveur
+        } else {
+          console.error('[VideoPlayer] ❌ Aucune source de streaming disponible');
+          throw new Error('Aucun serveur de streaming trouvé pour cet épisode');
         }
       }
 
@@ -466,6 +664,19 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Fonctions pour le fallback WebView
+  const switchToWebViewPlayer = () => {
+    console.log('[VideoPlayer] 🔄 Basculement vers lecteur WebView');
+    setUseWebViewPlayer(true);
+    setShowFallbackButton(false);
+  };
+
+  const switchBackToNativePlayer = () => {
+    console.log('[VideoPlayer] 🔄 Retour au lecteur natif');
+    setUseWebViewPlayer(false);
+    setShowFallbackButton(false);
+  };
+
   // Affichage de chargement
   if (loading || extractingHLS) {
     return (
@@ -500,6 +711,15 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
     <View style={styles.container}>
       <StatusBar hidden />
       
+      {/* Lecteur WebView (fallback) */}
+      {useWebViewPlayer && webViewUrl ? (
+        <WebViewVideoPlayer
+          embedUrl={webViewUrl}
+          onClose={switchBackToNativePlayer}
+          style={styles.webViewPlayer}
+        />
+      ) : (
+        <>
       {/* Vidéo en plein écran */}
       <VideoView
         style={styles.videoFullScreen}
@@ -533,11 +753,19 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
               <View style={styles.topSection}>
                 <View style={styles.headerContent}>
                   <View style={styles.titleSection}>
+                    <View style={styles.titleRow}>
                     <Text style={styles.animeTitle} numberOfLines={1}>
                       {animeTitle}
                     </Text>
+                      {isOfflineMode && (
+                        <View style={styles.offlineBadge}>
+                          <Ionicons name="download" size={12} color="#4CAF50" />
+                          <Text style={styles.offlineText}>Hors ligne</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.episodeTitle} numberOfLines={1}>
-                      Épisode {episode.number}{episode.title && ` - ${episode.title}`}
+                      Épisode {episode?.number || 1}{episode?.title && ` - ${episode.title}`}
                     </Text>
                   </View>
                   <View style={styles.controlsSection}>
@@ -676,6 +904,16 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
         </View>
       </TouchableWithoutFeedback>
 
+          {/* Bouton de fallback WebView */}
+          {showFallbackButton && (
+            <View style={styles.fallbackButtonContainer}>
+              <TouchableOpacity style={styles.fallbackButton} onPress={switchToWebViewPlayer}>
+                <Ionicons name="globe-outline" size={20} color="#fff" />
+                <Text style={styles.fallbackButtonText}>Lecteur Web</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
       {/* CORRECTION: Modal des options ajouté */}
       <VideoOptionsModal
         visible={optionsVisible}
@@ -694,6 +932,8 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
           setAutoPlayEnabled(enabled);
         }}
       />
+        </>
+      )}
     </View>
   );
 };
@@ -951,6 +1191,53 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'black',
     zIndex: 10,
+  },
+  webViewPlayer: {
+    flex: 1,
+  },
+  fallbackButtonContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -75 }, { translateY: 50 }],
+    zIndex: 20,
+  },
+  fallbackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    gap: 8,
+  },
+  fallbackButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  offlineBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.2)',
+    borderColor: '#4CAF50',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  offlineText: {
+    color: '#4CAF50',
+    fontSize: 10,
+    fontWeight: '600',
   },
 });
 

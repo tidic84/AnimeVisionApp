@@ -17,9 +17,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
 import { RootStackScreenProps } from '../../types/navigation';
-import { Anime, Episode } from '../../types/anime';
+import { Anime, Episode, DownloadStatus, VideoQuality } from '../../types/anime';
 import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
+import downloadService from '../../services/downloadService';
 import { SkeletonCard } from '../../components';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -172,6 +173,11 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
         console.log('[AnimeDetail] Utilisation des détails fallback pour ID:', animeId);
       }
 
+      // Corriger le nombre d'épisodes avec les données réelles
+      if (animeDetails && animeEpisodes.length > 0) {
+        animeDetails.episodeCount = animeEpisodes.length;
+      }
+
       setAnime(animeDetails);
       setEpisodes(animeEpisodes);
 
@@ -241,6 +247,77 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
     });
   };
 
+  const handleDownloadEpisode = async (episode: Episode) => {
+    try {
+      if (episode.downloadStatus === DownloadStatus.DOWNLOADED) {
+        Alert.alert(
+          'Épisode déjà téléchargé',
+          'Cet épisode est déjà téléchargé. Voulez-vous le supprimer ?',
+          [
+            { text: 'Annuler', style: 'cancel' },
+            {
+              text: 'Supprimer',
+              style: 'destructive',
+              onPress: async () => {
+                await downloadService.deleteDownload(episode.id);
+                await loadAnimeDetails(); // Recharger pour mettre à jour les statuts
+              }
+            }
+          ]
+        );
+        return;
+      }
+
+      if (episode.downloadStatus === DownloadStatus.DOWNLOADING) {
+        Alert.alert(
+          'Téléchargement en cours',
+          'Voulez-vous annuler le téléchargement ?',
+          [
+            { text: 'Non', style: 'cancel' },
+            {
+              text: 'Annuler',
+              style: 'destructive',
+              onPress: async () => {
+                await downloadService.cancelDownload(episode.id);
+                await loadAnimeDetails(); // Recharger pour mettre à jour les statuts
+              }
+            }
+          ]
+        );
+        return;
+      }
+
+      // Vérifier si l'épisode a des URLs de streaming
+      if (!episode.streamingUrls || episode.streamingUrls.length === 0) {
+        Alert.alert(
+          'Téléchargement impossible',
+          'Aucune URL de streaming disponible pour cet épisode.'
+        );
+        return;
+      }
+
+      // Choisir la qualité de téléchargement
+      const qualities = episode.streamingUrls.map(url => url.quality);
+      const preferredQuality = qualities.includes(VideoQuality.HIGH) 
+        ? VideoQuality.HIGH 
+        : qualities[0];
+
+      await downloadService.startDownload(episode, preferredQuality);
+      
+      Alert.alert(
+        'Téléchargement démarré',
+        `Le téléchargement de "${episode.title}" a commencé.`
+      );
+
+      await loadAnimeDetails(); // Recharger pour mettre à jour les statuts
+    } catch (error: any) {
+      Alert.alert(
+        'Erreur de téléchargement',
+        error.message || 'Impossible de démarrer le téléchargement.'
+      );
+    }
+  };
+
   const getEpisodeStatusColor = (episode: Episode) => {
     if (episode.isWatched) return colors.success;
     if (episode.watchProgress > 0) return colors.warning;
@@ -253,46 +330,85 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
     return 'ellipse-outline';
   };
 
-  const renderEpisode = ({ item: episode }: { item: Episode }) => (
-    <TouchableOpacity
-      style={[styles.episodeItem, { backgroundColor: colors.surface, borderColor: colors.border }]}
-      onPress={() => playEpisode(episode)}
-    >
-      <Image
-        source={{ uri: episode.thumbnail }}
-        style={styles.episodeThumbnail}
-      />
-      
-      <View style={styles.episodeInfo}>
-        <Text style={[styles.episodeTitle, { color: colors.text }]} numberOfLines={2}>
-          {episode.title}
-        </Text>
-        <Text style={[styles.episodeNumber, { color: colors.textSecondary }]}>
-          Épisode {episode.number}
-        </Text>
-        <Text style={[styles.episodeDuration, { color: colors.textSecondary }]}>
-          {Math.floor(episode.duration / 60)} min
-        </Text>
-      </View>
+  const getDownloadIcon = (episode: Episode) => {
+    switch (episode.downloadStatus) {
+      case DownloadStatus.DOWNLOADED:
+        return 'checkmark-circle';
+      case DownloadStatus.DOWNLOADING:
+        return 'download';
+      case DownloadStatus.FAILED:
+        return 'alert-circle';
+      default:
+        return 'download-outline';
+    }
+  };
 
-      <View style={styles.episodeStatus}>
-        <Ionicons
-          name={getEpisodeStatusIcon(episode)}
-          size={24}
-          color={getEpisodeStatusColor(episode)}
+  const getDownloadColor = (episode: Episode) => {
+    switch (episode.downloadStatus) {
+      case DownloadStatus.DOWNLOADED:
+        return colors.success;
+      case DownloadStatus.DOWNLOADING:
+        return colors.primary;
+      case DownloadStatus.FAILED:
+        return colors.error;
+      default:
+        return colors.textSecondary;
+    }
+  };
+
+  const renderEpisode = ({ item: episode }: { item: Episode }) => (
+    <View style={[styles.episodeItem, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <TouchableOpacity
+        style={styles.episodeMainContent}
+        onPress={() => playEpisode(episode)}
+      >
+        <Image
+          source={{ uri: episode.thumbnail.includes("placeholder") ? anime?.banner : episode.thumbnail }}
+          style={styles.episodeThumbnail}
         />
-        {episode.watchProgress > 0 && !episode.isWatched && (
-          <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-            <View
-              style={[
-                styles.progressFill,
-                { backgroundColor: colors.primary, width: `${episode.watchProgress}%` }
-              ]}
-            />
-          </View>
-        )}
-      </View>
-    </TouchableOpacity>
+        
+        <View style={styles.episodeInfo}>
+          <Text style={[styles.episodeTitle, { color: colors.text }]} numberOfLines={2}>
+            {episode.title}
+          </Text>
+          <Text style={[styles.episodeNumber, { color: colors.textSecondary }]}>
+            Épisode {episode.number}
+          </Text>
+          <Text style={[styles.episodeDuration, { color: colors.textSecondary }]}>
+            {Math.floor(episode.duration / 60)} min
+          </Text>
+        </View>
+
+        <View style={styles.episodeStatus}>
+          <Ionicons
+            name={getEpisodeStatusIcon(episode)}
+            size={24}
+            color={getEpisodeStatusColor(episode)}
+          />
+          {episode.watchProgress > 0 && !episode.isWatched && (
+            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { backgroundColor: colors.primary, width: `${episode.watchProgress}%` }
+                ]}
+              />
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.downloadButton}
+        onPress={() => handleDownloadEpisode(episode)}
+      >
+        <Ionicons
+          name={getDownloadIcon(episode)}
+          size={20}
+          color={getDownloadColor(episode)}
+        />
+      </TouchableOpacity>
+    </View>
   );
 
   const renderGenre = (genre: string, index: number) => (
@@ -331,9 +447,6 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
             <View style={[styles.posterSkeleton, {
               backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
             }]}>
-              <View style={[styles.posterIconSkeleton, {
-                backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'
-              }]} />
             </View>
             
             {/* Info Section */}
@@ -488,7 +601,7 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
       <ScrollView style={styles.scrollView}>
         {/* Header avec image de bannière */}
         <View style={styles.header}>
@@ -496,7 +609,7 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
             source={{ uri: anime.banner || anime.thumbnail }}
             style={styles.bannerImage}
           />
-          <View style={[styles.overlay, { backgroundColor: `${colors.background}CC` }]} />
+          {/* <View style={[styles.overlay, { backgroundColor: `${colors.background}CC` }]} /> */}
           
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: `${colors.surface}DD` }]}
@@ -536,12 +649,14 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
                   </Text>
                 </View>
                 
-                <View style={styles.metadataItem}>
-                  <Ionicons name="calendar" size={16} color={colors.textSecondary} />
-                  <Text style={[styles.year, { color: colors.textSecondary }]}>
-                    {anime.year}
-                  </Text>
-                </View>
+                {anime.year > 0 && (
+                  <View style={styles.metadataItem}>
+                    <Ionicons name="calendar" size={16} color={colors.textSecondary} />
+                    <Text style={[styles.year, { color: colors.textSecondary }]}>
+                      {anime.year}
+                    </Text>
+                  </View>
+                )}
                 
                 <View style={styles.metadataItem}>
                   <Ionicons name="tv" size={16} color={colors.textSecondary} />
@@ -640,9 +755,10 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   bannerImage: {
-    width: '100%',
+    // width: '100%',
     height: '100%',
-    resizeMode: 'cover',
+    // marginLeft: '-50%',
+  
   },
   overlay: {
     position: 'absolute',
@@ -786,20 +902,39 @@ const styles = StyleSheet.create({
   },
   episodeItem: {
     flexDirection: 'row',
-    padding: 12,
     borderRadius: 12,
     marginBottom: 12,
     borderWidth: 1,
+    overflow: 'hidden', // Pour que le thumbnail puisse toucher les bords
+  },
+  episodeMainContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  downloadButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    margin: 'auto',
+    marginLeft: 0,
+    marginRight: 4,
   },
   episodeThumbnail: {
-    width: 80,
-    height: 60,
-    borderRadius: 8,
+    width: 110,
+    height: 86, // Ajusté pour correspondre à la hauteur totale du container
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
     marginRight: 12,
   },
   episodeInfo: {
     flex: 1,
     justifyContent: 'center',
+    paddingVertical: 2, // Récupérer le padding vertical qui était dans episodeItem
   },
   episodeTitle: {
     fontSize: 16,
@@ -816,7 +951,8 @@ const styles = StyleSheet.create({
   episodeStatus: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 40,
+    width:35,
+    paddingVertical: 'auto', // Même padding que episodeInfo pour l'alignement
   },
   progressBar: {
     width: 30,

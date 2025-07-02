@@ -1,0 +1,96 @@
+{
+  "version": "1.0.0",
+  "tags": {
+    "master": {
+      "metadata": {
+        "created": "2024-12-19",
+        "description": "Migration du système de téléchargement HLS vers react-native-fs"
+      },
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Configurer EAS Build",
+          "description": "Mettre à jour la configuration pour supporter react-native-fs avec EAS Build",
+          "status": "pending",
+          "priority": "high",
+          "dependencies": [],
+          "details": "Modifier app.json/app.config.js pour ajouter le plugin react-native-fs et configurer les build profiles pour development et production. S'assurer que les builds natifs incluent les dépendances nécessaires.",
+          "testStrategy": "Vérifier que les builds EAS se compilent sans erreur et que react-native-fs est disponible dans l'app."
+        },
+        {
+          "id": 2,
+          "title": "Installer react-native-fs",
+          "description": "Ajouter la dépendance react-native-fs et configurer l'intégration native",
+          "status": "pending",
+          "priority": "high",
+          "dependencies": [1],
+          "details": "Installer le package react-native-fs, configurer les permissions iOS/Android nécessaires, et tester l'accès au système de fichiers natif.",
+          "testStrategy": "Créer un test simple pour lire/écrire un fichier avec RNFS et vérifier que ça fonctionne sur Android et iOS."
+        },
+        {
+          "id": 3,
+          "title": "Créer DownloadServiceNative",
+          "description": "Implémenter une nouvelle classe de téléchargement utilisant react-native-fs",
+          "status": "pending",
+          "priority": "high",
+          "dependencies": [2],
+          "details": "Créer une nouvelle classe DownloadServiceNative qui utilise RNFS pour le téléchargement et l'assemblage binaire des segments HLS. Inclure le téléchargement parallèle et la gestion d'erreurs robuste.",
+          "testStrategy": "Tester avec un petit épisode d'anime pour valider le téléchargement et l'assemblage."
+        },
+        {
+          "id": 4,
+          "title": "Implémenter le téléchargement parallèle",
+          "description": "Ajouter la capacité de télécharger plusieurs segments HLS simultanément",
+          "status": "pending",
+          "priority": "medium",
+          "dependencies": [3],
+          "details": "Implémenter un système de batches pour télécharger 8 segments simultanément, avec gestion des erreurs et retry automatique pour chaque segment.",
+          "testStrategy": "Comparer les temps de téléchargement avec l'ancien système et vérifier que tous les segments sont correctement téléchargés."
+        },
+        {
+          "id": 5,
+          "title": "Implémenter l'assemblage binaire natif",
+          "description": "Utiliser RNFS.appendFile pour assembler les segments sans passer par JavaScript",
+          "status": "pending",
+          "priority": "high",
+          "dependencies": [3],
+          "details": "Remplacer l'assemblage en mémoire JavaScript par un assemblage binaire direct utilisant RNFS.appendFile. Éviter complètement la conversion base64.",
+          "testStrategy": "Télécharger un épisode complet et vérifier que le fichier vidéo final est lisible et de la bonne taille."
+        },
+        {
+          "id": 6,
+          "title": "Améliorer le progress tracking",
+          "description": "Mettre à jour le système de progression pour refléter le téléchargement parallèle",
+          "status": "pending",
+          "priority": "medium",
+          "dependencies": [4, 5],
+          "details": "Adapter le système de callbacks de progression pour prendre en compte le téléchargement parallèle et l'assemblage en temps réel.",
+          "testStrategy": "Vérifier que la barre de progression se met à jour correctement et reflète fidèlement l'avancement du téléchargement."
+        },
+        {
+          "id": 7,
+          "title": "Migrer vers le nouveau système",
+          "description": "Remplacer l'ancien DownloadService par la nouvelle implémentation",
+          "status": "pending",
+          "priority": "medium",
+          "dependencies": [6],
+          "details": "Intégrer DownloadServiceNative dans l'app en remplaçant les appels à l'ancien système. Maintenir la compatibilité avec l'UI existante.",
+          "testStrategy": "Tester tous les écrans de téléchargement et s'assurer que l'UX reste identique."
+        },
+        {
+          "id": 8,
+          "title": "Tests et validation finale",
+          "description": "Tester le système complet avec différentes tailles d'épisodes",
+          "status": "pending",
+          "priority": "medium",
+          "dependencies": [7],
+          "details": "Effectuer des tests complets avec des épisodes de différentes tailles (100MB, 200MB, 300MB+) pour valider la robustesse du système.",
+          "testStrategy": "Télécharger au moins 5 épisodes de tailles différentes et vérifier qu'ils sont tous lisibles et complets."
+        }
+      ]
+    }
+  },
+  "global": {
+    "defaultTag": "master"
+  }
+} 
