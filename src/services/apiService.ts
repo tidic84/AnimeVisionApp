@@ -60,9 +60,9 @@ class ApiService {
       synopsis: apiAnime.synopsis || '',
       genres: Array.isArray(apiAnime.genres) ? apiAnime.genres : [],
       studio: apiAnime.studio || '',
-      year: 0, // Pas disponible directement, à récupérer via les saisons
-      rating: apiAnime.note || 0,
-      status: this.mapStatusToAnimeStatus('ongoing'), // Par défaut
+      year: apiAnime.annee || apiAnime.year || new Date().getFullYear(),
+      rating: apiAnime.note || apiAnime.rating || 0,
+      status: this.mapStatusToAnimeStatus(apiAnime.statut || apiAnime.status || 'ongoing'),
       thumbnail: apiAnime.poster || '',
       banner: apiAnime.banniere,
       episodeCount: apiAnime.episode_count || apiAnime.nb_episodes || 0, // Utiliser les données de l'API si disponibles
@@ -127,19 +127,32 @@ class ApiService {
   private mapStatusToAnimeStatus(status: string): AnimeStatus {
     switch (status?.toLowerCase()) {
       case 'finished':
+      case 'complete':
+      case 'completed':
       case 'termine':
+      case 'terminé':
+      case 'ended':
         return AnimeStatus.COMPLETED;
       case 'airing':
       case 'en_cours':
+      case 'en cours':
+      case 'diffusion':
+      case 'on air':
+      case 'in progress':
+      case 'ongoing':
+      case 'currently airing':
         return AnimeStatus.ONGOING;
       case 'upcoming':
       case 'a_venir':
+      case 'à venir':
+      case 'not yet aired':
         return AnimeStatus.UPCOMING;
       case 'paused':
       case 'pause':
+      case 'hiatus':
         return AnimeStatus.PAUSED;
       default:
-        return AnimeStatus.ONGOING;
+        return AnimeStatus.PAUSED;
     }
   }
 
@@ -406,26 +419,37 @@ class ApiService {
     currentPage?: number
   }> {
     try {
-      let animes: Anime[] = [];
-      
-      if (filters.query) {
-        animes = await this.searchAnimes(filters.query, filters.limit, filters.page);
-      } else if (filters.genre) {
-        animes = await this.getAnimesByGenre(filters.genre, filters.limit, filters.page);
-      } else {
-        animes = await this.getLatestAnimes(filters.limit, filters.page);
+      // Utiliser l'endpoint popular pour le catalogue
+      const page = filters.page || 1;
+      const limit = filters.limit || 20;
+      const raw = await this.fetchWithErrorHandling<ApiResponse<any>>(`/api/anime/popular?limit=${limit}&page=${page}`);
+      const animeArray = raw.animes || raw.data || [];
+      const animes: Anime[] = Array.isArray(animeArray) ? animeArray.map(anime => this.mapApiAnimeToAnime(anime)) : [];
+      let totalItems = undefined;
+      let totalPages = undefined;
+      let hasNext = undefined;
+      let hasPrev = undefined;
+      if (raw && raw.pagination) {
+        totalItems = raw.pagination.total;
+        totalPages = raw.pagination.total_pages;
+        hasNext = raw.pagination.has_next;
+        hasPrev = raw.pagination.has_prev;
       }
-      
       return {
         animes,
-        hasMore: animes.length === (filters.limit || 20),
-        currentPage: filters.page || 1,
+        hasMore: hasNext !== undefined ? hasNext : animes.length === limit,
+        totalItems,
+        totalPages,
+        currentPage: page,
       };
     } catch (error) {
       console.error('[ApiService] Erreur lors de la recherche avec filtres:', error);
       return {
         animes: [],
         hasMore: false,
+        totalPages: 0,
+        totalItems: 0,
+        currentPage: 1,
       };
     }
   }

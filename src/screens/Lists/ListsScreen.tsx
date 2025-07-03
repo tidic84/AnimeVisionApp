@@ -18,6 +18,7 @@ import { MainTabScreenProps } from '../../types/navigation';
 import { AnimeList, Anime, WatchStatus } from '../../types/anime';
 import databaseService from '../../services/databaseService';
 import apiService from '../../services/apiService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type ListsScreenProps = MainTabScreenProps<'Lists'>;
 
@@ -56,6 +57,7 @@ interface ListWithAnimes extends AnimeList {
 const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const insets = useSafeAreaInsets();
   
   const [lists, setLists] = useState<ListWithAnimes[]>([]);
   const [loading, setLoading] = useState(true);
@@ -402,6 +404,18 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
     </Modal>
   );
 
+  const renderHeader = () => (
+    <View style={[styles.header, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+      <Text style={[styles.headerTitle, { color: colors.text }]}>Mes Listes</Text>
+      <TouchableOpacity
+        style={[styles.addButton, { backgroundColor: colors.primary }]}
+        onPress={() => setShowCreateModal(true)}
+      >
+        <Ionicons name="add" size={24} color="white" />
+      </TouchableOpacity>
+    </View>
+  );
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -416,15 +430,7 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Mes Listes</Text>
-        <TouchableOpacity
-          style={[styles.addButton, { backgroundColor: colors.primary }]}
-          onPress={() => setShowCreateModal(true)}
-        >
-          <Ionicons name="add" size={24} color="white" />
-        </TouchableOpacity>
-      </View>
+      {renderHeader()}
 
       <FlatList
         data={lists}
@@ -454,7 +460,7 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
             >
               <Text style={styles.createFirstButtonText}>Créer une liste</Text>
             </TouchableOpacity>
-    </View>
+          </View>
         )}
       />
 

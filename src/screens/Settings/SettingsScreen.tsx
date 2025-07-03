@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MainTabScreenProps } from '../../types/navigation';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type SettingsScreenProps = MainTabScreenProps<'Settings'>;
 
@@ -92,6 +93,7 @@ const STORAGE_OPTIONS = [
 const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const insets = useSafeAreaInsets();
   
   const [settings, setSettings] = useState<AppSettings>({
     malEnabled: false,
@@ -468,6 +470,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
         </View>
       </View>
     </Modal>
+  );
+
+  const renderHeader = () => (
+    <View style={[styles.header, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+      {/* ... */}
+    </View>
   );
 
   return (
@@ -877,6 +885,10 @@ const styles = StyleSheet.create({
   modalButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  header: {
+    paddingTop: 20,
+    paddingHorizontal: 20,
   },
 });
 

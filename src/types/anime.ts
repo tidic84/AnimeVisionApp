@@ -112,6 +112,7 @@ export enum VideoQuality {
 
 export enum DownloadStatus {
   NOT_DOWNLOADED = 'not_downloaded',
+  QUEUED = 'queued',
   DOWNLOADING = 'downloading',
   DOWNLOADED = 'downloaded',
   FAILED = 'failed'

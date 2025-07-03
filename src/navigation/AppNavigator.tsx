@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RootStackParamList, MainTabParamList } from '../types/navigation';
 import { useApi } from '../contexts/ApiContext';
@@ -58,6 +59,7 @@ function MainTabNavigator() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { isApiAvailable, isOfflineMode } = useApi();
+  const insets = useSafeAreaInsets();
 
   // Déterminer la route initiale en fonction de la disponibilité de l'API
   const getInitialRouteName = (): keyof MainTabParamList => {
@@ -103,9 +105,9 @@ function MainTabNavigator() {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.border,
           borderTopWidth: 1,
-          height: 95,
-          paddingBottom: 36,
-          paddingTop: 12,
+          height: 60 + insets.bottom,
+          paddingBottom: 10 + insets.bottom,
+          paddingTop: 6,
           position: 'absolute',
         },
         tabBarLabelStyle: {
@@ -144,6 +146,7 @@ function MainTabNavigator() {
           component={ListsScreen}
           options={{
             title: 'Mes Listes',
+            headerShown: false,
           }}
         />
       )}
@@ -153,6 +156,7 @@ function MainTabNavigator() {
           component={CatalogScreen}
           options={{
             title: 'Catalogue',
+            headerShown: false,
           }}
         />
       )}
@@ -161,7 +165,7 @@ function MainTabNavigator() {
         component={DownloadsScreen}
         options={{
           title: 'Téléchargements',
-          headerTitle: isOfflineMode ? 'Mode Hors Ligne' : 'Téléchargements',
+          headerShown: false,
         }}
       />
       <Tab.Screen 
@@ -169,6 +173,7 @@ function MainTabNavigator() {
         component={SettingsScreen}
         options={{
           title: 'Paramètres',
+          headerShown: false,
         }}
       />
     </Tab.Navigator>
@@ -235,7 +240,6 @@ export default function AppNavigator() {
           component={AnimeDetailScreen}
           options={{ 
             headerShown: false,
-            presentation: 'modal',
           }}
         />
         <Stack.Screen 

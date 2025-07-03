@@ -21,6 +21,7 @@ import { MainTabScreenProps } from '../../types/navigation';
 import { useApi } from '../../contexts/ApiContext';
 import { DownloadStatus, VideoQuality } from '../../types/anime';
 import downloadService, { DownloadItem, DownloadProgress } from '../../services/downloadService';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type DownloadsScreenProps = MainTabScreenProps<'Downloads'>;
 
@@ -59,6 +60,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { isApiAvailable } = useApi();
+  const insets = useSafeAreaInsets();
 
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,23 +74,41 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
   } | null>(null);
   const [showStorageModal, setShowStorageModal] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<Map<string, DownloadProgress>>(new Map());
+  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadDownloads();
     loadStorageInfo();
-    
-    // Rafraîchir toutes les 2 secondes pour voir les téléchargements en cours
-    const interval = setInterval(() => {
-      loadDownloads();
-    }, 2000);
-
-    return () => clearInterval(interval);
   }, []);
+
+  // Mise à jour automatique quand des téléchargements sont actifs
+  useEffect(() => {
+    const hasActive = downloads.some(d => d.status === DownloadStatus.DOWNLOADING);
+
+    if (hasActive && !intervalId) {
+      // Démarrer le polling léger (1 s)
+      const id = setInterval(async () => {
+        await loadDownloads();
+      }, 1000);
+      setIntervalId(id);
+    }
+
+    if (!hasActive && intervalId) {
+      // Arrêter le polling lorsque plus rien n'est actif
+      clearInterval(intervalId);
+      setIntervalId(null);
+    }
+  }, [downloads]);
 
   const loadDownloads = async () => {
     try {
-      setLoading(true);
-      const allDownloads = downloadService.getAllDownloads();
+      // Ne pas mettre loading à true si on a déjà des téléchargements
+      if (downloads.length === 0) {
+        setLoading(true);
+      }
+      
+      const allDownloads = await downloadService.getAllDownloads();
+      console.log('[Downloads] 📋 Téléchargements récupérés:', allDownloads.length);
       setDownloads(allDownloads);
       
       // Nettoyer les téléchargements orphelins
@@ -118,7 +138,9 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
   const getFilteredDownloads = () => {
     switch (selectedTab) {
       case 'downloading':
-        return downloads.filter(item => item.status === DownloadStatus.DOWNLOADING);
+        return downloads.filter(item => 
+          item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED
+        );
       case 'downloaded':
         return downloads.filter(item => item.status === DownloadStatus.DOWNLOADED);
       case 'failed':
@@ -195,8 +217,26 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const formatTimeRemaining = (seconds: number): string => {
+    if (seconds <= 0) return '';
+    
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m restant`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${secs}s restant`;
+    } else {
+      return `${secs}s restant`;
+    }
+  };
+
   const getStatusColor = (status: DownloadStatus) => {
     switch (status) {
+      case DownloadStatus.QUEUED:
+        return colors.warning;
       case DownloadStatus.DOWNLOADING:
         return colors.primary;
       case DownloadStatus.DOWNLOADED:
@@ -210,6 +250,8 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
 
   const getStatusText = (status: DownloadStatus) => {
     switch (status) {
+      case DownloadStatus.QUEUED:
+        return 'En attente';
       case DownloadStatus.DOWNLOADING:
         return 'En cours';
       case DownloadStatus.DOWNLOADED:
@@ -221,9 +263,18 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
     }
   };
 
-  const renderDownloadItem = ({ item }: { item: DownloadItem }) => (
+  const renderDownloadItem = ({ item }: { item: DownloadItem }) => {
+    const isWaiting = item.status === DownloadStatus.DOWNLOADING && item.progress.status !== 'downloading';
+    const displayedStatusText = isWaiting ? 'En attente' : getStatusText(item.status);
+    const displayedStatusColor = isWaiting ? colors.textSecondary : getStatusColor(item.status);
+    
+    // Calculer la position dans la queue pour les téléchargements en attente
+    const queuePosition = item.status === DownloadStatus.QUEUED ? 
+      downloads.filter(d => d.status === DownloadStatus.QUEUED).findIndex(d => d.episode.id === item.episode.id) + 1 : 0;
+
+    return (
     <TouchableOpacity
-      style={[styles.downloadCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+      style={[styles.downloadCard, { backgroundColor: 'transparent' }]}
       onPress={() => item.status === DownloadStatus.DOWNLOADED && handlePlayDownload(item)}
       activeOpacity={item.status === DownloadStatus.DOWNLOADED ? 0.7 : 1}
     >
@@ -257,34 +308,37 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
         </Text>
 
         <View style={styles.downloadMeta}>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) + '20' }]}>
-            <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-              {getStatusText(item.status)}
-            </Text>
+            <View style={[styles.statusBadge, { backgroundColor: displayedStatusColor + '20' }]}>
+              <Text style={[styles.statusText, { color: displayedStatusColor }]}>{displayedStatusText}</Text>
           </View>
-          
-          <Text style={[styles.qualityText, { color: colors.textSecondary }]}>
-            {item.quality}
-          </Text>
+            <Text style={[styles.qualityText, { color: colors.textSecondary }]}> {item.quality} </Text>
         </View>
 
-        {item.status === DownloadStatus.DOWNLOADING && (
+        {(item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED) && (
           <View style={styles.progressContainer}>
             <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
               <View 
                 style={[
                   styles.progressFill, 
                   { 
-                    backgroundColor: colors.primary,
-                    width: `${item.progress.progress}%`
-                  }
+                      backgroundColor: item.status === DownloadStatus.QUEUED ? colors.warning : (isWaiting ? colors.textSecondary : colors.primary),
+                      width: item.status === DownloadStatus.QUEUED ? '100%' : `${item.progress.progress}%`,
+                      opacity: item.status === DownloadStatus.QUEUED ? 0.3 : 1,
+                    },
                 ]} 
               />
             </View>
-            <Text style={[styles.progressText, { color: colors.textSecondary }]}>
-              {item.progress.progress}%
-            </Text>
+              <Text style={[styles.progressText, { color: colors.textSecondary }]}> 
+                {item.status === DownloadStatus.QUEUED ? 
+                  (queuePosition > 1 ? `En attente (${queuePosition}e)` : 'En attente (prochain)') : 
+                  (isWaiting ? '...' : `${Math.round(item.progress.progress)}%`)
+                } 
+              </Text>
           </View>
+        )}
+
+          {item.status === DownloadStatus.DOWNLOADING && !isWaiting && item.progress.timeRemaining > 0 && (
+            <Text style={[styles.timeRemainingText, { color: colors.textSecondary }]}> {formatTimeRemaining(item.progress.timeRemaining)} </Text>
         )}
 
         {item.status === DownloadStatus.DOWNLOADED && item.fileSize && (
@@ -295,7 +349,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
       </View>
 
       <View style={styles.downloadActions}>
-        {item.status === DownloadStatus.DOWNLOADING && (
+        {(item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED) && (
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: colors.error + '20' }]}
             onPress={() => handleCancelDownload(item)}
@@ -315,6 +369,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
       </View>
     </TouchableOpacity>
   );
+  };
 
   const renderStorageModal = () => (
     <Modal
@@ -388,10 +443,10 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
   );
 
   const renderTabs = () => (
-    <View style={[styles.tabContainer, { backgroundColor: colors.surface }]}>
+    <View style={[styles.tabContainer, { backgroundColor: 'transparent' }]}>
       {[
         { key: 'all', label: 'Tous', count: downloads.length },
-        { key: 'downloading', label: 'En cours', count: downloads.filter(d => d.status === DownloadStatus.DOWNLOADING).length },
+        { key: 'downloading', label: 'En cours', count: downloads.filter(d => d.status === DownloadStatus.DOWNLOADING || d.status === DownloadStatus.QUEUED).length },
         { key: 'downloaded', label: 'Terminés', count: downloads.filter(d => d.status === DownloadStatus.DOWNLOADED).length },
         { key: 'failed', label: 'Échecs', count: downloads.filter(d => d.status === DownloadStatus.FAILED).length },
       ].map((tab) => (
@@ -428,7 +483,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
   );
 
   const renderHeader = () => (
-    <View style={[styles.header, { backgroundColor: colors.background }]}>
+    <View style={[styles.header, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       <Text style={[styles.headerTitle, { color: colors.text }]}>Téléchargements</Text>
       <TouchableOpacity
         style={[styles.storageButton, { backgroundColor: colors.surface }]}
@@ -494,6 +549,8 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
             />
           }
           showsVerticalScrollIndicator={false}
+          bounces={false}
+          overScrollMode="never"
         />
       )}
 
@@ -558,19 +615,13 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 100, // Increased to account for navbar
   },
   downloadCard: {
     flexDirection: 'row',
     padding: 12,
     borderRadius: 12,
     marginBottom: 12,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
   },
   downloadThumbnail: {
     width: 80,
@@ -657,6 +708,10 @@ const styles = StyleSheet.create({
   },
   fileSizeText: {
     fontSize: 12,
+  },
+  timeRemainingText: {
+    fontSize: 12,
+    fontStyle: 'italic',
   },
   downloadActions: {
     justifyContent: 'center',

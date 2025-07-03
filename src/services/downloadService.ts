@@ -40,9 +40,11 @@ export interface DownloadItem {
 export class DownloadService {
   private downloads: Map<string, DownloadItem> = new Map();
   private downloadCallbacks: Map<string, (progress: DownloadProgress) => void> = new Map();
-  private maxConcurrentDownloads = 2; // Réduire pour éviter la surcharge
+  private maxConcurrentDownloads = 1; // Limiter à 1 téléchargement concurrent
   private downloadQueue: string[] = [];
   private activeDownloads = 0;
+  private isProcessingQueue = false;
+  private isStorageLoaded = false;
   private readonly MAX_FILE_SIZE_MB = 700; // Augmenté de 300MB à 700MB pour les épisodes plus lourds
 
   constructor(
@@ -52,8 +54,9 @@ export class DownloadService {
     this.loadDownloadsFromStorage();
   }
 
-  private generateDownloadId(episode: Episode): string {
-    return `${episode.id}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  private generateDownloadId(episode: Episode, quality: VideoQuality): string {
+    // Utiliser une clé basée sur l'épisode et la qualité pour éviter les doublons
+    return `download_${episode.id}_${quality}`;
   }
 
   private createProgressObject(
@@ -82,30 +85,82 @@ export class DownloadService {
     quality: VideoQuality = VideoQuality.HIGH,
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<void> {
+    // S'assurer que le storage est chargé
+    if (!this.isStorageLoaded) {
+      await this.loadDownloadsFromStorage();
+    }
+    
+    // Nettoyer les téléchargements orphelins avant de continuer
+    await this.cleanupOrphanedDownloads();
+    
+    // Vérifier si cet épisode est déjà présent dans la liste des téléchargements avec cette qualité
+    const existingDownload = Array.from(this.downloads.values()).find(existing => 
+      existing.episode.id === episode.id && 
+      existing.quality === quality &&
+      existing.status !== DownloadStatus.FAILED
+    );
+    
+    if (existingDownload) {
+      console.log(`[Download] ⏩ Épisode ${episode.id} déjà en téléchargement ou téléchargé (statut: ${existingDownload.status}). Ignoré.`);
+      console.log(`[Download] 📊 Téléchargements actuels: ${this.downloads.size}`);
+      Array.from(this.downloads.values()).forEach(dl => {
+        console.log(`[Download] - ${dl.episode.id}: ${dl.status} (${dl.episode.title})`);
+      });
+      return; // Empêcher la création d'une entrée en double
+    }
+
     console.log(`[Download] 🎬 Téléchargement épisode ${episode.id}: ${episode.title}`);
     
     try {
       // Générer un ID unique pour ce téléchargement
-      const downloadId = this.generateDownloadId(episode);
+      const downloadId = this.generateDownloadId(episode, quality);
 
       // Créer l'objet de progression initial
       const progress = this.createProgressObject(episode, downloadId);
 
-    // Créer l'item de téléchargement
-    const downloadItem: DownloadItem = {
-      episode,
-      quality,
+      // Créer l'item de téléchargement avec statut QUEUED
+      const downloadItem: DownloadItem = {
+        episode,
+        quality,
         url: '', // Sera remplie après extraction
         progress,
-      status: DownloadStatus.DOWNLOADING
-    };
+        status: DownloadStatus.QUEUED // Démarrer en attente
+      };
 
       // Ajouter à la liste des téléchargements
     this.downloads.set(downloadId, downloadItem);
       await this.saveDownloadsToStorage();
 
-      // Utiliser directement le service optimisé qui supporte 150MB
-      return this.startDownloadOptimized(episode, quality, onProgress);
+      // Ajouter à la queue et démarrer le traitement
+      this.downloadQueue.push(downloadId);
+      console.log(`[Download] 📋 Téléchargement ajouté à la file d'attente (position ${this.downloadQueue.length})`);
+      
+      // Enregistrer le callback
+      if (onProgress) {
+        this.downloadCallbacks.set(downloadId, onProgress);
+      }
+
+      // Informer immédiatement l'UI que ce téléchargement vient de démarrer
+      const initialProgress: DownloadProgress = {
+        downloadId,
+        episodeId: episode.id,
+        progress: 0,
+        downloadedBytes: 0,
+        totalBytes: 0,
+        speed: 0,
+        timeRemaining: 0,
+        status: 'downloading',
+      };
+      // Mettre à jour l'item et notifier le callback pour afficher « En cours » de suite
+      downloadItem.progress = initialProgress;
+      this.downloads.set(downloadId, downloadItem);
+      await this.saveDownloadsToStorage();
+      if (onProgress) {
+        onProgress(initialProgress);
+      }
+
+      // Démarrer le traitement de la queue
+      await this.processQueue();
     } catch (error) {
       console.error('[Download] ❌ Erreur:', error);
       throw error;
@@ -204,7 +259,7 @@ export class DownloadService {
    */
   private async downloadDirectFile(downloadItem: DownloadItem, url: string): Promise<void> {
     try {
-      const downloadId = this.generateDownloadId(downloadItem.episode);
+      const downloadId = this.generateDownloadId(downloadItem.episode, downloadItem.quality);
       const fileName = `${downloadItem.episode.id}_${downloadItem.quality}.mp4`;
       const filePath = `${FileSystem.documentDirectory}downloads/${fileName}`;
       
@@ -253,7 +308,7 @@ export class DownloadService {
    */
   private async downloadHLSStream(downloadItem: DownloadItem, hlsUrl: string): Promise<void> {
     try {
-      const downloadId = this.generateDownloadId(downloadItem.episode);
+      const downloadId = this.generateDownloadId(downloadItem.episode, downloadItem.quality);
       const fileName = `${downloadItem.episode.id}_${downloadItem.quality}.mp4`;
       const filePath = `${FileSystem.documentDirectory}downloads/${fileName}`;
 
@@ -396,7 +451,7 @@ export class DownloadService {
     await FileSystem.makeDirectoryAsync(`${FileSystem.documentDirectory}downloads/`, { intermediates: true });
     const tempDir = `${FileSystem.documentDirectory}downloads/temp_${downloadItem.episode.id}/`;
     await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
-    const downloadId = this.generateDownloadId(downloadItem.episode);
+    const downloadId = this.generateDownloadId(downloadItem.episode, downloadItem.quality);
     const segmentUrls = segments.map(segment => segment.url);
     const baseUrl = segments[0]?.url ? new URL(segments[0].url).origin : '';
     const totalSegments = segments.length;
@@ -597,7 +652,7 @@ export class DownloadService {
    */
   private async finishDownload(downloadItem: DownloadItem, filePath: string, fileName: string): Promise<void> {
     try {
-      const downloadId = this.generateDownloadId(downloadItem.episode);
+      const downloadId = this.generateDownloadId(downloadItem.episode, downloadItem.quality);
       const fileInfo = await FileSystem.getInfoAsync(filePath);
       
       if (!fileInfo.exists) {
@@ -651,17 +706,58 @@ export class DownloadService {
    * Traite la queue de téléchargements
    */
   private async processQueue(): Promise<void> {
-    if (this.activeDownloads >= this.maxConcurrentDownloads || this.downloadQueue.length === 0) {
+    if (this.isProcessingQueue || this.activeDownloads >= this.maxConcurrentDownloads || this.downloadQueue.length === 0) {
       return;
     }
 
-    const downloadId = this.downloadQueue.shift();
-    if (!downloadId) return;
+    this.isProcessingQueue = true;
 
     try {
-      await this.executeDownload(downloadId);
-    } catch (error) {
-      console.error(`[Download] ❌ Erreur traitement file d'attente:`, error);
+      while (this.downloadQueue.length > 0 && this.activeDownloads < this.maxConcurrentDownloads) {
+        const downloadId = this.downloadQueue.shift();
+        if (!downloadId) break;
+
+        const downloadItem = this.downloads.get(downloadId);
+        if (!downloadItem) continue;
+
+        console.log(`[Download] 🎬 Démarrage téléchargement: ${downloadItem.episode.title} (${this.downloadQueue.length} en attente)`);
+        
+        // Lancer le téléchargement optimisé directement
+        this.executeOptimizedDownload(downloadId).catch(error => {
+          console.error(`[Download] ❌ Erreur téléchargement ${downloadId}:`, error);
+        });
+      }
+    } finally {
+      this.isProcessingQueue = false;
+    }
+  }
+
+  /**
+   * Exécute un téléchargement optimisé
+   */
+  private async executeOptimizedDownload(downloadId: string): Promise<void> {
+    const downloadItem = this.downloads.get(downloadId);
+    if (!downloadItem) {
+      throw new Error(`Téléchargement ${downloadId} non trouvé`);
+    }
+
+    this.activeDownloads++;
+    
+    // Changer le statut de QUEUED à DOWNLOADING
+    downloadItem.status = DownloadStatus.DOWNLOADING;
+    await this.saveDownloadsToStorage();
+
+    try {
+      const callback = this.downloadCallbacks.get(downloadId);
+      await this.startDownloadOptimized(downloadItem.episode, downloadItem.quality, callback);
+    } catch (error: any) {
+      console.error(`[Download] ❌ Erreur:`, error.message);
+      downloadItem.status = DownloadStatus.FAILED;
+      await this.saveDownloadsToStorage();
+      throw error;
+    } finally {
+      this.activeDownloads--;
+      this.processQueue(); // Traiter le prochain téléchargement
     }
   }
 
@@ -726,15 +822,51 @@ export class DownloadService {
   /**
    * Récupère tous les téléchargements
    */
-  getAllDownloads(): DownloadItem[] {
-    return Array.from(this.downloads.values());
+  async getAllDownloads(): Promise<DownloadItem[]> {
+    // S'assurer que le stockage est chargé
+    if (!this.isStorageLoaded) {
+      await this.loadDownloadsFromStorage();
+    }
+
+    // Dédupliquer par id d'épisode – garde la version la plus récente (downloadedAt ou date de création)
+    const uniqueMap: Map<string, DownloadItem> = new Map();
+    for (const [dId, item] of this.downloads.entries()) {
+      // Clé unique prioritaire : id d'épisode, sinon id de téléchargement
+      const uniqueKey = item.episode?.id || dId;
+      const existing = uniqueMap.get(uniqueKey);
+      if (!existing) {
+        uniqueMap.set(uniqueKey, item);
+      } else {
+        // Conserver celui qui est terminé ou le plus récent
+        const existingDate = existing.downloadedAt || new Date(0);
+        const currentDate = item.downloadedAt || new Date();
+        if (item.status === DownloadStatus.DOWNLOADED && existing.status !== DownloadStatus.DOWNLOADED) {
+          uniqueMap.set(uniqueKey, item);
+        } else if (currentDate > existingDate) {
+          uniqueMap.set(uniqueKey, item);
+        }
+      }
+    }
+
+    const downloads = Array.from(uniqueMap.values());
+
+    // Fallback : si la déduplication produit un tableau vide alors qu'il existe des téléchargements,
+    // on renvoie la liste brute pour éviter un affichage vide.
+    const finalList = downloads.length > 0 ? downloads : Array.from(this.downloads.values());
+
+    console.log(`[Download] 📋 getAllDownloads retourne ${finalList.length} téléchargements (dédupliqués)`);
+    finalList.forEach(download => {
+      console.log(`[Download] - ${download.episode.title}: ${download.status}`);
+    });
+    return finalList;
   }
 
   /**
    * Récupère les téléchargements par statut
    */
-  getDownloadsByStatus(status: DownloadStatus): DownloadItem[] {
-    return this.getAllDownloads().filter(item => item.status === status);
+  async getDownloadsByStatus(status: DownloadStatus): Promise<DownloadItem[]> {
+    const allDownloads = await this.getAllDownloads();
+    return allDownloads.filter(item => item.status === status);
   }
 
   /**
@@ -746,7 +878,7 @@ export class DownloadService {
     usedSize: number;
     downloadCount: number;
   }> {
-    const downloadedItems = this.getDownloadsByStatus(DownloadStatus.DOWNLOADED);
+    const downloadedItems = await this.getDownloadsByStatus(DownloadStatus.DOWNLOADED);
     const usedSize = downloadedItems.reduce((total, item) => total + (item.fileSize || 0), 0);
     
     const diskInfo = await FileSystem.getFreeDiskStorageAsync();
@@ -810,8 +942,11 @@ export class DownloadService {
       );
       const savedDownloads = JSON.parse(data);
       this.downloads = new Map(Object.entries(savedDownloads));
+      console.log(`[Download] 📂 Chargé ${this.downloads.size} téléchargements depuis le stockage`);
+      this.isStorageLoaded = true;
     } catch (error) {
       console.log('[Download] 📝 Pas de téléchargements sauvegardés');
+      this.isStorageLoaded = true;
     }
   }
 
@@ -819,7 +954,7 @@ export class DownloadService {
    * Nettoie les téléchargements orphelins
    */
   async cleanupOrphanedDownloads(): Promise<void> {
-    const downloadedItems = this.getDownloadsByStatus(DownloadStatus.DOWNLOADED);
+    const downloadedItems = await this.getDownloadsByStatus(DownloadStatus.DOWNLOADED);
     
     for (const item of downloadedItems) {
       if (item.filePath) {
@@ -965,7 +1100,7 @@ export class DownloadService {
     console.log(`[Download] 🧪 TEST - Téléchargement optimisé épisode ${episode.id}: ${episode.title}`);
 
     // Générer un ID unique pour ce téléchargement
-    const downloadId = this.generateDownloadId(episode);
+    const downloadId = this.generateDownloadId(episode, quality);
 
     try {
       // 1. Créer l'item de téléchargement initial

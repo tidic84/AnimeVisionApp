@@ -260,7 +260,14 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
               style: 'destructive',
               onPress: async () => {
                 await downloadService.deleteDownload(episode.id);
-                await loadAnimeDetails(); // Recharger pour mettre à jour les statuts
+                // Mettre à jour le statut localement sans recharger
+                setEpisodes(prevEpisodes => 
+                  prevEpisodes.map(ep => 
+                    ep.id === episode.id 
+                      ? { ...ep, downloadStatus: DownloadStatus.NOT_DOWNLOADED }
+                      : ep
+                  )
+                );
               }
             }
           ]
@@ -279,7 +286,14 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
               style: 'destructive',
               onPress: async () => {
                 await downloadService.cancelDownload(episode.id);
-                await loadAnimeDetails(); // Recharger pour mettre à jour les statuts
+                // Mettre à jour le statut localement sans recharger
+                setEpisodes(prevEpisodes => 
+                  prevEpisodes.map(ep => 
+                    ep.id === episode.id 
+                      ? { ...ep, downloadStatus: DownloadStatus.NOT_DOWNLOADED }
+                      : ep
+                  )
+                );
               }
             }
           ]
@@ -309,7 +323,14 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
         `Le téléchargement de "${episode.title}" a commencé.`
       );
 
-      await loadAnimeDetails(); // Recharger pour mettre à jour les statuts
+      // Mettre à jour le statut localement sans recharger toute la page
+      setEpisodes(prevEpisodes => 
+        prevEpisodes.map(ep => 
+          ep.id === episode.id 
+            ? { ...ep, downloadStatus: DownloadStatus.DOWNLOADING }
+            : ep
+        )
+      );
     } catch (error: any) {
       Alert.alert(
         'Erreur de téléchargement',
@@ -602,7 +623,11 @@ const AnimeDetailScreen: React.FC<AnimeDetailScreenProps> = () => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
-      <ScrollView style={styles.scrollView}>
+      <ScrollView 
+        style={styles.scrollView}
+        bounces={false}
+        overScrollMode="never"
+      >
         {/* Header avec image de bannière */}
         <View style={styles.header}>
           <Image
