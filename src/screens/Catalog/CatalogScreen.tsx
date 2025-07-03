@@ -1104,6 +1104,7 @@ const styles = StyleSheet.create({
   paginationInfo: {
     flex: 1,
     alignItems: 'center',
+    marginHorizontal: 12,
   },
   paginationText: {
     fontSize: 16,
