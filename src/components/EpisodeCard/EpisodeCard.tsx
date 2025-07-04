@@ -33,7 +33,9 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
       textSecondary: '#64748b',
       surface: '#f8fafc',
       border: '#e2e8f0',
-      primary: '#6366f1',
+      primaryStart: '#219B9B',
+      primaryEnd: '#0F6B7B',
+      primary: '#0F6B7B',
       success: '#10b981',
       warning: '#f59e0b',
     },
@@ -43,7 +45,9 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
       textSecondary: '#94a3b8',
       surface: '#1e293b',
       border: '#334155',
-      primary: '#818cf8',
+      primaryStart: '#219B9B',
+      primaryEnd: '#0F6B7B',
+      primary: '#0F6B7B',
       success: '#34d399',
       warning: '#fbbf24',
     },
@@ -93,7 +97,7 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
     <TouchableOpacity
       style={[
         styles.container,
-        { backgroundColor: colors.surface, width: sizeStyles.width }
+        { backgroundColor: colors.background, width: sizeStyles.width }
       ]}
       onPress={() => onPress(episode)}
     >
@@ -166,14 +170,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginRight: 12,
     overflow: 'hidden',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   thumbnailContainer: {
     position: 'relative',

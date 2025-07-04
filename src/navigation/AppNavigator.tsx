@@ -25,7 +25,9 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 // Configuration des couleurs pour les thèmes
 const Colors = {
   light: {
-    primary: '#6366f1',
+    primaryStart: '#219B9B',
+    primaryEnd: '#0F6B7B',
+    primary: '#0F6B7B',
     background: '#ffffff',
     surface: '#f8fafc',
     text: '#1e293b',
@@ -34,7 +36,9 @@ const Colors = {
     border: '#e2e8f0',
   },
   dark: {
-    primary: '#818cf8',
+    primaryStart: '#219B9B',
+    primaryEnd: '#0F6B7B',
+    primary: '#0F6B7B',
     background: '#0f172a',
     surface: '#1e293b',
     text: '#f1f5f9',
@@ -103,15 +107,16 @@ function MainTabNavigator() {
         tabBarInactiveTintColor: colors.tabBarInactive,
         tabBarStyle: {
           backgroundColor: colors.tabBar,
-          borderTopColor: colors.border,
-          borderTopWidth: 1,
           height: 60 + insets.bottom,
           paddingBottom: 10 + insets.bottom,
           paddingTop: 6,
-          position: 'absolute',
+          position: 'relative',
+          borderTopWidth: 0,
+          shadowOpacity: 0,
+          elevation: 0,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 10,
           fontWeight: '500',
         },
         headerStyle: {
@@ -157,6 +162,16 @@ function MainTabNavigator() {
           options={{
             title: 'Catalogue',
             headerShown: false,
+            tabBarStyle: {
+              position: 'absolute',
+              backgroundColor: colors.tabBar,
+              height: 60 + insets.bottom,
+              paddingBottom: 10 + insets.bottom,
+              paddingTop: 6,
+              borderTopWidth: 0,
+              shadowOpacity: 0,
+              elevation: 0,
+            },
           }}
         />
       )}

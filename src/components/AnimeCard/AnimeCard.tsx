@@ -27,7 +27,9 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
       textSecondary: '#64748b',
       surface: '#f8fafc',
       border: '#e2e8f0',
-      primary: '#6366f1',
+      primaryStart: '#219B9B',
+      primaryEnd: '#0F6B7B',
+      primary: '#0F6B7B',
     },
     dark: {
       background: '#0f172a',
@@ -35,7 +37,9 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
       textSecondary: '#94a3b8',
       surface: '#1e293b',
       border: '#334155',
-      primary: '#818cf8',
+      primaryStart: '#219B9B',
+      primaryEnd: '#0F6B7B',
+      primary: '#0F6B7B',
     },
   }[colorScheme ?? 'light'];
 
@@ -65,7 +69,7 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
     <TouchableOpacity
       style={[
         styles.container,
-        { backgroundColor: colors.surface, width: sizeStyles.width }
+        { backgroundColor: colors.background, width: sizeStyles.width }
       ]}
       onPress={() => onPress(anime.id)}
     >
@@ -111,14 +115,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginRight: 12,
     overflow: 'hidden',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   thumbnail: {
     width: '100%',

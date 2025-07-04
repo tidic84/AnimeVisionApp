@@ -55,7 +55,9 @@ const VideoOptionsModal: React.FC<VideoOptionsProps> = ({
       text: '#1e293b',
       textSecondary: '#64748b',
       border: '#e2e8f0',
-      primary: '#6366f1',
+      primaryStart: '#219B9B',
+      primaryEnd: '#0F6B7B',
+      primary: '#0F6B7B',
       overlay: 'rgba(0, 0, 0, 0.5)',
     },
     dark: {
@@ -64,7 +66,9 @@ const VideoOptionsModal: React.FC<VideoOptionsProps> = ({
       text: '#f1f5f9',
       textSecondary: '#94a3b8',
       border: '#475569',
-      primary: '#818cf8',
+      primaryStart: '#219B9B',
+      primaryEnd: '#0F6B7B',
+      primary: '#0F6B7B',
       overlay: 'rgba(0, 0, 0, 0.7)',
     },
   }[colorScheme ?? 'light'];

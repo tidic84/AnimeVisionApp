@@ -29,7 +29,9 @@ const { width: screenWidth } = Dimensions.get('window');
 
 const Colors = {
   light: {
-    primary: '#6366f1',
+    primaryStart: '#219B9B',
+    primaryEnd: '#0F6B7B',
+    primary: '#0F6B7B',
     background: '#ffffff',
     surface: '#f8fafc',
     text: '#1e293b',
@@ -39,7 +41,9 @@ const Colors = {
     accent: '#3b82f6',
   },
   dark: {
-    primary: '#818cf8',
+    primaryStart: '#219B9B',
+    primaryEnd: '#0F6B7B',
+    primary: '#0F6B7B',
     background: '#0f172a',
     surface: '#1e293b',
     text: '#f1f5f9',
@@ -675,12 +679,6 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
       </View>
 
       {/* Résultats */}
-      <View style={styles.resultsHeader}>
-        <Text style={[styles.resultsCount, { color: colors.textSecondary }]}>
-          {filteredAnimes.length} résultat{filteredAnimes.length !== 1 ? 's' : ''}
-        </Text>
-      </View>
-
       <View style={{ flex: 1 }}>
         <FlatList
           data={filteredAnimes}
@@ -713,7 +711,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
 
       {/* Pagination - visible quand il y a des résultats et que l'API est disponible */}
       {!loading && isApiAvailable && animes.length > 0 && (
-        <View style={[styles.paginationContainer, { bottom: 60 + insets.bottom + 5 }]}>
+        <View style={[styles.paginationContainer, { bottom: 60 + insets.bottom + 10 }]}>
           <TouchableOpacity
             onPress={goToPrevPage}
             disabled={page === 1 || isChangingPage}
@@ -734,7 +732,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
               <ActivityIndicator size="small" color={colors.primary} />
             ) : (
               <Text style={[styles.paginationText, { color: colors.text }]}>
-                Page {page}{totalPages ? ` / ${totalPages}` : ''}
+                {page}{totalPages ? ` / ${totalPages}` : ''}
               </Text>
             )}
           </View>
@@ -819,7 +817,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     paddingHorizontal: 20,
-    paddingBottom: 70, // Moins d'espace pour que la pagination ne soit pas sous la navbar
+    paddingBottom: 0,
   },
   row: {
     justifyContent: 'space-between',
@@ -1071,14 +1069,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     position: 'absolute',
-    left: 20,
-    right: 20,
-    bottom: 110, // plus d'espace avec la navbar
+    width: '90%',
+    maxWidth: 400,
     alignSelf: 'center',
     backgroundColor: 'rgba(255,255,255,0.92)', // blanc semi-transparent
-    borderRadius: 24, // bel arrondi
+    borderRadius: 15, // bel arrondi
     paddingHorizontal: 18,
-    paddingVertical: 10,
+    paddingVertical: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
@@ -1092,7 +1089,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
-    minWidth: 100,
     justifyContent: 'center',
   },
   paginationButtonText: {

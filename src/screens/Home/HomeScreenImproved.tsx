@@ -25,7 +25,9 @@ const { width: screenWidth } = Dimensions.get('window');
 
 const Colors = {
   light: {
-    primary: '#6366f1',
+    primaryStart: '#219B9B',
+    primaryEnd: '#0F6B7B',
+    primary: '#0F6B7B',
     background: '#ffffff',
     surface: '#f8fafc',
     text: '#1e293b',
@@ -34,7 +36,9 @@ const Colors = {
     card: '#ffffff',
   },
   dark: {
-    primary: '#818cf8',
+    primaryStart: '#219B9B',
+    primaryEnd: '#0F6B7B',
+    primary: '#0F6B7B',
     background: '#0f172a',
     surface: '#1e293b',
     text: '#f1f5f9',
