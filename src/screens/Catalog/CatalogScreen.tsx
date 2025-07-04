@@ -6,7 +6,6 @@ import {
   FlatList,
   TouchableOpacity,
   TextInput,
-  Modal,
   ScrollView,
   SafeAreaView,
   useColorScheme,
@@ -22,6 +21,7 @@ import { Anime, AnimeStatus } from '../../types/anime';
 import apiService from '../../services/apiService';
 import { useApi } from '../../contexts/ApiContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import CustomModal from '../../components/CustomModal';
 
 type CatalogScreenProps = MainTabScreenProps<'Catalog'>;
 
@@ -441,11 +441,10 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
   };
 
   const renderFiltersModal = () => (
-    <Modal
+    <CustomModal
       visible={showFilters}
-      animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={() => setShowFilters(false)}
+      alignment="bottom"
     >
       <SafeAreaView style={[styles.filtersContainer, { backgroundColor: colors.background }]}>
         <View style={styles.filtersHeader}>
@@ -610,7 +609,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
           </View>
         </ScrollView>
       </SafeAreaView>
-    </Modal>
+    </CustomModal>
   );
 
 

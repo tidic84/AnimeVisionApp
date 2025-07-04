@@ -12,7 +12,6 @@ import {
   RefreshControl,
   ActivityIndicator,
   Image,
-  Modal,
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +21,7 @@ import { useApi } from '../../contexts/ApiContext';
 import { DownloadStatus, VideoQuality } from '../../types/anime';
 import downloadService, { DownloadItem, DownloadProgress } from '../../services/downloadService';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import CustomModal from '../../components/CustomModal';
 
 type DownloadsScreenProps = MainTabScreenProps<'Downloads'>;
 
@@ -376,11 +376,10 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
   };
 
   const renderStorageModal = () => (
-    <Modal
+    <CustomModal
       visible={showStorageModal}
-      animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={() => setShowStorageModal(false)}
+      alignment="bottom"
     >
       <SafeAreaView style={[styles.modalContainer, { backgroundColor: colors.background }]}>
         <View style={styles.modalHeader}>
@@ -443,7 +442,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
           )}
         </ScrollView>
       </SafeAreaView>
-    </Modal>
+    </CustomModal>
   );
 
   const renderTabs = () => (
