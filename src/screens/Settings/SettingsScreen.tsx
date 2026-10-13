@@ -349,7 +349,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
 
   const editProfile = () => { setProfileDraft(profileName); setShowProfileModal(true); };
   const renderHeader = () => (
-    <LinearGradient colors={['#F47521', '#70300C', colors.background]} locations={[0, 0.45, 1]} style={[styles.profileHeader, { paddingTop: insets.top + 20 }]}>
+    <LinearGradient colors={['#8B5CF6', '#422767', colors.background]} locations={[0, 0.45, 1]} style={[styles.profileHeader, { paddingTop: insets.top + 20 }]}>
       <Text style={styles.pageTitle}>Mon compte</Text>
       <TouchableOpacity accessibilityRole="button" accessibilityLabel="Modifier mon profil" onPress={editProfile} style={styles.avatarButton}>
         <View style={styles.avatar}><Text style={styles.avatarInitial}>{profileName.charAt(0).toUpperCase()}</Text></View>

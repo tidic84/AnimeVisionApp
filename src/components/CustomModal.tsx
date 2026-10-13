@@ -1,8 +1,8 @@
-import { useAppColorScheme as useColorScheme } from '../contexts/ThemeContext';
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { useAppColorScheme } from '../contexts/ThemeContext';
 import { palette } from '../theme/palette';
 import useReducedMotion from '../hooks/useReducedMotion';
-import { Modal, View, StyleSheet, TouchableWithoutFeedback, } from 'react-native';
 
 interface CustomModalProps {
   visible: boolean;
@@ -11,66 +11,25 @@ interface CustomModalProps {
   transparent?: boolean;
   alignment?: 'center' | 'bottom';
 }
-
-const CustomModal: React.FC<CustomModalProps> = ({
-  visible,
-  onRequestClose,
-  children,
-  transparent = true,
-  alignment = 'center',
-}) => {
-  const reducedMotion = useReducedMotion();
-  const colors = palette[useColorScheme() ?? 'light'];
-  return (
-    <Modal
-      visible={visible}
-      animationType={reducedMotion ? 'none' : 'fade'}
-      transparent={transparent}
-      onRequestClose={onRequestClose}
-    >
-      <TouchableWithoutFeedback onPress={onRequestClose}>
-        <View style={styles.overlay} />
-      </TouchableWithoutFeedback>
-
-      <View
-        style={[
-          styles.container,
-          { backgroundColor: colors.surface },
-          alignment === 'bottom' && styles.bottomSheet,
-        ]}
-      >
-        {children}
-      </View>
-    </Modal>
-  );
-};
-
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  container: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: [{ translateX: -150 }, { translateY: -200 }],
-    width: 300,
-    maxHeight: '80%',
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  bottomSheet: {
-    top: undefined,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    transform: undefined,
-    width: '100%',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-});
-
-export default CustomModal;
+export default function CustomModal({ visible, onRequestClose, children, transparent = true, alignment = 'center' }: CustomModalProps) {
+  const colors = palette[useAppColorScheme()];
+  const reduced = useReducedMotion();
+  const [mounted, setMounted] = useState(visible);
+  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const generation = useRef(0);
+  useEffect(() => {
+    const token = ++generation.current;
+    if (visible) setMounted(true);
+    if (reduced) { progress.setValue(visible ? 1 : 0); setMounted(visible); return; }
+    const animation = Animated.timing(progress, { toValue: visible ? 1 : 0, duration: visible ? 240 : 180, easing: visible ? Easing.bezier(.22, 1, .36, 1) : Easing.in(Easing.quad), useNativeDriver: Platform.OS !== 'web' });
+    animation.start(({ finished }) => { if (finished && token === generation.current && !visible) setMounted(false); });
+    return () => { generation.current++; animation.stop(); };
+  }, [visible, reduced, progress]);
+  return <Modal visible={mounted} animationType="none" transparent={transparent} onRequestClose={onRequestClose}>
+    <View style={[styles.layout, alignment === 'bottom' && { justifyContent: 'flex-end' }]}>
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: progress, backgroundColor: 'rgba(0,0,0,.65)' }]}><Pressable accessibilityRole="button" accessibilityLabel="Fermer la fenêtre" onPress={onRequestClose} style={{ flex: 1 }} /></Animated.View>
+      <Animated.View accessibilityViewIsModal style={[styles.content, { backgroundColor: colors.surface, opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [alignment === 'bottom' ? 32 : 8, 0] }) }] }, alignment === 'bottom' && styles.bottom]}>{children}</Animated.View>
+    </View>
+  </Modal>;
+}
+const styles = StyleSheet.create({ layout: { flex: 1, justifyContent: 'center', alignItems: 'center' }, content: { width: '90%', maxWidth: 560, maxHeight: '85%', borderRadius: 16, overflow: 'hidden' }, bottom: { width: '100%', maxWidth: 900, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 } });

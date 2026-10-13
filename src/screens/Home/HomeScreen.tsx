@@ -6,7 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppColorScheme } from '../../contexts/ThemeContext';
 import { palette } from '../../theme/palette';
-import { FadeIn, MotionPressable } from '../../components/Motion';
+import { FadeIn, MotionPressable, LoadingSwap } from '../../components/Motion';
+import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/SkeletonCard';
 import AnimeCard from '../../components/AnimeCard/AnimeCard';
 import EpisodeCard from '../../components/EpisodeCard/EpisodeCard';
 import ApiGuard from '../../components/ApiGuard';
@@ -105,18 +106,18 @@ function HomeContent() {
         <View style={styles.brand}><Ionicons name="play-circle" size={30} color={colors.primary} /><Text style={[styles.brandText, { color: colors.text }]}>animevision</Text></View>
         <MotionPressable accessibilityLabel="Rechercher un anime" onPress={() => navigation.navigate('Catalog')} style={styles.search}><Ionicons name="search-outline" size={27} color={colors.text} /></MotionPressable>
       </View>
-      {loading && !featured.length ? <View style={{ height: heroHeight, justifyContent: 'center' }}><ActivityIndicator color={colors.primary} size="large" /></View> : null}
       {error ? <View style={styles.error}><Text style={{ color: colors.textSecondary, textAlign: 'center' }}>{error}</Text><MotionPressable onPress={() => load()} style={[styles.retry, { borderColor: colors.primary }]}><Text style={{ color: colors.primary }}>Réessayer</Text></MotionPressable></View> : null}
+      <LoadingSwap loading={loading && !featured.length} skeleton={<SkeletonGroup><View style={{ height: heroHeight + 32, paddingHorizontal: 18 }}><SkeletonBlock height={heroHeight * .6} style={{ marginHorizontal: -18 }} /><View style={{ paddingTop: 22, gap: 12 }}><SkeletonBlock width="75%" height={37} /><SkeletonBlock width="55%" height={14} /><SkeletonBlock height={20} /><SkeletonBlock width="85%" height={20} /><SkeletonBlock width={220} height={46} /></View></View></SkeletonGroup>}>
       {featured.length > 0 && <View style={styles.hero}>
         <FlatList horizontal pagingEnabled data={featured} keyExtractor={a => a.id} showsHorizontalScrollIndicator={false} onMomentumScrollEnd={e => setSlide(Math.round(e.nativeEvent.contentOffset.x / width))} renderItem={({ item: anime }) => (
-          <ImageBackground source={{ uri: anime.banner || anime.thumbnail }} style={{ width, height: heroHeight }} resizeMode="cover">
+          <ImageBackground source={{ uri: anime.banner || anime.thumbnail }} style={{ width, height: heroHeight }} resizeMode="cover" fadeDuration={280}>
             <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,.18)', '#000000']} locations={[0, .35, .79]} style={styles.heroGradient}>
               <FadeIn style={styles.heroContent}>
                 <Text style={styles.heroTitle} numberOfLines={2}>{anime.title}</Text>
                 <Text style={styles.heroMetadata}>{[anime.year > 1900 ? String(anime.year) : '', ...anime.genres.slice(0, 3)].filter(Boolean).join(' · ')}</Text>
                 <Text style={styles.heroDescription} numberOfLines={3}>{anime.synopsis.replace(/<[^>]*>/g, '').trim()}</Text>
                 <View style={styles.actions}>
-                  <MotionPressable onPress={() => openAnime(anime.id)} accessibilityLabel={`Découvrir ${anime.title}`} style={[styles.heroButton, { backgroundColor: colors.buttonBg }]}><Ionicons name="play" size={20} color="#000" /><Text style={styles.heroButtonText}>Découvrir l’anime</Text></MotionPressable>
+                  <MotionPressable onPress={() => openAnime(anime.id)} accessibilityLabel={`Découvrir ${anime.title}`} style={[styles.heroButton, { backgroundColor: colors.buttonBg }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={[styles.heroButtonText, { color: colors.buttonText }]}>Découvrir l’anime</Text></MotionPressable>
                   <MotionPressable disabled={!watchlistId} onPress={() => toggleWatchlist(anime)} accessibilityLabel={`${watchlist.some(item => item.id === anime.id) ? "Retirer" : "Ajouter"} ${anime.title} ${watchlist.some(item => item.id === anime.id) ? "de" : "à"} la Watchlist`} style={[styles.heroInfo, { borderColor: colors.primary }]}><Ionicons name={watchlist.some(item => item.id === anime.id) ? "bookmark" : "bookmark-outline"} size={24} color={colors.primary} /></MotionPressable>
                 </View>
               </FadeIn>
@@ -125,6 +126,7 @@ function HomeContent() {
         )} />
         <View style={styles.dots}>{featured.map((a, index) => <View key={a.id} style={{ width: index === slide ? 30 : 18, height: 4, backgroundColor: index === slide ? colors.primary : '#646467', borderRadius: 2 }} />)}</View>
       </View>}
+      </LoadingSwap>
       {episodes('Reprendre', resume)}
       {shelves[0] && shelf(shelves[0].title, shelves[0].items)}
       {episodes('Nouveaux épisodes', latest)}

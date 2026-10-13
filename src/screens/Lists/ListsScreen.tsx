@@ -8,7 +8,8 @@ import { palette } from '../../theme/palette';
 import { MainTabScreenProps } from '../../types/navigation';
 import { Anime, AnimeList, Episode, WatchHistory } from '../../types/anime';
 import databaseService from '../../services/databaseService';
-import { FadeIn } from '../../components/Motion';
+import { FadeIn, LoadingSwap } from '../../components/Motion';
+import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/SkeletonCard';
 import useReducedMotion from '../../hooks/useReducedMotion';
 import { DownloadsContent } from '../Downloads/DownloadsScreen';
 
@@ -90,7 +91,7 @@ export default function ListsScreen({ navigation }: MainTabScreenProps<'Lists'>)
     <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>{tabs.map(label => <TouchableOpacity key={label} accessibilityRole="tab" accessibilityState={{ selected: tab === label }} onPress={() => { setTab(label); setSelectedId(null); setAdding(false); }} style={[styles.tab, { borderBottomColor: tab === label ? colors.primary : 'transparent' }]}><Text style={[styles.tabText, { color: tab === label ? colors.text : colors.textSecondary }]}>{label}</Text></TouchableOpacity>)}</ScrollView></View>
     {tab === 'Téléchargements' ? <DownloadsContent navigation={navigation} embedded /> : <ScrollView refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.primary} />} contentContainerStyle={styles.content}>
       {error ? <TouchableOpacity onPress={load}><Text style={{ color: colors.danger, paddingVertical: 16 }}>{error}</Text></TouchableOpacity> : null}
-      {loading ? <ActivityIndicator color={colors.primary} style={{ marginTop: 50 }} /> : <FadeIn key={`${tab}-${selectedId}`}>
+      <LoadingSwap loading={loading} skeleton={<SkeletonGroup><View style={{ paddingTop: 18, gap: 20 }}>{[0, 1, 2].map(index => <View key={index} style={{ flexDirection: "row", gap: 18 }}><SkeletonBlock width={88} height={132} /><View style={{ flex: 1, gap: 14, paddingTop: 8 }}><SkeletonBlock height={22} /><SkeletonBlock width="60%" height={16} /><SkeletonBlock width="80%" height={16} /></View></View>)}</View></SkeletonGroup>}><FadeIn key={`${tab}-${selectedId}`}>
         {tab === 'Watchlist' || (tab === 'Collections' && selected) ? <>
           <View style={styles.toolbar}>{selected ? <TouchableOpacity onPress={() => { setSelectedId(null); setAdding(false); }} style={styles.back}><Ionicons name="chevron-back" size={22} color={colors.text} /><Text style={[styles.toolbarTitle, { color: colors.text }]} numberOfLines={1}>{selected.name}</Text></TouchableOpacity> : <Text style={[styles.toolbarTitle, { color: colors.text }]}>{sort ? 'Ordre alphabétique' : 'Activité récente'}</Text>}
             <TouchableOpacity onPress={() => selected ? setAdding(!adding) : setSort(!sort)} accessibilityLabel={selected ? 'Ajouter des animés à la collection' : 'Changer le tri'} style={styles.iconButton}><Ionicons name={selected ? (adding ? 'close' : 'add') : 'filter-outline'} size={26} color={colors.text} /></TouchableOpacity>
@@ -107,7 +108,7 @@ export default function ListsScreen({ navigation }: MainTabScreenProps<'Lists'>)
             <Text style={[styles.meta, { color: colors.textSecondary, marginTop: 8 }]} numberOfLines={2}>{item.anime.title}</Text><Text style={[styles.historyTitle, { color: colors.text }]} numberOfLines={2}>{item.episode?.title || 'Reprendre l’épisode'}</Text><Text style={[styles.meta, { color: colors.textSecondary }]}>{item.episode ? `E${item.episode.number} • ` : ''}{item.progress >= 90 ? 'Regardé' : 'En cours'}</Text>
           </TouchableOpacity>{manage && <TouchableOpacity onPress={async () => { try { await databaseService.removeWatchHistory(item.animeId, item.episodeId); await load(); } catch { setError('Impossible de retirer cet épisode de l’historique.'); } }} accessibilityLabel="Retirer cet épisode"><Text style={{ color: colors.danger, paddingTop: 10 }}>Retirer de l’historique</Text></TouchableOpacity>}</View>)}</View>{!history.length && empty('Votre historique est vide', 'Les épisodes regardés apparaîtront ici pour les reprendre facilement.')}
         </>}
-      </FadeIn>}
+      </FadeIn></LoadingSwap>
     </ScrollView>}
     <Modal visible={editor !== null} transparent animationType={reduced ? 'none' : 'fade'} onRequestClose={() => setEditor(null)}><View style={styles.modalBackdrop}><View style={[styles.modal, { backgroundColor: colors.surface }]}><Text style={[styles.collectionName, { color: colors.text, marginBottom: 20 }]}>{editor === 'new' ? 'Créer une collection' : 'Modifier la collection'}</Text><TextInput accessibilityLabel="Nom de la collection" value={name} onChangeText={setName} placeholder="Nom de la collection" placeholderTextColor={colors.textSecondary} maxLength={80} autoFocus style={[styles.input, { color: colors.text, borderColor: colors.border }]} />
       <View style={styles.modalActions}><TouchableOpacity onPress={() => setEditor(null)} style={styles.iconButton}><Text style={{ color: colors.text }}>Annuler</Text></TouchableOpacity><TouchableOpacity disabled={!name.trim() || saving} onPress={save} style={styles.iconButton}><Text style={{ color: colors.primary, fontWeight: '700', opacity: name.trim() && !saving ? 1 : 0.4 }}>{saving ? 'Enregistrement…' : 'Enregistrer'}</Text></TouchableOpacity></View>

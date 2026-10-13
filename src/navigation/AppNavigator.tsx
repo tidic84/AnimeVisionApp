@@ -7,7 +7,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { View } from 'react-native';
+import { View, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RootStackParamList, MainTabParamList } from '../types/navigation';
@@ -40,6 +40,7 @@ const FallbackIcon: React.FC<{ size: number; color: string }> = ({ size, color }
 );
 
 function MainTabNavigator() {
+  const reducedMotion = useReducedMotion();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { isApiAvailable, isOfflineMode } = useApi();
@@ -47,8 +48,8 @@ function MainTabNavigator() {
 
   // Déterminer la route initiale en fonction de la disponibilité de l'API
   const getInitialRouteName = (): keyof MainTabParamList => {
-    // Toujours démarrer sur Home - l'app gérera la redirection si l'API n'est pas disponible
-    return "Home";
+    // La route initiale doit exister aussi lorsque le catalogue est indisponible.
+    return isApiAvailable ? "Home" : "Downloads";
   };
 
   return (
@@ -83,6 +84,9 @@ function MainTabNavigator() {
 
           return <Ionicons name={iconName} size={iconSize} color={finalColor} />;
         },
+        animation: reducedMotion ? 'none' : 'fade',
+        transitionSpec: { animation: 'timing', config: { duration: reducedMotion ? 0 : 200, easing: Easing.out(Easing.cubic) } },
+        sceneStyle: { backgroundColor: colors.background },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.tabBarInactive,
         tabBarLabelPosition: 'below-icon',
@@ -145,7 +149,7 @@ function MainTabNavigator() {
             title: 'Naviguer',
             headerShown: false,
             tabBarStyle: {
-              position: 'absolute',
+              position: 'relative',
               backgroundColor: colors.tabBar,
               height: 74 + insets.bottom,
               paddingBottom: 8 + insets.bottom,
@@ -219,7 +223,10 @@ export default function AppNavigator() {
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       <Stack.Navigator
         screenOptions={{
-          animation: reducedMotion ? 'none' : 'fade',
+          animation: reducedMotion ? 'none' : 'slide_from_right',
+          animationDuration: 280,
+          contentStyle: { backgroundColor: colors.background },
+          gestureEnabled: true,
           headerStyle: {
             backgroundColor: colors.background,
           },
@@ -248,7 +255,7 @@ export default function AppNavigator() {
           component={VideoPlayerScreen}
           options={{
             headerShown: false,
-            animation: reducedMotion ? 'none' : 'slide_from_bottom',
+            animation: reducedMotion ? 'none' : 'fade',
           }}
         />
       </Stack.Navigator>

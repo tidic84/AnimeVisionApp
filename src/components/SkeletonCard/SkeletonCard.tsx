@@ -1,196 +1,43 @@
-import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
-import React, { useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet, } from 'react-native';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { View, Animated, Easing, Platform, StyleProp, ViewStyle, DimensionValue } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import useReducedMotion from '../../hooks/useReducedMotion';
+import { useAppColorScheme } from '../../contexts/ThemeContext';
 import { palette } from '../../theme/palette';
 
-interface SkeletonCardProps {
-  type?: 'anime' | 'episode';
-  size?: 'small' | 'medium' | 'large';
-}
-
-const SkeletonCard: React.FC<SkeletonCardProps> = ({
-  type = 'anime',
-  size = 'medium'
-}) => {
-  const colorScheme = useColorScheme();
-  const reducedMotion = useReducedMotion();
-  const pulseAnim = useRef(new Animated.Value(0)).current;
-
+const Phase = createContext<Animated.Value | null>(null);
+function usePhase(enabled: boolean) {
+  const reduced = useReducedMotion();
+  const phase = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (reducedMotion) { pulseAnim.setValue(0); return; }
-    const animation = Animated.loop(Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1200,
-          useNativeDriver: false,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0,
-          duration: 1200,
-          useNativeDriver: false,
-        }),
-      ]));
+    if (!enabled || reduced) { phase.setValue(0); return; }
+    const animation = Animated.loop(Animated.timing(phase, { toValue: 1, duration: 1800, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web', isInteraction: false }));
     animation.start();
-    return () => animation.stop();
-  }, [pulseAnim, reducedMotion]);
-
-  const backgroundColor = pulseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [
-      palette[colorScheme ?? 'light'].surface,
-      palette[colorScheme ?? 'light'].border,
-    ],
-  });
-
-  const getCardDimensions = () => {
-    switch (size) {
-      case 'small':
-        return { width: 140, height: 200 };
-      case 'large':
-        return { width: 180, height: 240 };
-      default: // medium
-        return { width: 150, height: 200 };
-    }
-  };
-
-  const dimensions = getCardDimensions();
-
-  if (type === 'episode') {
-    return (
-      <View style={[styles.episodeContainer, { width: dimensions.width + 50 }]}>
-        {/* Thumbnail */}
-        <Animated.View
-          style={[
-            styles.episodeThumbnail,
-            { backgroundColor, width: dimensions.width, height: dimensions.height * 0.6 }
-          ]}
-        />
-
-        {/* Episode Info */}
-        <View style={styles.episodeInfo}>
-          <Animated.View
-            style={[styles.skeletonText, styles.episodeTitle, { backgroundColor }]}
-          />
-          <Animated.View
-            style={[styles.skeletonText, styles.episodeSubtitle, { backgroundColor }]}
-          />
-
-          {/* Progress Bar */}
-          <View style={styles.progressContainer}>
-            <Animated.View
-              style={[styles.progressBar, { backgroundColor }]}
-            />
-          </View>
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={[styles.animeContainer, dimensions]}>
-      {/* Poster Image */}
-      <Animated.View
-        style={[
-          styles.animePoster,
-          { backgroundColor, width: dimensions.width, height: dimensions.height * 0.75 }
-        ]}
-      />
-
-      {/* Title */}
-      <View style={styles.animeInfo}>
-        <Animated.View
-          style={[styles.skeletonText, styles.animeTitle, { backgroundColor }]}
-        />
-        <Animated.View
-          style={[styles.skeletonText, styles.animeSubtitle, { backgroundColor }]}
-        />
-      </View>
-
-      {/* Rating */}
-      <View style={styles.ratingContainer}>
-        <Animated.View
-          style={[styles.skeletonText, styles.rating, { backgroundColor }]}
-        />
-      </View>
-    </View>
-  );
-};
-
-const styles = StyleSheet.create({
-  // Anime Card Skeleton
-  animeContainer: {
-    marginHorizontal: 8,
-    marginVertical: 4,
-  },
-  animePoster: {
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  animeInfo: {
-    paddingHorizontal: 4,
-  },
-  animeTitle: {
-    height: 16,
-    borderRadius: 4,
-    marginBottom: 6,
-  },
-  animeSubtitle: {
-    height: 12,
-    width: '70%',
-    borderRadius: 4,
-    marginBottom: 4,
-  },
-  ratingContainer: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-  },
-  rating: {
-    width: 40,
-    height: 20,
-    borderRadius: 10,
-  },
-
-  // Episode Card Skeleton
-  episodeContainer: {
-    flexDirection: 'row',
-    marginVertical: 8,
-    marginHorizontal: 16,
-  },
-  episodeThumbnail: {
-    borderRadius: 8,
-    marginRight: 12,
-  },
-  episodeInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  episodeTitle: {
-    height: 18,
-    borderRadius: 4,
-    marginBottom: 8,
-    width: '90%',
-  },
-  episodeSubtitle: {
-    height: 14,
-    width: '60%',
-    borderRadius: 4,
-    marginBottom: 12,
-  },
-  progressContainer: {
-    marginTop: 8,
-  },
-  progressBar: {
-    height: 4,
-    borderRadius: 2,
-    width: '40%',
-  },
-
-  // Base skeleton styles
-  skeletonText: {
-    borderRadius: 4,
-  },
-});
-
-export default SkeletonCard;
+    return () => { animation.stop(); phase.stopAnimation(); };
+  }, [enabled, reduced, phase]);
+  return phase;
+}
+/** Share a single native animation for a whole loading layout. */
+export function SkeletonGroup({ children }: React.PropsWithChildren) {
+  const phase = usePhase(true);
+  return <Phase.Provider value={phase}>{children}</Phase.Provider>;
+}
+export function SkeletonBlock({ width = '100%', height = 16, style }: { width?: DimensionValue; height?: DimensionValue; style?: StyleProp<ViewStyle> }) {
+  const colors = palette[useAppColorScheme()];
+  const shared = useContext(Phase);
+  const local = usePhase(!shared);
+  const phase = shared || local;
+  const reduced = useReducedMotion();
+  const [measuredWidth, setMeasuredWidth] = useState(typeof width === 'number' ? width : 200);
+  return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" onLayout={e => { const value = e.nativeEvent.layout.width; if (value > 0 && value !== measuredWidth) setMeasuredWidth(value); }} style={[{ width, height, backgroundColor: colors.surface, overflow: 'hidden', borderRadius: 3 }, style]}>
+    {!reduced && <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, width: measuredWidth, transform: [{ translateX: phase.interpolate({ inputRange: [0, 1], outputRange: [-measuredWidth, measuredWidth] }) }] }}><LinearGradient colors={['transparent', colors.border, 'transparent']} locations={[0, .5, 1]} style={{ flex: 1, opacity: .45 }} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} /></Animated.View>}
+  </View>;
+}
+export default function SkeletonCard({ type = 'anime', size = 'medium' }: { type?: 'anime' | 'episode'; size?: 'small' | 'medium' | 'large' }) {
+  const width = type === 'episode' ? (size === 'large' ? 240 : size === 'small' ? 160 : 200) : (size === 'large' ? 180 : size === 'small' ? 120 : 150);
+  return <SkeletonGroup><View style={{ width, marginRight: 14 }}>
+    <SkeletonBlock width={width} height={type === 'episode' ? width * 9 / 16 : width * 1.5} />
+    <SkeletonBlock height={16} style={{ marginTop: 10 }} />
+    <SkeletonBlock width="65%" height={12} style={{ marginTop: 8 }} />
+  </View></SkeletonGroup>;
+}
