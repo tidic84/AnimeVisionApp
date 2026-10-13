@@ -20,6 +20,7 @@ import {
   TextInput,
   Linking,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MainTabScreenProps } from '../../types/navigation';
@@ -106,13 +107,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   const [showQualityModal, setShowQualityModal] = useState(false);
   const [showDownloadQualityModal, setShowDownloadQualityModal] = useState(false);
   const [showStorageModal, setShowStorageModal] = useState(false);
-  const [showMalModal, setShowMalModal] = useState(false);
-  const [malUsername, setMalUsername] = useState('');
+  const [profileName, setProfileName] = useState('Mon profil');
+  const [profileDraft, setProfileDraft] = useState('');
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [storageUsed, setStorageUsed] = useState(0);
 
   useEffect(() => {
     loadSettings();
     calculateStorageUsed();
+    AsyncStorage.getItem('localProfileName').then(name => { if (name) setProfileName(name); }).catch(() => {});
   }, []);
 
   const loadSettings = async () => {
@@ -155,97 +158,14 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     } finally { setCheckingConnection(false); }
   };
 
-  const handleMalSync = async () => {
-    if (settings.malEnabled) {
-      // Désactiver MAL
-      Alert.alert(
-        'Désactiver MyAnimeList',
-        'Voulez-vous vraiment désactiver la synchronisation avec MyAnimeList ?',
-        [
-          { text: 'Annuler', style: 'cancel' },
-          {
-            text: 'Désactiver',
-            style: 'destructive',
-            onPress: () => saveSettings({
-              malEnabled: false,
-              malUsername: '',
-              malToken: '',
-            }),
-          },
-        ]
-      );
-    } else {
-      setShowMalModal(true);
-    }
-  };
-
-  const connectToMAL = async () => {
-    if (!malUsername.trim()) {
-      Alert.alert('Erreur', 'Veuillez entrer votre nom d\'utilisateur MyAnimeList');
-      return;
-    }
-
+  const saveProfile = async () => {
+    const name = profileDraft.trim();
+    if (!name) return;
     try {
-      // TODO: Implémenter l'authentification OAuth avec MyAnimeList
-      // Pour l'instant, on simule une connexion réussie
-      await saveSettings({
-        malEnabled: true,
-        malUsername: malUsername.trim(),
-        malToken: 'mock_token', // En réalité, ce serait le token OAuth
-      });
-
-      setShowMalModal(false);
-      setMalUsername('');
-      Alert.alert('Succès', 'Connexion à MyAnimeList réussie !');
-    } catch (error) {
-      console.error('[Settings] Erreur lors de la connexion MAL:', error);
-      Alert.alert('Erreur', 'Impossible de se connecter à MyAnimeList');
-    }
-  };
-
-  const clearCache = async () => {
-    Alert.alert(
-      'Vider le cache',
-      'Cette action supprimera toutes les données mises en cache. Continuer ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Vider',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // TODO: Implémenter la suppression du cache
-              Alert.alert('Succès', 'Cache vidé avec succès');
-            } catch (error) {
-              Alert.alert('Erreur', 'Impossible de vider le cache');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const clearDownloads = async () => {
-    Alert.alert(
-      'Supprimer tous les téléchargements',
-      'Cette action supprimera tous les épisodes téléchargés. Cette action est irréversible.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // TODO: Implémenter la suppression des téléchargements
-              Alert.alert('Succès', 'Tous les téléchargements ont été supprimés');
-              calculateStorageUsed();
-            } catch (error) {
-              Alert.alert('Erreur', 'Impossible de supprimer les téléchargements');
-            }
-          },
-        },
-      ]
-    );
+      await AsyncStorage.setItem('localProfileName', name);
+      setProfileName(name);
+      setShowProfileModal(false);
+    } catch { Alert.alert('Erreur', 'Impossible de sauvegarder le profil'); }
   };
 
   const openURL = (url: string) => {
@@ -254,8 +174,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
 
   const renderSection = (title: string, children: React.ReactNode) => (
     <FadeIn style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
-      <View style={[styles.sectionContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{title}</Text>
+      <View style={[styles.sectionContent, { backgroundColor: colors.background, borderColor: colors.border }]}>
         {children}
       </View>
     </FadeIn>
@@ -272,17 +192,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     danger?: boolean
   ) => (
     <TouchableOpacity
-      style={[styles.settingRow, onPress && styles.settingRowPressable]}
+      style={[styles.settingRow, { borderBottomColor: colors.border }, onPress && styles.settingRowPressable]}
       onPress={onPress}
       disabled={!onPress && !onSwitchChange}
     >
       <View style={styles.settingRowLeft}>
-        <Ionicons
-          name={icon as any}
-          size={24}
-          color={danger ? colors.danger : colors.primary}
-          style={styles.settingIcon}
-        />
         <View style={styles.settingText}>
           <Text style={[styles.settingTitle, { color: danger ? colors.danger : colors.text }]}>
             {title}
@@ -332,7 +246,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-          <Text style={[styles.modalTitle, { color: colors.text }]}>{title}</Text>
+          <Text style={[styles.modalTitle, { color: colors.textSecondary }]}>{title}</Text>
 
           {QUALITY_OPTIONS.map((option) => (
             <TouchableOpacity
@@ -417,109 +331,40 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     </Modal>
   );
 
-  const renderMalModal = () => (
-    <Modal
-      visible={showMalModal}
-      animationType={reducedMotion ? 'none' : 'slide'}
-      transparent={true}
-      onRequestClose={() => setShowMalModal(false)}
-    >
+  const renderProfileModal = () => (
+    <Modal visible={showProfileModal} transparent animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={() => setShowProfileModal(false)}>
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-          <Text style={[styles.modalTitle, { color: colors.text }]}>
-            Connecter MyAnimeList
-          </Text>
-
-          <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>
-            Entrez votre nom d'utilisateur MyAnimeList pour synchroniser votre liste et votre progression.
-          </Text>
-
-          <TextInput
-            style={[
-              styles.textInput,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-                color: colors.text,
-              }
-            ]}
-            placeholder="Nom d'utilisateur MyAnimeList"
-            placeholderTextColor={colors.textSecondary}
-            value={malUsername}
-            onChangeText={setMalUsername}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-
+          <Text style={[styles.modalTitle, { color: colors.text }]}>Modifier mon profil</Text>
+          <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>Votre pseudo est enregistré sur cet appareil.</Text>
+          <TextInput accessibilityLabel="Pseudo du profil" style={[styles.textInput, { borderColor: colors.border, color: colors.text }]} value={profileDraft} onChangeText={setProfileDraft} maxLength={32} autoFocus returnKeyType="done" onSubmitEditing={saveProfile} />
           <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: colors.border }]}
-              onPress={() => {
-                setShowMalModal(false);
-                setMalUsername('');
-              }}
-            >
-              <Text style={[styles.modalButtonText, { color: colors.text }]}>Annuler</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: colors.buttonBg }]}
-              onPress={connectToMAL}
-            >
-              <Text style={[styles.modalButtonText, { color: 'white' }]}>Connecter</Text>
-            </TouchableOpacity>
+            <TouchableOpacity accessibilityRole="button" style={[styles.modalButton, { backgroundColor: colors.border }]} onPress={() => setShowProfileModal(false)}><Text style={{ color: colors.text }}>Annuler</Text></TouchableOpacity>
+            <TouchableOpacity accessibilityRole="button" disabled={!profileDraft.trim()} style={[styles.modalButton, { backgroundColor: colors.buttonBg, opacity: profileDraft.trim() ? 1 : 0.45 }]} onPress={saveProfile}><Text style={{ color: colors.buttonText }}>Enregistrer</Text></TouchableOpacity>
           </View>
         </View>
       </View>
     </Modal>
   );
 
+  const editProfile = () => { setProfileDraft(profileName); setShowProfileModal(true); };
   const renderHeader = () => (
-    <View style={[styles.header, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-<Text style={{ color: colors.textSecondary, fontSize: 10, letterSpacing: 2, fontWeight: '700', marginTop: 20 }}>VOTRE EXPÉRIENCE, À VOTRE FAÇON</Text><Text style={{ color: colors.text, fontSize: 32, fontWeight: '800', letterSpacing: -1, marginTop: 8, marginBottom: 28 }}>Paramètres</Text>
-    </View>
+    <LinearGradient colors={['#F47521', '#70300C', colors.background]} locations={[0, 0.45, 1]} style={[styles.profileHeader, { paddingTop: insets.top + 20 }]}>
+      <Text style={styles.pageTitle}>Mon compte</Text>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Modifier mon profil" onPress={editProfile} style={styles.avatarButton}>
+        <View style={styles.avatar}><Text style={styles.avatarInitial}>{profileName.charAt(0).toUpperCase()}</Text></View>
+        <View style={styles.editBadge}><Ionicons name="pencil-outline" size={21} color="#111" /></View>
+      </TouchableOpacity>
+      <Text style={styles.profileName}>{profileName}</Text>
+    </LinearGradient>
   );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {renderHeader()}
+        {renderSection('Profil', renderSettingRow('person', 'Modifier le profil', undefined, undefined, editProfile))}
         {renderSection('Connexion', renderSettingRow('refresh', 'Connexion au catalogue', 'Vérifier la connexion et retrouver le catalogue', checkingConnection ? 'Vérification…' : isApiAvailable ? 'Connecté' : 'Hors ligne', retryConnection))}
-        {/* MyAnimeList */}
-        {renderSection('MyAnimeList', (
-          <>
-            {renderSettingRow(
-              'planet',
-              settings.malEnabled ? 'Connecté à MyAnimeList' : 'Connecter MyAnimeList',
-              settings.malEnabled ? `Utilisateur: ${settings.malUsername}` : 'Synchronisez votre liste et progression',
-              undefined,
-              handleMalSync,
-              undefined,
-              undefined
-            )}
-            {settings.malEnabled && (
-              <>
-                {renderSettingRow(
-                  'sync',
-                  'Synchronisation automatique',
-                  'Mise à jour automatique du progrès',
-                  undefined,
-                  undefined,
-                  true,
-                  (value) => saveSettings({ malEnabled: value })
-                )}
-                {renderSettingRow(
-                  'cloud-upload',
-                  'Importer depuis MAL',
-                  'Importer votre liste MyAnimeList',
-                  undefined,
-                  () => Alert.alert('Info', 'Fonctionnalité à venir')
-                )}
-              </>
-            )}
-          </>
-        ))}
-
         {/* Lecture */}
         {renderSection('Lecture', (
           <>
@@ -666,29 +511,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
           </>
         ))}
 
-        {/* Stockage */}
-        {renderSection('Stockage', (
-          <>
-            {renderSettingRow(
-              'refresh',
-              'Vider le cache',
-              'Supprimer les données temporaires',
-              undefined,
-              clearCache
-            )}
-            {renderSettingRow(
-              'trash-bin',
-              'Supprimer tous les téléchargements',
-              'Libérer l\'espace de stockage',
-              undefined,
-              clearDownloads,
-              undefined,
-              undefined,
-              true
-            )}
-          </>
-        ))}
-
         {/* À propos */}
         {renderSection('À propos', (
           <>
@@ -705,27 +527,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               'anime-sama.fr',
               undefined,
               () => openURL('https://anime-sama.fr')
-            )}
-            {renderSettingRow(
-              'help-circle',
-              'Support',
-              'Aide et assistance',
-              undefined,
-              () => Alert.alert('Support', 'Contactez-nous à support@animevision.app')
-            )}
-            {renderSettingRow(
-              'document-text',
-              'Conditions d\'utilisation',
-              undefined,
-              undefined,
-              () => Alert.alert('Info', 'Conditions d\'utilisation à venir')
-            )}
-            {renderSettingRow(
-              'shield-checkmark',
-              'Politique de confidentialité',
-              undefined,
-              undefined,
-              () => Alert.alert('Info', 'Politique de confidentialité à venir')
             )}
           </>
         ))}
@@ -755,12 +556,19 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
       )}
 
       {renderStorageModal()}
-      {renderMalModal()}
+      {renderProfileModal()}
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  profileHeader: { alignItems: 'center', paddingBottom: 48, minHeight: 300 },
+  pageTitle: { color: '#FFF', fontSize: 23, fontWeight: '700', alignSelf: 'flex-start', marginLeft: 18, marginBottom: 30 },
+  avatarButton: { width: 112, height: 112 },
+  avatar: { width: 108, height: 108, borderRadius: 54, borderWidth: 2, borderColor: '#FFF', backgroundColor: '#202024', alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { color: '#FFF', fontSize: 47, fontWeight: '600' },
+  editBadge: { position: 'absolute', right: 0, bottom: 0, width: 34, height: 34, borderRadius: 17, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
+  profileName: { color: '#FFF', fontSize: 23, fontWeight: '700', marginTop: 15 },
   container: {
     flex: 1,
   },
@@ -771,24 +579,23 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: -0.4,
+    fontSize: 17,
+    fontWeight: '400',
     marginBottom: 12,
-    paddingHorizontal: 24,
+    paddingHorizontal: 18,
   },
   sectionContent: {
-    marginHorizontal: 24,
-    borderRadius: 20,
-    borderWidth: 1,
+    marginHorizontal: 18,
+    borderRadius: 0,
+    borderWidth: 0,
     overflow: 'hidden',
   },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 0,
+    paddingVertical: 19,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(128,112,158,0.13)',
   },
@@ -807,8 +614,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingTitle: {
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 18,
+    fontWeight: '400',
     marginBottom: 2,
   },
   settingSubtitle: {
@@ -822,6 +629,7 @@ const styles = StyleSheet.create({
   settingValue: {
     fontSize: 14,
     marginRight: 8,
+    maxWidth: 110,
   },
   footer: {
     alignItems: 'center',

@@ -6,10 +6,8 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   Image,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 
 import { Anime } from '../../types/anime';
 
@@ -29,17 +27,17 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
       case 'small':
         return {
           width: 120,
-          thumbnailHeight: 160,
+          thumbnailHeight: 180,
         };
       case 'large':
         return {
           width: 180,
-          thumbnailHeight: 240,
+          thumbnailHeight: 270,
         };
       default: // medium
         return {
           width: 150,
-          thumbnailHeight: 200,
+          thumbnailHeight: 225,
         };
     }
   };
@@ -50,7 +48,7 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
     <MotionPressable
       style={[
         styles.container,
-        { backgroundColor: colors.surface, borderColor: colors.border, width: sizeStyles.width }
+        { backgroundColor: colors.background, borderColor: colors.background, width: sizeStyles.width }
       ]}
       onPress={() => onPress(anime.id)}
     >
@@ -64,28 +62,11 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
           {anime.title}
         </Text>
 
-        <View style={styles.metadata}>
-          <View style={styles.ratingContainer}>
-            <Ionicons name="star" size={12} color="#fbbf24" />
-            <Text style={[styles.rating, { color: colors.textSecondary }]}>
-              {anime.rating > 0 ? anime.rating.toFixed(1) : '—'}
-            </Text>
-          </View>
-
-          <Text style={[styles.year, { color: colors.textSecondary }]}>
-            {anime.year > 1900 ? anime.year : '—'}
-          </Text>
-        </View>
-
         <Text style={[styles.genres, { color: colors.textSecondary }]} numberOfLines={1}>
           {(anime.genres || []).slice(0, 2).join(', ')}
         </Text>
 
-        <View style={styles.statusContainer}>
-          <Text style={[styles.episodeCount, { color: colors.textSecondary }]}>
-            {anime.episodeCount > 0 ? `${anime.episodeCount} épisodes` : 'À découvrir'}
-          </Text>
-        </View>
+
       </View>
     </MotionPressable>
   );
@@ -93,8 +74,8 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 18,
-    borderWidth: 1,
+    borderRadius: 0,
+    borderWidth: 0,
     marginRight: 14,
     overflow: 'hidden',
     elevation: 0,
@@ -105,11 +86,11 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   info: {
-    padding: 12,
+    paddingTop: 10, paddingHorizontal: 0,
   },
   title: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '500',
     marginBottom: 6,
     lineHeight: 18,
   },

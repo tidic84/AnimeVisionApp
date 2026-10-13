@@ -766,58 +766,36 @@ export class DownloadService {
   /**
    * Annule un téléchargement
    */
-  async cancelDownload(episodeId: string): Promise<void> {
-    const downloadId = Array.from(this.downloads.keys()).find(id => id.startsWith(episodeId));
-    if (!downloadId) return;
-
-    const downloadItem = this.downloads.get(downloadId);
-    if (!downloadItem) return;
-
-    // Supprimer de la queue si présent
-    const queueIndex = this.downloadQueue.indexOf(downloadId);
-    if (queueIndex > -1) {
-      this.downloadQueue.splice(queueIndex, 1);
-    }
-
-    // Supprimer le fichier partiel s'il existe
-    if (downloadItem.filePath) {
-      try {
-        await FileSystem.deleteAsync(downloadItem.filePath, { idempotent: true });
-      } catch (error) {
-        console.warn(`[Download] Erreur suppression fichier partiel:`, error);
-      }
-    }
-
-    this.downloads.delete(downloadId);
-    this.downloadCallbacks.delete(downloadId);
-
-    await this.updateEpisodeDownloadStatus(episodeId, DownloadStatus.NOT_DOWNLOADED);
-    await this.saveDownloadsToStorage();
+  async cancelDownload(episodeId: string, quality?: VideoQuality): Promise<void> {
+    await this.removeDownload(episodeId, quality);
   }
 
-  /**
-   * Supprime un téléchargement terminé
-   */
-  async deleteDownload(episodeId: string): Promise<void> {
-    const downloadId = Array.from(this.downloads.keys()).find(id => id.startsWith(episodeId));
-    if (!downloadId) return;
+  /** Delete the exact episode and quality. Existing callers may omit quality. */
+  async deleteDownload(episodeId: string, quality?: VideoQuality): Promise<void> {
+    await this.removeDownload(episodeId, quality);
+  }
 
-    const downloadItem = this.downloads.get(downloadId);
-    if (!downloadItem) return;
-
-    // Supprimer le fichier
-    if (downloadItem.filePath) {
-      try {
-        await FileSystem.deleteAsync(downloadItem.filePath, { idempotent: true });
-      } catch (error) {
-        console.warn(`[Download] Erreur suppression fichier:`, error);
-      }
+  private async removeDownload(episodeId: string, quality?: VideoQuality): Promise<void> {
+    if (!this.isStorageLoaded) await this.loadDownloadsFromStorage();
+    const match = Array.from(this.downloads.entries()).find(([, item]) =>
+      item.episode.id === episodeId && (quality === undefined || item.quality === quality));
+    if (!match) return;
+    const [downloadId, item] = match;
+    // The optimized HLS engine has no interruptible task handle. Removing its
+    // metadata during transfer would leave it downloading and writing files.
+    if (item.status === DownloadStatus.DOWNLOADING) {
+      throw new Error('Un transfert actif ne peut pas être annulé. Attendez sa fin pour le supprimer.');
     }
-
+    if (item.filePath) await FileSystem.deleteAsync(item.filePath, { idempotent: true });
+    this.downloadQueue = this.downloadQueue.filter(id => id !== downloadId);
     this.downloads.delete(downloadId);
     this.downloadCallbacks.delete(downloadId);
-
-    await this.updateEpisodeDownloadStatus(episodeId, DownloadStatus.NOT_DOWNLOADED);
+    const remaining = Array.from(this.downloads.values()).filter(other => other.episode.id === episodeId);
+    const downloaded = remaining.find(other => other.status === DownloadStatus.DOWNLOADED);
+    const status = downloaded ? DownloadStatus.DOWNLOADED : remaining.find(other => other.status === DownloadStatus.DOWNLOADING)?.status
+      ?? remaining.find(other => other.status === DownloadStatus.QUEUED)?.status
+      ?? remaining[0]?.status ?? DownloadStatus.NOT_DOWNLOADED;
+    await this.updateEpisodeDownloadStatus(episodeId, status, downloaded?.filePath);
     await this.saveDownloadsToStorage();
   }
 
@@ -834,7 +812,7 @@ export class DownloadService {
     const uniqueMap: Map<string, DownloadItem> = new Map();
     for (const [dId, item] of this.downloads.entries()) {
       // Clé unique prioritaire : id d'épisode, sinon id de téléchargement
-      const uniqueKey = item.episode?.id || dId;
+      const uniqueKey = item.episode?.id ? this.generateDownloadId(item.episode, item.quality) : dId;
       const existing = uniqueMap.get(uniqueKey);
       if (!existing) {
         uniqueMap.set(uniqueKey, item);
@@ -967,7 +945,7 @@ export class DownloadService {
         if (!fileInfo.exists) {
           // Fichier supprimé, mettre à jour le statut
           await this.updateEpisodeDownloadStatus(item.episode.id, DownloadStatus.NOT_DOWNLOADED);
-          this.downloads.delete(`${item.episode.id}_${item.quality}`);
+          this.downloads.delete(this.generateDownloadId(item.episode, item.quality));
         }
       }
     }

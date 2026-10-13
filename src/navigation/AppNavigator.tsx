@@ -61,19 +61,19 @@ function MainTabNavigator() {
           if (route.name === 'Home') {
             iconName = focused ? 'home' : 'home-outline';
           } else if (route.name === 'Lists') {
-            iconName = focused ? 'list' : 'list-outline';
+            iconName = focused ? 'bookmark' : 'bookmark-outline';
           } else if (route.name === 'Catalog') {
             iconName = focused ? 'grid' : 'grid-outline';
           } else if (route.name === 'Downloads') {
             iconName = focused ? 'download' : 'download-outline';
           } else if (route.name === 'Settings') {
-            iconName = focused ? 'settings' : 'settings-outline';
+            iconName = focused ? 'person-circle' : 'person-circle-outline';
           } else {
             iconName = 'ellipse-outline';
           }
 
           // Garantir des valeurs par défaut pour éviter les icônes manquantes
-          const iconSize = size || 24;
+          const iconSize = 27;
           const iconColor = color || colors.tabBarInactive;
 
           // Griser les onglets désactivés en mode offline
@@ -132,7 +132,7 @@ function MainTabNavigator() {
           name="Lists"
           component={ListsScreen}
           options={{
-            title: 'Mes Listes',
+            title: 'Mes listes',
             headerShown: false,
           }}
         />
@@ -142,7 +142,7 @@ function MainTabNavigator() {
           name="Catalog"
           component={CatalogScreen}
           options={{
-            title: 'Catalogue',
+            title: 'Naviguer',
             headerShown: false,
             tabBarStyle: {
               position: 'absolute',
@@ -171,7 +171,7 @@ function MainTabNavigator() {
         name="Settings"
         component={SettingsScreen}
         options={{
-          title: 'Paramètres',
+          title: 'Mon compte',
           headerShown: false,
         }}
       />

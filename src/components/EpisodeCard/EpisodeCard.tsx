@@ -74,7 +74,7 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
     <MotionPressable
       style={[
         styles.container,
-        { backgroundColor: colors.surface, borderColor: colors.border, width: sizeStyles.width }
+        { backgroundColor: colors.background, borderColor: colors.background, width: sizeStyles.width }
       ]}
       onPress={() => onPress(episode)}
     >
@@ -144,8 +144,8 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 18,
-    borderWidth: 1,
+    borderRadius: 0,
+    borderWidth: 0,
     marginRight: 14,
     overflow: 'hidden',
     elevation: 0,
@@ -207,11 +207,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   info: {
-    padding: 12,
+    paddingTop: 10, paddingHorizontal: 0,
   },
   title: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '500',
     marginBottom: 4,
     lineHeight: 18,
   },

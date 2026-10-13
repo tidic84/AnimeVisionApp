@@ -324,6 +324,11 @@ class DatabaseService {
     );
   }
 
+  async removeWatchHistory(animeId: string, episodeId: string): Promise<void> {
+    if (!this.db) throw new Error('Base de données non initialisée');
+    await this.db.runAsync('DELETE FROM watchHistory WHERE animeId = ? AND episodeId = ?', [animeId, episodeId]);
+  }
+
   async getWatchHistory(limit: number = 20): Promise<WatchHistory[]> {
     if (!this.db) throw new Error('Base de données non initialisée');
 
@@ -527,4 +532,4 @@ class DatabaseService {
   }
 }
 
-export default new DatabaseService(); 
+export default new DatabaseService();

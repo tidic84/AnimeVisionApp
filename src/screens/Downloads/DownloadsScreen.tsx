@@ -1,791 +1,88 @@
-import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
-import { palette } from '../../theme/palette';
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Alert,
-  SafeAreaView,
-  Dimensions,
-  RefreshControl,
-  ActivityIndicator,
-  Image,
-  ScrollView,
-} from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, RefreshControl, Modal, Platform, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { MainTabScreenProps } from '../../types/navigation';
-import { useApi } from '../../contexts/ApiContext';
-import { DownloadStatus, VideoQuality } from '../../types/anime';
-import downloadService, { DownloadItem, DownloadProgress } from '../../services/downloadService';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import CustomModal from '../../components/CustomModal';
+import { useFocusEffect } from '@react-navigation/native';
+import { MainTabScreenProps } from '../../types/navigation';
+import { useAppColorScheme } from '../../contexts/ThemeContext';
+import { palette } from '../../theme/palette';
+import { Anime, DownloadStatus } from '../../types/anime';
+import downloadService, { DownloadItem } from '../../services/downloadService';
+import databaseService from '../../services/databaseService';
+import { FadeIn } from '../../components/Motion';
+import useReducedMotion from '../../hooks/useReducedMotion';
 
-type DownloadsScreenProps = MainTabScreenProps<'Downloads'>;
-
-const { width: screenWidth } = Dimensions.get('window');
-
-const Colors = palette;
-
-const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
-  const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'light'];
-  const { isApiAvailable } = useApi();
+type Navigation = MainTabScreenProps<'Downloads'>['navigation'] | MainTabScreenProps<'Lists'>['navigation'];
+type Group = { id: string; title: string; poster: string; items: DownloadItem[] };
+const formatBytes = (bytes: number) => bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} Go` : `${Math.round(bytes / 1024 ** 2)} Mo`;
+export function DownloadsContent({ navigation, embedded = false }: { navigation: Navigation; embedded?: boolean }) {
+  const colors = palette[useAppColorScheme()];
   const insets = useSafeAreaInsets();
-
+  const reduced = useReducedMotion();
+  const { width } = useWindowDimensions();
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
+  const [animes, setAnimes] = useState<Record<string, Anime>>({});
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [selectedTab, setSelectedTab] = useState<'all' | 'downloading' | 'downloaded' | 'failed'>('all');
-  const [storageInfo, setStorageInfo] = useState<{
-    totalSize: number;
-    availableSize: number;
-    usedSize: number;
-    downloadCount: number;
-  } | null>(null);
-  const [showStorageModal, setShowStorageModal] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState<Map<string, DownloadProgress>>(new Map());
-  const [intervalId, setIntervalId] = useState<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    loadDownloads();
-    loadStorageInfo();
-  }, []);
-
-  // Mise à jour automatique quand des téléchargements sont actifs
-  useEffect(() => {
-    const hasActive = downloads.some(d => d.status === DownloadStatus.DOWNLOADING);
-
-    if (hasActive && !intervalId) {
-      // Démarrer le polling léger (1 s)
-      const id = setInterval(async () => {
-        await loadDownloads();
-      }, 1000);
-      setIntervalId(id);
-    }
-
-    if (!hasActive && intervalId) {
-      // Arrêter le polling lorsque plus rien n'est actif
-      clearInterval(intervalId);
-      setIntervalId(null);
-    }
-  }, [downloads]);
-
-  const loadDownloads = async () => {
+  const [error, setError] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [manage, setManage] = useState(false);
+  const [storage, setStorage] = useState<Awaited<ReturnType<typeof downloadService.getStorageInfo>> | null>(null);
+  const [showStorage, setShowStorage] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const load = useCallback(async () => {
     try {
-      // Ne pas mettre loading à true si on a déjà des téléchargements
-      if (downloads.length === 0) {
-        setLoading(true);
-      }
-
-      const allDownloads = await downloadService.getAllDownloads();
-      console.log('[Downloads] 📋 Téléchargements récupérés:', allDownloads.length);
-      setDownloads(allDownloads);
-
-      // Nettoyer les téléchargements orphelins
-      await downloadService.cleanupOrphanedDownloads();
-    } catch (error) {
-      console.error('[Downloads] Erreur chargement téléchargements:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadStorageInfo = async () => {
-    try {
-      const info = await downloadService.getStorageInfo();
-      setStorageInfo(info);
-    } catch (error) {
-      console.error('[Downloads] Erreur chargement info stockage:', error);
-    }
-  };
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await Promise.all([loadDownloads(), loadStorageInfo()]);
-    setRefreshing(false);
+      const [items, info] = await Promise.all([downloadService.getAllDownloads(), downloadService.getStorageInfo()]);
+      setDownloads(items); setStorage(info); setError('');
+      const animeIds = [...new Set(items.map(item => item.episode.animeId))];
+      const records = await Promise.all(animeIds.map(async id => [id, await databaseService.getAnime(id)] as const));
+      setAnimes(Object.fromEntries(records.filter((entry): entry is readonly [string, Anime] => entry[1] !== null)));
+    } catch { setError('Impossible de charger les téléchargements. Réessayez.'); }
+    finally { setLoading(false); }
   }, []);
-
-  const getFilteredDownloads = () => {
-    switch (selectedTab) {
-      case 'downloading':
-        return downloads.filter(item =>
-          item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED
-        );
-      case 'downloaded':
-        return downloads.filter(item => item.status === DownloadStatus.DOWNLOADED);
-      case 'failed':
-        return downloads.filter(item => item.status === DownloadStatus.FAILED);
-      default:
-        return downloads;
-    }
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  const active = downloads.some(item => item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED);
+  useEffect(() => { if (!active) return; const timer = setInterval(() => void load(), 1500); return () => clearInterval(timer); }, [active, load]);
+  const groups: Group[] = Object.values(downloads.reduce<Record<string, Group>>((result, item) => {
+    const id = item.episode.animeId;
+    if (!result[id]) result[id] = { id, title: animes[id]?.title || item.episode.animeTitle || 'Animé téléchargé', poster: animes[id]?.thumbnail || item.episode.anime_poster || item.episode.thumbnail, items: [] };
+    result[id].items.push(item); return result;
+  }, {}));
+  const selected = groups.find(group => group.id === selectedId);
+  const deleteItem = async (item: DownloadItem) => {
+    setRemoving(item.episode.id);
+    try {
+      if (item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED) await downloadService.cancelDownload(item.episode.id, item.quality);
+      else await downloadService.deleteDownload(item.episode.id, item.quality);
+      await load();
+    } catch { setError('Impossible de supprimer ce téléchargement.'); }
+    finally { setRemoving(null); }
   };
-
-  const handleCancelDownload = (item: DownloadItem) => {
-    Alert.alert(
-      'Annuler le téléchargement',
-      `Voulez-vous annuler le téléchargement de "${item.episode.title}" ?`,
-      [
-        { text: 'Non', style: 'cancel' },
-        {
-          text: 'Oui',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await downloadService.cancelDownload(item.episode.id);
-              await loadDownloads();
-            } catch (error) {
-              Alert.alert('Erreur', 'Impossible d\'annuler le téléchargement');
-            }
-          }
-        }
-      ]
-    );
+  const play = (item: DownloadItem) => {
+    if (!item.filePath || item.status !== DownloadStatus.DOWNLOADED) return;
+    navigation.navigate('VideoPlayer', { episodeId: item.episode.id, animeId: item.episode.animeId, localFilePath: item.filePath, isOfflineMode: true, autoPlay: true });
   };
-
-  const handleDeleteDownload = (item: DownloadItem) => {
-    Alert.alert(
-      'Supprimer le téléchargement',
-      `Voulez-vous supprimer "${item.episode.title}" de vos téléchargements ?`,
-      [
-        { text: 'Non', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await downloadService.deleteDownload(item.episode.id);
-              await Promise.all([loadDownloads(), loadStorageInfo()]);
-            } catch (error) {
-              Alert.alert('Erreur', 'Impossible de supprimer le téléchargement');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const handlePlayDownload = (item: DownloadItem) => {
-    if (item.filePath) {
-      console.log(`[Downloads] 🎬 Lecture fichier local: ${item.filePath}`);
-      navigation.navigate('VideoPlayer', {
-        episodeId: item.episode.id,
-        animeId: item.episode.animeId,
-        autoPlay: true,
-        localFilePath: item.filePath, // Passer le chemin du fichier local
-        isOfflineMode: true, // Indiquer que c'est en mode hors ligne
-      });
-    } else {
-      console.warn(`[Downloads] ⚠️ Pas de fichier local pour l'épisode ${item.episode.id}`);
-    }
-  };
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const formatTimeRemaining = (seconds: number): string => {
-    if (seconds <= 0) return '';
-
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    if (hours > 0) {
-      return `${hours}h ${minutes}m restant`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${secs}s restant`;
-    } else {
-      return `${secs}s restant`;
-    }
-  };
-
-  const getStatusColor = (status: DownloadStatus) => {
-    switch (status) {
-      case DownloadStatus.QUEUED:
-        return colors.warning;
-      case DownloadStatus.DOWNLOADING:
-        return colors.primary;
-      case DownloadStatus.DOWNLOADED:
-        return colors.success;
-      case DownloadStatus.FAILED:
-        return colors.error;
-      default:
-        return colors.textSecondary;
-    }
-  };
-
-  const getStatusText = (status: DownloadStatus) => {
-    switch (status) {
-      case DownloadStatus.QUEUED:
-        return 'En attente';
-      case DownloadStatus.DOWNLOADING:
-        return 'En cours';
-      case DownloadStatus.DOWNLOADED:
-        return 'Terminé';
-      case DownloadStatus.FAILED:
-        return 'Échec';
-      default:
-        return 'Inconnu';
-    }
-  };
-
-  const renderDownloadItem = ({ item }: { item: DownloadItem }) => {
-    const isWaiting = item.status === DownloadStatus.DOWNLOADING && item.progress.status !== 'downloading';
-    const displayedStatusText = isWaiting ? 'En attente' : getStatusText(item.status);
-    const displayedStatusColor = isWaiting ? colors.textSecondary : getStatusColor(item.status);
-
-    // Calculer la position dans la queue pour les téléchargements en attente
-    const queuePosition = item.status === DownloadStatus.QUEUED ?
-      downloads.filter(d => d.status === DownloadStatus.QUEUED).findIndex(d => d.episode.id === item.episode.id) + 1 : 0;
-
-    return (
-    <TouchableOpacity
-      style={[styles.downloadCard, { backgroundColor: 'transparent' }]}
-      onPress={() => item.status === DownloadStatus.DOWNLOADED && handlePlayDownload(item)}
-      activeOpacity={item.status === DownloadStatus.DOWNLOADED ? 0.7 : 1}
-    >
-      <View style={styles.downloadThumbnail}>
-        {item.episode.thumbnail ? (
-          <Image
-            source={{ uri: item.episode.thumbnail }}
-            style={styles.downloadPoster}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={[styles.downloadPlaceholder, { backgroundColor: colors.surface }]}>
-            <Ionicons name="film" size={24} color={colors.textSecondary} />
-          </View>
-        )}
-
-        {item.status === DownloadStatus.DOWNLOADED && (
-          <View style={styles.playOverlay}>
-            <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.9)" />
-          </View>
-        )}
-      </View>
-
-      <View style={styles.downloadInfo}>
-        <Text style={[styles.downloadTitle, { color: colors.text }]} numberOfLines={2}>
-          {item.episode.title}
-        </Text>
-
-        <Text style={[styles.downloadAnime, { color: colors.textSecondary }]} numberOfLines={1}>
-          {item.episode.animeTitle || 'Anime inconnu'}
-        </Text>
-
-        <View style={styles.downloadMeta}>
-            <View style={[styles.statusBadge, { backgroundColor: displayedStatusColor + '20' }]}>
-              <Text style={[styles.statusText, { color: displayedStatusColor }]}>{displayedStatusText}</Text>
-          </View>
-            <Text style={[styles.qualityText, { color: colors.textSecondary }]}> {item.quality} </Text>
-        </View>
-
-        {(item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED) && (
-          <View style={styles.progressContainer}>
-            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                      backgroundColor: item.status === DownloadStatus.QUEUED ? colors.warning : (isWaiting ? colors.textSecondary : colors.primary),
-                      width: item.status === DownloadStatus.QUEUED ? '100%' : `${item.progress.progress}%`,
-                      opacity: item.status === DownloadStatus.QUEUED ? 0.3 : 1,
-                    },
-                ]}
-              />
-            </View>
-              <Text style={[styles.progressText, { color: colors.textSecondary }]}>
-                {item.status === DownloadStatus.QUEUED ?
-                  (queuePosition > 1 ? `En attente (${queuePosition}e)` : 'En attente (prochain)') :
-                  (isWaiting ? '...' : `${Math.round(item.progress.progress)}%`)
-                }
-              </Text>
-          </View>
-        )}
-
-          {item.status === DownloadStatus.DOWNLOADING && !isWaiting && item.progress.timeRemaining > 0 && (
-            <Text style={[styles.timeRemainingText, { color: colors.textSecondary }]}> {formatTimeRemaining(item.progress.timeRemaining)} </Text>
-        )}
-
-        {item.status === DownloadStatus.DOWNLOADED && item.fileSize && (
-          <Text style={[styles.fileSizeText, { color: colors.textSecondary }]}>
-            {formatFileSize(item.fileSize)}
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.downloadActions}>
-        {(item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED) && (
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.error + '20' }]}
-            onPress={() => handleCancelDownload(item)}
-          >
-            <Ionicons name="close" size={20} color={colors.error} />
-          </TouchableOpacity>
-        )}
-
-        {(item.status === DownloadStatus.DOWNLOADED || item.status === DownloadStatus.FAILED) && (
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: colors.error + '20' }]}
-            onPress={() => handleDeleteDownload(item)}
-          >
-            <Ionicons name="trash" size={20} color={colors.error} />
-          </TouchableOpacity>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-  };
-
-  const renderStorageModal = () => (
-    <CustomModal
-      visible={showStorageModal}
-      onRequestClose={() => setShowStorageModal(false)}
-      alignment="bottom"
-    >
-      <SafeAreaView style={[styles.modalContainer, { backgroundColor: colors.background }]}>
-        <View style={styles.modalHeader}>
-          <Text style={[styles.modalTitle, { color: colors.text }]}>Stockage</Text>
-          <TouchableOpacity onPress={() => setShowStorageModal(false)}>
-            <Ionicons name="close" size={24} color={colors.text} />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView style={styles.modalContent}>
-          {storageInfo && (
-            <View>
-              <View style={styles.storageCard}>
-                <Text style={[styles.storageTitle, { color: colors.text }]}>
-                  Espace utilisé par les téléchargements
-                </Text>
-                <Text style={[styles.storageValue, { color: colors.primary }]}>
-                  {formatFileSize(storageInfo.usedSize)}
-                </Text>
-              </View>
-
-              <View style={styles.storageCard}>
-                <Text style={[styles.storageTitle, { color: colors.text }]}>
-                  Espace disponible
-                </Text>
-                <Text style={[styles.storageValue, { color: colors.success }]}>
-                  {formatFileSize(storageInfo.availableSize)}
-                </Text>
-              </View>
-
-              <View style={styles.storageCard}>
-                <Text style={[styles.storageTitle, { color: colors.text }]}>
-                  Nombre de téléchargements
-                </Text>
-                <Text style={[styles.storageValue, { color: colors.text }]}>
-                  {storageInfo.downloadCount}
-                </Text>
-              </View>
-
-              <View style={styles.storageProgress}>
-                <Text style={[styles.storageProgressTitle, { color: colors.text }]}>
-                  Utilisation du stockage
-                </Text>
-                <View style={[styles.storageProgressBar, { backgroundColor: colors.border }]}>
-                  <View
-                    style={[
-                      styles.storageProgressFill,
-                      {
-                        backgroundColor: colors.buttonBg,
-                        width: `${Math.min((storageInfo.usedSize / storageInfo.totalSize) * 100, 100)}%`
-                      }
-                    ]}
-                  />
-                </View>
-                <Text style={[styles.storageProgressText, { color: colors.textSecondary }]}>
-                  {Math.round((storageInfo.usedSize / storageInfo.totalSize) * 100)}% utilisé
-                </Text>
-              </View>
-            </View>
-          )}
-        </ScrollView>
-      </SafeAreaView>
-    </CustomModal>
-  );
-
-  const renderTabs = () => (
-    <View style={[styles.tabContainer, { backgroundColor: 'transparent' }]}>
-      {[
-        { key: 'all', label: 'Tous', count: downloads.length },
-        { key: 'downloading', label: 'En cours', count: downloads.filter(d => d.status === DownloadStatus.DOWNLOADING || d.status === DownloadStatus.QUEUED).length },
-        { key: 'downloaded', label: 'Terminés', count: downloads.filter(d => d.status === DownloadStatus.DOWNLOADED).length },
-        { key: 'failed', label: 'Échecs', count: downloads.filter(d => d.status === DownloadStatus.FAILED).length },
-      ].map((tab) => (
-        <TouchableOpacity
-          key={tab.key}
-          style={[
-            styles.tab,
-            selectedTab === tab.key && { backgroundColor: colors.buttonBg }
-          ]}
-          onPress={() => setSelectedTab(tab.key as any)}
-        >
-          <Text style={[
-            styles.tabText,
-            { color: selectedTab === tab.key ? 'white' : colors.text }
-          ]}>
-            {tab.label}
-          </Text>
-          {tab.count > 0 && (
-            <View style={[
-              styles.tabBadge,
-              { backgroundColor: selectedTab === tab.key ? 'rgba(255,255,255,0.3)' : colors.primary }
-            ]}>
-              <Text style={[
-                styles.tabBadgeText,
-                { color: selectedTab === tab.key ? 'white' : 'white' }
-              ]}>
-                {tab.count}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      ))}
+  const cardWidth = (Math.min(width, 1000) - 44) / 2;
+  return <View style={[styles.root, { backgroundColor: colors.background, paddingTop: embedded ? 0 : insets.top }]}>
+    {!embedded && <View style={styles.header}><Text style={[styles.title, { color: colors.text }]}>Téléchargements</Text><TouchableOpacity accessibilityLabel="Informations de stockage" onPress={() => setShowStorage(true)} style={styles.iconButton}><Ionicons name="server-outline" size={26} color={colors.text} /></TouchableOpacity></View>}
+    <View style={[styles.toolbar, { borderBottomColor: colors.border }]}>
+      {selected ? <TouchableOpacity onPress={() => setSelectedId(null)} style={styles.back}><Ionicons name="chevron-back" size={23} color={colors.text} /><Text style={[styles.groupTitle, { color: colors.text }]} numberOfLines={1}>{selected.title}</Text></TouchableOpacity> : <TouchableOpacity onPress={() => setShowStorage(true)}><Text style={{ color: colors.textSecondary, fontSize: 13 }}>{storage ? `${storage.downloadCount} épisodes • ${formatBytes(storage.usedSize)}` : 'Stockage'}</Text></TouchableOpacity>}
+      <TouchableOpacity onPress={() => setManage(!manage)} style={styles.iconButton}><Text style={{ color: colors.text, fontWeight: '600', fontSize: 15 }}>{manage ? 'Terminer' : 'Gérer'}</Text></TouchableOpacity>
     </View>
-  );
-
-  const renderHeader = () => (
-    <View style={[styles.header, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <Text style={[styles.headerTitle, { color: colors.text }]}>Téléchargements</Text>
-      <TouchableOpacity
-        style={[styles.storageButton, { backgroundColor: colors.surface }]}
-        onPress={() => setShowStorageModal(true)}
-      >
-        <Ionicons name="server" size={20} color={colors.primary} />
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderEmptyState = () => (
-    <View style={styles.emptyContainer}>
-      <Ionicons name="download" size={80} color={colors.textSecondary} />
-      <Text style={[styles.emptyTitle, { color: colors.text }]}>
-        {selectedTab === 'all' ? 'Aucun téléchargement' :
-         selectedTab === 'downloading' ? 'Aucun téléchargement en cours' :
-         selectedTab === 'downloaded' ? 'Aucun téléchargement terminé' :
-         'Aucun téléchargement échoué'}
-      </Text>
-      <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-        {selectedTab === 'all' ?
-          'Téléchargez des épisodes depuis les pages d\'animés pour les regarder hors ligne' :
-          'Les téléchargements de cette catégorie apparaîtront ici'
-        }
-      </Text>
-    </View>
-  );
-
-  if (loading) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.text }]}>
-            Chargement des téléchargements...
-          </Text>
-      </View>
-      </SafeAreaView>
-    );
-  }
-
-  const filteredDownloads = getFilteredDownloads();
-
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {renderHeader()}
-      {renderTabs()}
-
-      {filteredDownloads.length === 0 ? (
-        renderEmptyState()
-      ) : (
-        <FlatList
-          data={filteredDownloads}
-          renderItem={renderDownloadItem}
-          keyExtractor={(item, index) => `${item.progress.downloadId || item.episode.id}_${item.quality}_${index}`}
-          contentContainerStyle={styles.listContainer}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[colors.primary]}
-              tintColor={colors.primary}
-            />
-          }
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-          overScrollMode="never"
-        />
-      )}
-
-      {renderStorageModal()}
-    </SafeAreaView>
-  );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-  },
-  headerTitle: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -1,
-  },
-  storageButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    marginBottom: 8,
-  },
-  tab: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    marginHorizontal: 4,
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  tabBadge: {
-    marginLeft: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
-    minWidth: 20,
-    alignItems: 'center',
-  },
-  tabBadgeText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  listContainer: {
-    paddingHorizontal: 24,
-    paddingBottom: 100, // Increased to account for navbar
-  },
-  downloadCard: {
-    flexDirection: 'row',
-    padding: 12,
-    borderRadius: 20,
-    marginBottom: 12,
-  },
-  downloadThumbnail: {
-    width: 80,
-    height: 120,
-    borderRadius: 14,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  downloadPoster: {
-    width: '100%',
-    height: '100%',
-  },
-  downloadPlaceholder: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  downloadInfo: {
-    flex: 1,
-    marginLeft: 12,
-    justifyContent: 'flex-start',
-    paddingVertical: 4,
-  },
-  downloadTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    lineHeight: 20,
-    marginBottom: 6,
-  },
-  downloadAnime: {
-    fontSize: 14,
-    marginBottom: 10,
-    lineHeight: 18,
-  },
-  downloadMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    flexWrap: 'wrap',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 20,
-    marginRight: 8,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  qualityText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  progressBar: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    marginRight: 8,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  progressText: {
-    fontSize: 12,
-    fontWeight: '500',
-    minWidth: 35,
-  },
-  fileSizeText: {
-    fontSize: 12,
-  },
-  timeRemainingText: {
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  downloadActions: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  actionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    marginTop: 16,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  modalContainer: {
-    flex: 1,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: -0.4,
-  },
-  modalContent: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 20,
-  },
-  storageCard: {
-    padding: 16,
-    borderRadius: 20,
-    marginBottom: 12,
-    backgroundColor: '#f8fafc',
-  },
-  storageTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  storageValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  storageProgress: {
-    padding: 16,
-    borderRadius: 20,
-    backgroundColor: '#f8fafc',
-  },
-  storageProgressTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  storageProgressBar: {
-    height: 8,
-    borderRadius: 4,
-    marginBottom: 8,
-  },
-  storageProgressFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  storageProgressText: {
-    fontSize: 14,
-    textAlign: 'center',
-  },
-});
-
-export default DownloadsScreen;
+    <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.primary} />}>
+      {!!error && <TouchableOpacity onPress={load}><Text style={{ color: colors.danger, paddingVertical: 12 }}>{error}</Text></TouchableOpacity>}
+      {loading ? <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} /> : <FadeIn key={selectedId ?? 'groups'}>
+        {selected ? selected.items.sort((a, b) => a.episode.number - b.episode.number).map(item => {
+          const ready = item.status === DownloadStatus.DOWNLOADED;
+          const downloading = item.status === DownloadStatus.DOWNLOADING;
+          const progress = Math.min(100, Math.max(0, item.progress.progress));
+          const status = ready ? `${item.quality} • ${formatBytes(item.fileSize ?? 0)}` : downloading ? `Téléchargement • ${Math.round(progress)} %` : item.status === DownloadStatus.QUEUED ? 'En attente' : 'Échec du téléchargement';
+          return <View key={`${item.episode.id}-${item.quality}`} style={[styles.episode, { borderBottomColor: colors.border }]}><TouchableOpacity style={{ width: 110 }} onPress={() => play(item)} disabled={!ready} accessibilityLabel={`Lire l’épisode ${item.episode.number}`}><Image source={{ uri: item.episode.thumbnail || selected.poster }} style={[styles.episodeImage, { backgroundColor: colors.surface }]} />{ready && <View style={styles.playOverlay}><Ionicons name="play" size={26} color="white" /></View>}</TouchableOpacity><View style={{ flex: 1 }}><TouchableOpacity disabled={!ready} onPress={() => play(item)}><Text style={{ color: colors.text, fontSize: 15, lineHeight: 21 }} numberOfLines={2}>E{item.episode.number} • {item.episode.title}</Text></TouchableOpacity><Text style={{ color: item.status === DownloadStatus.FAILED ? colors.danger : colors.textSecondary, fontSize: 12, marginTop: 8 }}>{status}</Text>{downloading && <View style={[styles.progress, { backgroundColor: colors.border }]}><View style={{ height: 3, width: `${progress}%`, backgroundColor: colors.primary }} /></View>}</View>{(item.status !== DownloadStatus.DOWNLOADING && (manage || !ready)) && <TouchableOpacity disabled={removing !== null} onPress={() => deleteItem(item)} style={styles.iconButton} accessibilityLabel={`${ready || item.status === DownloadStatus.FAILED ? 'Supprimer' : 'Annuler'} l’épisode ${item.episode.number}`}><Ionicons name={ready || item.status === DownloadStatus.FAILED ? 'trash-outline' : 'close-outline'} color={colors.textSecondary} size={23} /></TouchableOpacity>}</View>;
+        }) : <View style={styles.grid}>{groups.map(group => <View key={group.id} style={{ width: cardWidth, marginBottom: 28 }}><TouchableOpacity onPress={() => setSelectedId(group.id)} accessibilityLabel={`Ouvrir les téléchargements de ${group.title}`}><Image source={{ uri: group.poster }} style={[styles.poster, { backgroundColor: colors.surface }]} /><Text style={[styles.groupTitle, { color: colors.text, marginTop: 10 }]} numberOfLines={2}>{group.title}</Text><Text style={{ color: colors.textSecondary, fontSize: 13, marginTop: 8 }}>{group.items.length} épisode{group.items.length > 1 ? 's' : ''}{group.items.some(item => item.status !== DownloadStatus.DOWNLOADED) ? ' • En cours' : ''}</Text></TouchableOpacity>{manage && <TouchableOpacity onPress={() => setSelectedId(group.id)} style={{ paddingTop: 12 }}><Text style={{ color: colors.primary }}>Gérer les épisodes</Text></TouchableOpacity>}</View>)}</View>}
+        {!groups.length && <View style={styles.empty}><Ionicons name="download-outline" size={40} color={colors.textSecondary} /><Text style={[styles.emptyTitle, { color: colors.text }]}>Vos animés, même hors ligne</Text><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{Platform.OS === 'web' ? 'Les téléchargements sont disponibles dans l’application mobile. Retrouvez ici les épisodes téléchargés sur votre appareil.' : 'Téléchargez des épisodes depuis la fiche d’un animé pour les retrouver ici.'}</Text><TouchableOpacity onPress={() => navigation.navigate('Catalog')} style={styles.discover}><Text style={{ color: colors.primary, fontWeight: '700' }}>DÉCOUVRIR LES ANIMÉS</Text></TouchableOpacity></View>}
+      </FadeIn>}
+    </ScrollView>
+    <Modal visible={showStorage} transparent animationType={reduced ? 'none' : 'fade'} onRequestClose={() => setShowStorage(false)}><View style={styles.backdrop}><View style={[styles.modal, { backgroundColor: colors.surface }]}><View style={styles.modalHeader}><Text style={[styles.groupTitle, { color: colors.text }]}>Stockage</Text><TouchableOpacity accessibilityLabel="Fermer le stockage" onPress={() => setShowStorage(false)} style={styles.iconButton}><Ionicons name="close" size={25} color={colors.text} /></TouchableOpacity></View>{storage && <><Text style={[styles.storageValue, { color: colors.primary }]}>{formatBytes(storage.usedSize)}</Text><Text style={{ color: colors.textSecondary, lineHeight: 24 }}>utilisés par {storage.downloadCount} épisodes</Text><Text style={{ color: colors.text, marginTop: 24 }}>{formatBytes(storage.availableSize)} disponibles</Text></>}</View></View></Modal>
+  </View>;
+}
+export default function DownloadsScreen({ navigation }: MainTabScreenProps<'Downloads'>) { return <DownloadsContent navigation={navigation} />; }
+const styles = StyleSheet.create({ root: { flex: 1 }, header: { paddingHorizontal: 18, paddingVertical: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, title: { fontSize: 27, fontWeight: '700' }, iconButton: { padding: 10 }, toolbar: { paddingHorizontal: 18, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 66 }, back: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 5 }, content: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 32, maxWidth: 1000, width: '100%', alignSelf: 'center' }, grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }, poster: { width: '100%', aspectRatio: 2 / 3 }, groupTitle: { fontSize: 17, lineHeight: 25, flexShrink: 1 }, episode: { flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth }, episodeImage: { width: 110, aspectRatio: 16 / 9 }, playOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.2)', alignItems: 'center', justifyContent: 'center' }, progress: { height: 3, marginTop: 10 }, empty: { alignItems: 'center', paddingTop: 70, paddingHorizontal: 20 }, emptyTitle: { fontSize: 20, fontWeight: '600', marginTop: 20, textAlign: 'center' }, emptyText: { fontSize: 14, lineHeight: 22, textAlign: 'center', marginTop: 14 }, discover: { padding: 18, marginTop: 20 }, backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 24 }, modal: { width: '100%', maxWidth: 420, padding: 24 }, modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, storageValue: { fontSize: 36, fontWeight: '700', marginTop: 24 } });

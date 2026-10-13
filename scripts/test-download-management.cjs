@@ -1,0 +1,42 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const ts = require('typescript');
+const path = require('node:path');
+const platform = { OS: 'web' };
+const deleted = [];
+let fail = false;
+const filesystem = { EncodingType: { UTF8: 'utf8' }, documentDirectory: '/app/', deleteAsync: async file => { if (fail) throw Error('disk error'); deleted.push(file); }, writeAsStringAsync: async () => {} };
+function compile(file, mock) {
+ const exports = {};
+ const source = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/', file), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+ vm.runInNewContext(source, { exports, require: mock, console: { log() {}, warn() {}, error() {} }, Buffer, setTimeout });
+ return exports;
+}
+const types = compile('types/anime.ts', require);
+const { DownloadService } = compile('services/downloadService.ts', name => name === 'react-native' ? { Platform: platform } : name === 'expo-file-system/legacy' ? filesystem : name === '../types/anime' ? types : name === 'buffer' ? { Buffer } : {});
+const S = types.DownloadStatus, Q = types.VideoQuality;
+const item = (id, quality, status) => ({ episode: { id }, quality, status, progress: {}, filePath: status === S.DOWNLOADED ? `/app/${id}_${quality}.mp4` : undefined });
+(async () => {
+ const service = new DownloadService({}, {}); platform.OS = 'android';
+ const updates = []; service.updateEpisodeDownloadStatus = async (...args) => updates.push(args);
+ service.downloads.set('download_12_480p', item('12', Q.LOW, S.DOWNLOADED));
+ service.downloads.set('download_12_1080p', item('12', Q.HIGH, S.DOWNLOADED));
+ service.downloads.set('download_123_1080p', item('123', Q.HIGH, S.DOWNLOADED));
+ assert.equal((await service.getAllDownloads()).length, 3);
+ await service.deleteDownload('12', Q.LOW);
+ assert.deepEqual(deleted, ['/app/12_480p.mp4']);
+ assert(service.downloads.has('download_12_1080p')); assert(service.downloads.has('download_123_1080p'));
+ assert.deepEqual(updates[0], ['12', S.DOWNLOADED, '/app/12_1080p.mp4']);
+ fail = true; await assert.rejects(service.deleteDownload('12', Q.HIGH), /disk error/);
+ assert(service.downloads.has('download_12_1080p')); fail = false;
+ service.downloads.set('download_queued_1080p', item('queued', Q.HIGH, S.QUEUED)); service.downloadQueue.push('download_queued_1080p'); service.downloadCallbacks.set('download_queued_1080p', () => {});
+ await service.cancelDownload('queued', Q.HIGH);
+ assert.equal(service.downloadQueue.length, 0); assert(!service.downloadCallbacks.has('download_queued_1080p'));
+ service.downloads.set('download_active_1080p', item('active', Q.HIGH, S.DOWNLOADING));
+ await assert.rejects(service.cancelDownload('active', Q.HIGH), /actif/); await assert.rejects(service.deleteDownload('active', Q.HIGH), /actif/);
+ assert(service.downloads.has('download_active_1080p'));
+ await service.deleteDownload('12'); assert(!service.downloads.has('download_12_1080p'));
+ await service.deleteDownload('missing', Q.HIGH);
+ console.log('Download management passed: exact episode/quality, sibling quality and prefix safety, file failure, queued cancellation, active transfer guards, legacy caller.');
+})().catch(error => { console.error(error); process.exitCode = 1; });

@@ -46,8 +46,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
 const styles = StyleSheet.create({
   page: { padding: 24, width: '100%', maxWidth: 1400, alignSelf: 'center' }, header: { flexDirection: 'row', gap: 16, alignItems: 'center', marginBottom: 24 },
   iconButton: { width: 44, height: 44, borderRadius: 16, backgroundColor: '#242131', justifyContent: 'center', alignItems: 'center' },
-  eyebrow: { color: '#B99AFF', fontSize: 10, letterSpacing: 2, fontWeight: '700', marginBottom: 8 }, title: { color: '#F5F2FF', fontSize: 26, fontWeight: '800', marginBottom: 6 }, subtitle: { color: '#ADA6BF', fontSize: 14, lineHeight: 22 },
+  eyebrow: { color: '#FF640A', fontSize: 10, letterSpacing: 2, fontWeight: '700', marginBottom: 8 }, title: { color: '#FFFFFF', fontSize: 26, fontWeight: '800', marginBottom: 6 }, subtitle: { color: '#A0A0A3', fontSize: 14, lineHeight: 22 },
   loading: { minHeight: 300, gap: 20, alignItems: 'center', justifyContent: 'center' }, player: { overflow: 'hidden', borderRadius: 20, backgroundColor: '#000' },
-  controls: { flexDirection: 'row', justifyContent: 'space-between', gap: 16, marginVertical: 20 }, button: { backgroundColor: '#7354D2', paddingHorizontal: 20, paddingVertical: 14, borderRadius: 14 }, buttonText: { color: '#F5F2FF', fontWeight: '600' },
-  section: { borderRadius: 20, padding: 24, backgroundColor: '#1B1A27', borderWidth: 1, borderColor: '#302C41' }, serverList: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginVertical: 12 }, server: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#494254' },
+  controls: { flexDirection: 'row', justifyContent: 'space-between', gap: 16, marginVertical: 20 }, button: { backgroundColor: '#FF640A', paddingHorizontal: 20, paddingVertical: 14, borderRadius: 14 }, buttonText: { color: '#FFFFFF', fontWeight: '600' },
+  section: { borderRadius: 20, padding: 24, backgroundColor: '#141519', borderWidth: 1, borderColor: '#29292D' }, serverList: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginVertical: 12 }, server: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#494254' },
 });

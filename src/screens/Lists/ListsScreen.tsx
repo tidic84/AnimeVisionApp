@@ -1,644 +1,120 @@
-import useReducedMotion from '../../hooks/useReducedMotion';
-import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
-import { palette } from '../../theme/palette';
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Modal,
-  TextInput,
-  Alert,
-  SafeAreaView,
-  Dimensions,
-  RefreshControl,
-} from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TextInput, ActivityIndicator, RefreshControl, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { MainTabScreenProps } from '../../types/navigation';
-import { AnimeList, Anime, WatchStatus } from '../../types/anime';
-import databaseService from '../../services/databaseService';
-import apiService from '../../services/apiService';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppColorScheme } from '../../contexts/ThemeContext';
+import { palette } from '../../theme/palette';
+import { MainTabScreenProps } from '../../types/navigation';
+import { Anime, AnimeList, Episode, WatchHistory } from '../../types/anime';
+import databaseService from '../../services/databaseService';
+import { FadeIn } from '../../components/Motion';
+import useReducedMotion from '../../hooks/useReducedMotion';
+import { DownloadsContent } from '../Downloads/DownloadsScreen';
 
-type ListsScreenProps = MainTabScreenProps<'Lists'>;
+type ListData = AnimeList & { animes: Anime[] };
+type HistoryData = WatchHistory & { anime: Anime; episode: Episode | undefined };
+const tabs = ['Watchlist', 'Collections', 'Historique', 'Téléchargements'] as const;
 
-const { width: screenWidth } = Dimensions.get('window');
-
-const Colors = palette;
-
-interface ListWithAnimes extends AnimeList {
-  animes: Anime[];
-  animeCount: number;
-}
-
-const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
-  const colorScheme = useColorScheme();
-  const reducedMotion = useReducedMotion();
-  const colors = Colors[colorScheme ?? 'light'];
+export default function ListsScreen({ navigation }: MainTabScreenProps<'Lists'>) {
+  const colors = palette[useAppColorScheme()];
   const insets = useSafeAreaInsets();
-
-  const [lists, setLists] = useState<ListWithAnimes[]>([]);
+  const reduced = useReducedMotion();
+  const { width } = useWindowDimensions();
+  const [tab, setTab] = useState<typeof tabs[number]>('Watchlist');
+  const [lists, setLists] = useState<ListData[]>([]);
+  const [history, setHistory] = useState<HistoryData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingList, setEditingList] = useState<AnimeList | null>(null);
-  const [newListName, setNewListName] = useState('');
-
-  useEffect(() => {
-    loadLists();
-  }, []);
-
-  const loadLists = async () => {
+  const [error, setError] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editor, setEditor] = useState<AnimeList | 'new' | null>(null);
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [sort, setSort] = useState(false);
+  const [manage, setManage] = useState(false);
+  const load = useCallback(async () => {
     try {
-      setLoading(true);
-
-      // Charger toutes les listes
+      setError('');
       const userLists = await databaseService.getAllLists();
-
-      // Charger les animés pour chaque liste
-      const listsWithAnimes = await Promise.all(
-        userLists.map(async (list) => {
-          const animes = await databaseService.getAnimesInList(list.id);
-          return {
-            ...list,
-            animes,
-            animeCount: animes.length,
-          };
-        })
-      );
-
-      // Trier : liste par défaut en premier, puis par date de création
-      listsWithAnimes.sort((a, b) => {
-        if (a.isDefault && !b.isDefault) return -1;
-        if (!a.isDefault && b.isDefault) return 1;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      });
-
-      setLists(listsWithAnimes);
-    } catch (error) {
-      console.error('[Lists] Erreur lors du chargement des listes:', error);
-      Alert.alert('Erreur', 'Impossible de charger les listes');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadLists();
-    setRefreshing(false);
+      setLists(await Promise.all(userLists.map(async list => ({ ...list, animes: await databaseService.getAnimesInList(list.id) }))));
+      const entries = await databaseService.getWatchHistory(100);
+      const resolved = await Promise.all(entries.map(async entry => {
+        const anime = await databaseService.getAnime(entry.animeId);
+        if (!anime) return null;
+        const episodes = await databaseService.getAnimeEpisodes(entry.animeId);
+        return { ...entry, anime, episode: episodes.find(ep => ep.id === entry.episodeId) };
+      }));
+      setHistory(resolved.filter((entry): entry is HistoryData => entry !== null));
+    } catch { setError('Impossible de charger vos listes. Réessayez.'); }
+    finally { setLoading(false); }
   }, []);
-
-  const createList = async () => {
-    if (!newListName.trim()) {
-      Alert.alert('Erreur', 'Veuillez entrer un nom pour la liste');
-      return;
-    }
-
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  const watchlist = lists.find(list => list.isDefault);
+  const selected = lists.find(list => list.id === selectedId);
+  const animes = (selected?.animes ?? watchlist?.animes ?? []).slice().sort((a, b) => sort ? a.title.localeCompare(b.title, 'fr') : 0);
+  const collections = lists.filter(list => !list.isDefault);
+  const save = async () => {
+    if (!name.trim() || !editor || saving) return;
+    setSaving(true);
     try {
-      await databaseService.createList(newListName.trim());
-      setNewListName('');
-      setShowCreateModal(false);
-      await loadLists();
-      Alert.alert('Succès', 'Liste créée avec succès');
-    } catch (error) {
-      console.error('[Lists] Erreur lors de la création de la liste:', error);
-      Alert.alert('Erreur', 'Impossible de créer la liste');
-    }
+      if (editor === 'new') await databaseService.createList(name.trim());
+      else await databaseService.updateListName(editor.id, name.trim());
+      setEditor(null); setName(''); await load();
+    } catch { setError('La liste n’a pas pu être enregistrée.'); }
+    finally { setSaving(false); }
   };
-
-  const editList = async () => {
-    if (!editingList || !newListName.trim()) {
-      Alert.alert('Erreur', 'Veuillez entrer un nom pour la liste');
-      return;
-    }
-
-    try {
-      await databaseService.updateListName(editingList.id, newListName.trim());
-      setNewListName('');
-      setShowEditModal(false);
-      setEditingList(null);
-      await loadLists();
-      Alert.alert('Succès', 'Liste modifiée avec succès');
-    } catch (error) {
-      console.error('[Lists] Erreur lors de la modification de la liste:', error);
-      Alert.alert('Erreur', 'Impossible de modifier la liste');
-    }
+  const remove = async (anime: Anime) => {
+    const list = selected ?? watchlist;
+    if (!list) return;
+    try { await databaseService.removeAnimeFromList(list.id, anime.id); await load(); }
+    catch { setError('Impossible de retirer cet animé.'); }
   };
-
-  const deleteList = (list: AnimeList) => {
-    if (list.isDefault) {
-      Alert.alert('Erreur', 'Impossible de supprimer la liste par défaut');
-      return;
-    }
-
-    Alert.alert(
-      'Supprimer la liste',
-      `Êtes-vous sûr de vouloir supprimer "${list.name}" ? Cette action est irréversible.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await databaseService.deleteList(list.id);
-              await loadLists();
-              Alert.alert('Succès', 'Liste supprimée avec succès');
-            } catch (error) {
-              console.error('[Lists] Erreur lors de la suppression de la liste:', error);
-              Alert.alert('Erreur', 'Impossible de supprimer la liste');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const openEditModal = (list: AnimeList) => {
-    if (list.isDefault) {
-      Alert.alert('Info', 'Impossible de modifier la liste par défaut');
-      return;
-    }
-    setEditingList(list);
-    setNewListName(list.name);
-    setShowEditModal(true);
-  };
-
-  const navigateToListDetail = (list: ListWithAnimes) => {
-    // TODO: Naviguer vers l'écran de détail de la liste
-    // navigation.navigate('ListDetail', { listId: list.id });
-    Alert.alert('Info', `Ouverture de la liste "${list.name}" avec ${list.animeCount} animé(s)`);
-  };
-
-  const getStatusColor = (status: WatchStatus) => {
-    switch (status) {
-      case WatchStatus.WATCHING:
-        return colors.primary;
-      case WatchStatus.COMPLETED:
-        return colors.success;
-      case WatchStatus.ON_HOLD:
-        return '#f59e0b';
-      case WatchStatus.DROPPED:
-        return colors.danger;
-      default:
-        return colors.textSecondary;
-    }
-  };
-
-  const getStatusText = (status: WatchStatus) => {
-    switch (status) {
-      case WatchStatus.WATCHING:
-        return 'En cours';
-      case WatchStatus.COMPLETED:
-        return 'Terminé';
-      case WatchStatus.ON_HOLD:
-        return 'En pause';
-      case WatchStatus.DROPPED:
-        return 'Abandonné';
-      default:
-        return 'Pas commencé';
-    }
-  };
-
-  const renderListItem = ({ item }: { item: ListWithAnimes }) => (
-    <TouchableOpacity
-      style={[styles.listCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-      onPress={() => navigateToListDetail(item)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.listHeader}>
-        <View style={styles.listTitleContainer}>
-          <Text style={[styles.listTitle, { color: colors.text }]}>{item.name}</Text>
-          {item.isDefault && (
-            <View style={[styles.defaultBadge, { backgroundColor: colors.buttonBg }]}>
-              <Text style={styles.defaultBadgeText}>Par défaut</Text>
-            </View>
-          )}
-        </View>
-
-        {!item.isDefault && (
-          <View style={styles.listActions}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => openEditModal(item)}
-            >
-              <Ionicons name="pencil" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => deleteList(item)}
-            >
-              <Ionicons name="trash" size={18} color={colors.danger} />
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
-      <Text style={[styles.animeCount, { color: colors.textSecondary }]}>
-        {item.animeCount} animé{item.animeCount !== 1 ? 's' : ''}
-      </Text>
-
-      {item.animes.length > 0 && (
-        <View style={styles.animePreview}>
-          <FlatList
-            data={item.animes.slice(0, 3)}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(anime) => anime.id}
-            renderItem={({ item: anime }) => (
-              <View style={styles.animePreviewItem}>
-                <View style={[styles.animeThumbnail, { backgroundColor: colors.surface }]}>
-                  <Text style={[styles.animeInitial, { color: colors.textSecondary }]}>
-                    {anime.title[0]}
-                  </Text>
-                </View>
-                <Text
-                  style={[styles.animeTitle, { color: colors.textSecondary }]}
-                  numberOfLines={1}
-                >
-                  {anime.title}
-                </Text>
-              </View>
-            )}
-          />
-          {item.animes.length > 3 && (
-            <Text style={[styles.moreAnimes, { color: colors.textSecondary }]}>
-              +{item.animes.length - 3} autres
-            </Text>
-          )}
-        </View>
-      )}
+  const openEditor = (list: AnimeList | 'new') => { setEditor(list); setName(list === 'new' ? '' : list.name); };
+  const empty = (title: string, subtitle: string) => <View style={styles.empty}><Ionicons name={tab === 'Historique' ? 'time-outline' : 'bookmark-outline'} size={40} color={colors.textSecondary} /><Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{subtitle}</Text></View>;
+  const animeRow = (anime: Anime, picker = false) => <View key={anime.id} style={styles.animeRow}>
+    <TouchableOpacity onPress={() => picker ? void (async () => { if (!selected) return; await databaseService.addAnimeToList(selected.id, anime.id); await load(); })().catch(() => setError('Impossible d’ajouter cet animé.')) : navigation.navigate('AnimeDetail', { animeId: anime.id })} style={styles.posterButton} accessibilityLabel={picker ? `Ajouter ${anime.title}` : anime.title}>
+      <Image source={{ uri: anime.thumbnail }} style={[styles.poster, { backgroundColor: colors.surface }]} />
     </TouchableOpacity>
-  );
-
-  const renderCreateModal = () => (
-    <Modal
-      visible={showCreateModal}
-      animationType={reducedMotion ? 'none' : 'slide'}
-      transparent={true}
-      onRequestClose={() => setShowCreateModal(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-          <Text style={[styles.modalTitle, { color: colors.text }]}>
-            Créer une nouvelle liste
-          </Text>
-
-          <TextInput
-            style={[
-              styles.textInput,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-                color: colors.text,
-              },
-            ]}
-            placeholder="Nom de la liste"
-            placeholderTextColor={colors.textSecondary}
-            value={newListName}
-            onChangeText={setNewListName}
-            autoFocus
-          />
-
-          <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={[styles.modalButton, styles.cancelButton, { borderColor: colors.border }]}
-              onPress={() => {
-                setNewListName('');
-                setShowCreateModal(false);
-              }}
-            >
-              <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>
-                Annuler
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.modalButton, styles.createButton, { backgroundColor: colors.buttonBg }]}
-              onPress={createList}
-            >
-              <Text style={styles.createButtonText}>Créer</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+    <View style={styles.rowInfo}>
+      <TouchableOpacity onPress={() => navigation.navigate('AnimeDetail', { animeId: anime.id })}><Text style={[styles.animeTitle, { color: colors.text }]} numberOfLines={2}>{anime.title}</Text></TouchableOpacity>
+      <Text style={[styles.meta, { color: colors.textSecondary }]}>{anime.episodeCount > 0 ? `${anime.episodeCount} épisodes` : 'Voir les épisodes'}</Text>
+      <View style={styles.rowBottom}><Text style={[styles.meta, { color: colors.textSecondary, flex: 1 }]} numberOfLines={1}>{anime.genres.slice(0, 2).join(' • ')}</Text>
+        <TouchableOpacity accessibilityLabel={picker ? `Ajouter ${anime.title} à ${selected?.name}` : `Retirer ${anime.title} de la liste`} style={styles.iconButton} onPress={() => picker ? void (async () => { if (!selected) return; await databaseService.addAnimeToList(selected.id, anime.id); await load(); })().catch(() => setError('Impossible d’ajouter cet animé.')) : void remove(anime)}><Ionicons name={picker ? 'add-outline' : 'bookmark'} size={26} color={colors.primary} /></TouchableOpacity>
       </View>
-    </Modal>
-  );
-
-  const renderEditModal = () => (
-    <Modal
-      visible={showEditModal}
-      animationType={reducedMotion ? 'none' : 'slide'}
-      transparent={true}
-      onRequestClose={() => setShowEditModal(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-          <Text style={[styles.modalTitle, { color: colors.text }]}>
-            Modifier la liste
-          </Text>
-
-          <TextInput
-            style={[
-              styles.textInput,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-                color: colors.text,
-              },
-            ]}
-            placeholder="Nom de la liste"
-            placeholderTextColor={colors.textSecondary}
-            value={newListName}
-            onChangeText={setNewListName}
-            autoFocus
-          />
-
-          <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={[styles.modalButton, styles.cancelButton, { borderColor: colors.border }]}
-              onPress={() => {
-                setNewListName('');
-                setShowEditModal(false);
-                setEditingList(null);
-              }}
-            >
-              <Text style={[styles.cancelButtonText, { color: colors.textSecondary }]}>
-                Annuler
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.modalButton, styles.createButton, { backgroundColor: colors.buttonBg }]}
-              onPress={editList}
-            >
-              <Text style={styles.createButtonText}>Modifier</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-
-  const renderHeader = () => (
-    <View style={[styles.header, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      <Text style={[styles.headerTitle, { color: colors.text }]}>Mes Listes</Text>
-      <TouchableOpacity
-        style={[styles.addButton, { backgroundColor: colors.buttonBg }]}
-        onPress={() => setShowCreateModal(true)}
-      >
-        <Ionicons name="add" size={24} color="white" />
-      </TouchableOpacity>
     </View>
-  );
-
-  if (loading) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingContainer}>
-          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-            Chargement des listes...
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {renderHeader()}
-
-      <FlatList
-        data={lists}
-        keyExtractor={(item) => item.id}
-        renderItem={renderListItem}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
-        }
-        ListEmptyComponent={() => (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="list-outline" size={64} color={colors.textSecondary} />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>
-              Aucune liste
-            </Text>
-            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-              Créez votre première liste pour organiser vos animés
-            </Text>
-            <TouchableOpacity
-              style={[styles.createFirstButton, { backgroundColor: colors.buttonBg }]}
-              onPress={() => setShowCreateModal(true)}
-            >
-              <Text style={styles.createFirstButtonText}>Créer une liste</Text>
-            </TouchableOpacity>
+  </View>;
+  const historyWidth = Math.max(120, (Math.min(width, 1000) - 44) / 2);
+  return <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+    <View style={styles.header}><Text style={[styles.title, { color: colors.text }]}>Mes listes</Text><TouchableOpacity accessibilityLabel="Rechercher un animé" onPress={() => navigation.navigate('Catalog')} style={styles.iconButton}><Ionicons name="search-outline" size={27} color={colors.text} /></TouchableOpacity></View>
+    <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>{tabs.map(label => <TouchableOpacity key={label} accessibilityRole="tab" accessibilityState={{ selected: tab === label }} onPress={() => { setTab(label); setSelectedId(null); setAdding(false); }} style={[styles.tab, { borderBottomColor: tab === label ? colors.primary : 'transparent' }]}><Text style={[styles.tabText, { color: tab === label ? colors.text : colors.textSecondary }]}>{label}</Text></TouchableOpacity>)}</ScrollView></View>
+    {tab === 'Téléchargements' ? <DownloadsContent navigation={navigation} embedded /> : <ScrollView refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={colors.primary} />} contentContainerStyle={styles.content}>
+      {error ? <TouchableOpacity onPress={load}><Text style={{ color: colors.danger, paddingVertical: 16 }}>{error}</Text></TouchableOpacity> : null}
+      {loading ? <ActivityIndicator color={colors.primary} style={{ marginTop: 50 }} /> : <FadeIn key={`${tab}-${selectedId}`}>
+        {tab === 'Watchlist' || (tab === 'Collections' && selected) ? <>
+          <View style={styles.toolbar}>{selected ? <TouchableOpacity onPress={() => { setSelectedId(null); setAdding(false); }} style={styles.back}><Ionicons name="chevron-back" size={22} color={colors.text} /><Text style={[styles.toolbarTitle, { color: colors.text }]} numberOfLines={1}>{selected.name}</Text></TouchableOpacity> : <Text style={[styles.toolbarTitle, { color: colors.text }]}>{sort ? 'Ordre alphabétique' : 'Activité récente'}</Text>}
+            <TouchableOpacity onPress={() => selected ? setAdding(!adding) : setSort(!sort)} accessibilityLabel={selected ? 'Ajouter des animés à la collection' : 'Changer le tri'} style={styles.iconButton}><Ionicons name={selected ? (adding ? 'close' : 'add') : 'filter-outline'} size={26} color={colors.text} /></TouchableOpacity>
           </View>
-        )}
-      />
-
-      {renderCreateModal()}
-      {renderEditModal()}
-    </SafeAreaView>
-  );
-};
-
+          {adding ? <><Text style={[styles.meta, { color: colors.textSecondary, marginBottom: 16 }]}>Ajouter depuis votre Watchlist</Text>{(watchlist?.animes ?? []).filter(anime => !selected?.animeIds.includes(anime.id)).map(anime => animeRow(anime, true))}{!(watchlist?.animes ?? []).some(anime => !selected?.animeIds.includes(anime.id)) && empty('Aucun animé à ajouter', 'Ajoutez des animés à votre Watchlist depuis leur fiche.')}</> : animes.length ? animes.map(anime => animeRow(anime)) : empty(selected ? 'Cette collection est vide' : 'Votre Watchlist vous attend', selected ? 'Touchez + pour ajouter des animés depuis votre Watchlist.' : 'Enregistrez les animés qui vous plaisent depuis leur fiche.')}
+        </> : tab === 'Collections' ? <>
+          <View style={styles.toolbar}><Text style={[styles.meta, { color: colors.textSecondary }]}>{collections.length} liste{collections.length !== 1 ? 's' : ''}</Text><TouchableOpacity onPress={() => openEditor('new')}><Text style={{ color: colors.primary, fontWeight: '700', fontSize: 14 }}>Créer une nouvelle liste</Text></TouchableOpacity></View>
+          {collections.map(list => <View key={list.id} style={[styles.collection, { backgroundColor: colors.surface }]}><TouchableOpacity style={{ flex: 1 }} onPress={() => setSelectedId(list.id)}><Text style={[styles.collectionName, { color: colors.text }]}>{list.name}</Text><Text style={[styles.meta, { color: colors.textSecondary }]}>{list.animes.length} animé{list.animes.length !== 1 ? 's' : ''} • {list.updatedAt.toLocaleDateString('fr-FR')}</Text></TouchableOpacity><TouchableOpacity accessibilityLabel={`Modifier ${list.name}`} style={styles.iconButton} onPress={() => openEditor(list)}><Ionicons name="ellipsis-vertical" size={22} color={colors.text} /></TouchableOpacity></View>)}
+          {!collections.length && empty('Vos collections', 'Créez des listes pour organiser vos prochaines découvertes.')}
+        </> : <>
+          <View style={styles.toolbar}><Text style={[styles.meta, { color: colors.textSecondary }]}>{history.length} épisode{history.length !== 1 ? 's' : ''}</Text><TouchableOpacity onPress={() => setManage(!manage)}><Text style={{ color: colors.text, fontWeight: '600' }}>{manage ? 'Terminer' : 'Gérer'}</Text></TouchableOpacity></View>
+          <View style={styles.historyGrid}>{history.map(item => <View key={`${item.animeId}-${item.episodeId}`} style={{ width: historyWidth, marginBottom: 22 }}><TouchableOpacity onPress={() => navigation.navigate('VideoPlayer', { animeId: item.animeId, episodeId: item.episodeId, autoPlay: true })} accessibilityLabel={`Reprendre ${item.anime.title}`}>
+            <View style={{ aspectRatio: 16 / 9, backgroundColor: colors.surface }}><Image source={{ uri: item.episode?.thumbnail || item.anime.banner || item.anime.thumbnail }} style={StyleSheet.absoluteFill} /><View style={styles.playOverlay}><Ionicons name={item.progress >= 90 ? 'refresh-outline' : 'play'} size={30} color="white" /></View><View style={[styles.progressTrack, { backgroundColor: colors.border }]}><View style={{ height: 3, backgroundColor: colors.primary, width: `${Math.min(100, Math.max(0, item.progress))}%` }} /></View></View>
+            <Text style={[styles.meta, { color: colors.textSecondary, marginTop: 8 }]} numberOfLines={2}>{item.anime.title}</Text><Text style={[styles.historyTitle, { color: colors.text }]} numberOfLines={2}>{item.episode?.title || 'Reprendre l’épisode'}</Text><Text style={[styles.meta, { color: colors.textSecondary }]}>{item.episode ? `E${item.episode.number} • ` : ''}{item.progress >= 90 ? 'Regardé' : 'En cours'}</Text>
+          </TouchableOpacity>{manage && <TouchableOpacity onPress={async () => { try { await databaseService.removeWatchHistory(item.animeId, item.episodeId); await load(); } catch { setError('Impossible de retirer cet épisode de l’historique.'); } }} accessibilityLabel="Retirer cet épisode"><Text style={{ color: colors.danger, paddingTop: 10 }}>Retirer de l’historique</Text></TouchableOpacity>}</View>)}</View>{!history.length && empty('Votre historique est vide', 'Les épisodes regardés apparaîtront ici pour les reprendre facilement.')}
+        </>}
+      </FadeIn>}
+    </ScrollView>}
+    <Modal visible={editor !== null} transparent animationType={reduced ? 'none' : 'fade'} onRequestClose={() => setEditor(null)}><View style={styles.modalBackdrop}><View style={[styles.modal, { backgroundColor: colors.surface }]}><Text style={[styles.collectionName, { color: colors.text, marginBottom: 20 }]}>{editor === 'new' ? 'Créer une collection' : 'Modifier la collection'}</Text><TextInput accessibilityLabel="Nom de la collection" value={name} onChangeText={setName} placeholder="Nom de la collection" placeholderTextColor={colors.textSecondary} maxLength={80} autoFocus style={[styles.input, { color: colors.text, borderColor: colors.border }]} />
+      <View style={styles.modalActions}><TouchableOpacity onPress={() => setEditor(null)} style={styles.iconButton}><Text style={{ color: colors.text }}>Annuler</Text></TouchableOpacity><TouchableOpacity disabled={!name.trim() || saving} onPress={save} style={styles.iconButton}><Text style={{ color: colors.primary, fontWeight: '700', opacity: name.trim() && !saving ? 1 : 0.4 }}>{saving ? 'Enregistrement…' : 'Enregistrer'}</Text></TouchableOpacity></View>
+      {editor && editor !== 'new' && <TouchableOpacity onPress={async () => { try { await databaseService.deleteList(editor.id); setEditor(null); setSelectedId(null); await load(); } catch { setError('Impossible de supprimer cette collection.'); } }} style={styles.deleteButton}><Text style={{ color: colors.danger }}>Supprimer cette collection</Text></TouchableOpacity>}
+    </View></View></Modal>
+  </View>;
+}
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-  },
-  headerTitle: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -1,
-  },
-  addButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  listContainer: {
-    paddingHorizontal: 24,
-    paddingBottom: 100,
-  },
-  listCard: {
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.035,
-    shadowRadius: 4,
-    elevation: 0,
-  },
-  listHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  listTitleContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  listTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginRight: 8,
-  },
-  defaultBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  defaultBadgeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  listActions: {
-    flexDirection: 'row',
-  },
-  actionButton: {
-    padding: 8,
-    marginLeft: 4,
-  },
-  animeCount: {
-    fontSize: 14,
-    marginBottom: 12,
-  },
-  animePreview: {
-    marginTop: 8,
-  },
-  animePreviewItem: {
-    marginRight: 12,
-    width: 60,
-  },
-  animeThumbnail: {
-    width: 60,
-    height: 80,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  animeInitial: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  animeTitle: {
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  moreAnimes: {
-    fontSize: 12,
-    marginTop: 8,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 24,
-    paddingHorizontal: 40,
-  },
-  createFirstButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 14,
-  },
-  createFirstButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: screenWidth - 40,
-    borderRadius: 20,
-    padding: 24,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: -0.4,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  textInput: {
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 24,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  modalButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    borderWidth: 1,
-    marginRight: 8,
-  },
-  createButton: {
-    marginLeft: 8,
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  createButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  root: { flex: 1 }, header: { paddingHorizontal: 18, paddingVertical: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, title: { fontSize: 27, fontWeight: '700' }, iconButton: { padding: 10 }, tabs: { paddingHorizontal: 8 }, tab: { paddingHorizontal: 14, paddingTop: 17, paddingBottom: 18, borderBottomWidth: 3 }, tabText: { fontSize: 15, fontWeight: '700' }, content: { paddingHorizontal: 18, paddingBottom: 32, maxWidth: 1000, width: '100%', alignSelf: 'center' }, toolbar: { paddingVertical: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 68 }, toolbarTitle: { fontSize: 18, flexShrink: 1 }, back: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }, animeRow: { flexDirection: 'row', marginBottom: 16, gap: 18 }, posterButton: { width: 88 }, poster: { width: 88, height: 132 }, rowInfo: { flex: 1, paddingVertical: 3 }, animeTitle: { fontSize: 17, lineHeight: 24 }, meta: { fontSize: 13, lineHeight: 20 }, rowBottom: { flexDirection: 'row', alignItems: 'center', marginTop: 12 }, collection: { flexDirection: 'row', alignItems: 'center', padding: 18, marginBottom: 14 }, collectionName: { fontSize: 20, lineHeight: 28, marginBottom: 10 }, empty: { alignItems: 'center', paddingHorizontal: 20, paddingVertical: 65 }, emptyTitle: { fontSize: 20, fontWeight: '600', marginTop: 20, marginBottom: 10, textAlign: 'center' }, emptyText: { fontSize: 14, lineHeight: 22, textAlign: 'center' }, historyGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }, historyTitle: { fontSize: 16, lineHeight: 23, marginVertical: 5 }, playOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.25)', alignItems: 'center', justifyContent: 'center' }, progressTrack: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 3 }, modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center', padding: 24 }, modal: { width: '100%', maxWidth: 440, padding: 24 }, input: { padding: 14, borderWidth: 1, fontSize: 16 }, modalActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }, deleteButton: { paddingTop: 20, marginTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#666' },
 });
-
-export default ListsScreen;
