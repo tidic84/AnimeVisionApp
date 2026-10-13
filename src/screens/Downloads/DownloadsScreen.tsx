@@ -1,3 +1,5 @@
+import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
+import { palette } from '../../theme/palette';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -7,7 +9,6 @@ import {
   TouchableOpacity,
   Alert,
   SafeAreaView,
-  useColorScheme,
   Dimensions,
   RefreshControl,
   ActivityIndicator,
@@ -27,38 +28,7 @@ type DownloadsScreenProps = MainTabScreenProps<'Downloads'>;
 
 const { width: screenWidth } = Dimensions.get('window');
 
-const Colors = {
-  light: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#ffffff',
-    surface: '#f8fafc',
-    text: '#1e293b',
-    textSecondary: '#64748b',
-    border: '#e2e8f0',
-    card: '#ffffff',
-    accent: '#3b82f6',
-    success: '#16a34a',
-    warning: '#f59e0b',
-    error: '#dc2626',
-  },
-  dark: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#0f172a',
-    surface: '#1e293b',
-    text: '#f1f5f9',
-    textSecondary: '#94a3b8',
-    border: '#334155',
-    card: '#1e293b',
-    accent: '#60a5fa',
-    success: '#22c55e',
-    warning: '#fbbf24',
-    error: '#ef4444',
-  },
-};
+const Colors = palette;
 
 const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
   const colorScheme = useColorScheme();
@@ -110,11 +80,11 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
       if (downloads.length === 0) {
         setLoading(true);
       }
-      
+
       const allDownloads = await downloadService.getAllDownloads();
       console.log('[Downloads] 📋 Téléchargements récupérés:', allDownloads.length);
       setDownloads(allDownloads);
-      
+
       // Nettoyer les téléchargements orphelins
       await downloadService.cleanupOrphanedDownloads();
     } catch (error) {
@@ -142,7 +112,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
   const getFilteredDownloads = () => {
     switch (selectedTab) {
       case 'downloading':
-        return downloads.filter(item => 
+        return downloads.filter(item =>
           item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED
         );
       case 'downloaded':
@@ -223,11 +193,11 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
 
   const formatTimeRemaining = (seconds: number): string => {
     if (seconds <= 0) return '';
-    
+
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
-    
+
     if (hours > 0) {
       return `${hours}h ${minutes}m restant`;
     } else if (minutes > 0) {
@@ -271,9 +241,9 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
     const isWaiting = item.status === DownloadStatus.DOWNLOADING && item.progress.status !== 'downloading';
     const displayedStatusText = isWaiting ? 'En attente' : getStatusText(item.status);
     const displayedStatusColor = isWaiting ? colors.textSecondary : getStatusColor(item.status);
-    
+
     // Calculer la position dans la queue pour les téléchargements en attente
-    const queuePosition = item.status === DownloadStatus.QUEUED ? 
+    const queuePosition = item.status === DownloadStatus.QUEUED ?
       downloads.filter(d => d.status === DownloadStatus.QUEUED).findIndex(d => d.episode.id === item.episode.id) + 1 : 0;
 
     return (
@@ -294,7 +264,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
             <Ionicons name="film" size={24} color={colors.textSecondary} />
           </View>
         )}
-        
+
         {item.status === DownloadStatus.DOWNLOADED && (
           <View style={styles.playOverlay}>
             <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.9)" />
@@ -306,7 +276,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
         <Text style={[styles.downloadTitle, { color: colors.text }]} numberOfLines={2}>
           {item.episode.title}
         </Text>
-        
+
         <Text style={[styles.downloadAnime, { color: colors.textSecondary }]} numberOfLines={1}>
           {item.episode.animeTitle || 'Anime inconnu'}
         </Text>
@@ -321,22 +291,22 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
         {(item.status === DownloadStatus.DOWNLOADING || item.status === DownloadStatus.QUEUED) && (
           <View style={styles.progressContainer}>
             <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-              <View 
+              <View
                 style={[
-                  styles.progressFill, 
-                  { 
+                  styles.progressFill,
+                  {
                       backgroundColor: item.status === DownloadStatus.QUEUED ? colors.warning : (isWaiting ? colors.textSecondary : colors.primary),
                       width: item.status === DownloadStatus.QUEUED ? '100%' : `${item.progress.progress}%`,
                       opacity: item.status === DownloadStatus.QUEUED ? 0.3 : 1,
                     },
-                ]} 
+                ]}
               />
             </View>
-              <Text style={[styles.progressText, { color: colors.textSecondary }]}> 
-                {item.status === DownloadStatus.QUEUED ? 
-                  (queuePosition > 1 ? `En attente (${queuePosition}e)` : 'En attente (prochain)') : 
+              <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+                {item.status === DownloadStatus.QUEUED ?
+                  (queuePosition > 1 ? `En attente (${queuePosition}e)` : 'En attente (prochain)') :
                   (isWaiting ? '...' : `${Math.round(item.progress.progress)}%`)
-                } 
+                }
               </Text>
           </View>
         )}
@@ -361,7 +331,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
             <Ionicons name="close" size={20} color={colors.error} />
           </TouchableOpacity>
         )}
-        
+
         {(item.status === DownloadStatus.DOWNLOADED || item.status === DownloadStatus.FAILED) && (
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: colors.error + '20' }]}
@@ -424,11 +394,11 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
                   Utilisation du stockage
                 </Text>
                 <View style={[styles.storageProgressBar, { backgroundColor: colors.border }]}>
-                  <View 
+                  <View
                     style={[
                       styles.storageProgressFill,
-                      { 
-                        backgroundColor: colors.primary,
+                      {
+                        backgroundColor: colors.buttonBg,
                         width: `${Math.min((storageInfo.usedSize / storageInfo.totalSize) * 100, 100)}%`
                       }
                     ]}
@@ -457,7 +427,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
           key={tab.key}
           style={[
             styles.tab,
-            selectedTab === tab.key && { backgroundColor: colors.primary }
+            selectedTab === tab.key && { backgroundColor: colors.buttonBg }
           ]}
           onPress={() => setSelectedTab(tab.key as any)}
         >
@@ -501,13 +471,13 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
     <View style={styles.emptyContainer}>
       <Ionicons name="download" size={80} color={colors.textSecondary} />
       <Text style={[styles.emptyTitle, { color: colors.text }]}>
-        {selectedTab === 'all' ? 'Aucun téléchargement' : 
+        {selectedTab === 'all' ? 'Aucun téléchargement' :
          selectedTab === 'downloading' ? 'Aucun téléchargement en cours' :
          selectedTab === 'downloaded' ? 'Aucun téléchargement terminé' :
          'Aucun téléchargement échoué'}
       </Text>
       <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-        {selectedTab === 'all' ? 
+        {selectedTab === 'all' ?
           'Téléchargez des épisodes depuis les pages d\'animés pour les regarder hors ligne' :
           'Les téléchargements de cette catégorie apparaîtront ici'
         }
@@ -534,7 +504,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {renderHeader()}
       {renderTabs()}
-      
+
       {filteredDownloads.length === 0 ? (
         renderEmptyState()
       ) : (
@@ -570,12 +540,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 16,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -1,
   },
   storageButton: {
     width: 40,
@@ -586,7 +557,7 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 12,
     marginBottom: 8,
   },
@@ -617,19 +588,19 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   listContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingBottom: 100, // Increased to account for navbar
   },
   downloadCard: {
     flexDirection: 'row',
     padding: 12,
-    borderRadius: 12,
+    borderRadius: 20,
     marginBottom: 12,
   },
   downloadThumbnail: {
     width: 80,
     height: 120,
-    borderRadius: 8,
+    borderRadius: 14,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -679,7 +650,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 20,
     marginRight: 8,
   },
   statusText: {
@@ -762,23 +733,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    letterSpacing: -0.4,
   },
   modalContent: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingTop: 20,
   },
   storageCard: {
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 20,
     marginBottom: 12,
     backgroundColor: '#f8fafc',
   },
@@ -793,7 +765,7 @@ const styles = StyleSheet.create({
   },
   storageProgress: {
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 20,
     backgroundColor: '#f8fafc',
   },
   storageProgressTitle: {
@@ -816,4 +788,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default DownloadsScreen; 
+export default DownloadsScreen;

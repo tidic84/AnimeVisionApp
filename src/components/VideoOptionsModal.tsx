@@ -1,3 +1,6 @@
+import useReducedMotion from '../hooks/useReducedMotion';
+import { useAppColorScheme as useColorScheme } from '../contexts/ThemeContext';
+import { palette } from '../theme/palette';
 import React from 'react';
 import {
   View,
@@ -7,7 +10,6 @@ import {
   Modal,
   Switch,
   ScrollView,
-  useColorScheme,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -20,16 +22,16 @@ export interface VideoQuality {
 export interface VideoOptionsProps {
   visible: boolean;
   onClose: () => void;
-  
+
   // Qualité vidéo
   availableQualities: VideoQuality[];
   currentQuality: string;
   onQualityChange: (quality: VideoQuality) => void;
-  
+
   // Vitesse de lecture
   currentSpeed: number;
   onSpeedChange: (speed: number) => void;
-  
+
   // Lecture automatique
   autoPlay: boolean;
   onAutoPlayChange: (enabled: boolean) => void;
@@ -47,31 +49,9 @@ const VideoOptionsModal: React.FC<VideoOptionsProps> = ({
   onAutoPlayChange,
 }) => {
   const colorScheme = useColorScheme();
-  
-  const colors = {
-    light: {
-      background: '#ffffff',
-      surface: '#f8fafc',
-      text: '#1e293b',
-      textSecondary: '#64748b',
-      border: '#e2e8f0',
-      primaryStart: '#219B9B',
-      primaryEnd: '#0F6B7B',
-      primary: '#0F6B7B',
-      overlay: 'rgba(0, 0, 0, 0.5)',
-    },
-    dark: {
-      background: '#1e293b',
-      surface: '#334155',
-      text: '#f1f5f9',
-      textSecondary: '#94a3b8',
-      border: '#475569',
-      primaryStart: '#219B9B',
-      primaryEnd: '#0F6B7B',
-      primary: '#0F6B7B',
-      overlay: 'rgba(0, 0, 0, 0.7)',
-    },
-  }[colorScheme ?? 'light'];
+  const reducedMotion = useReducedMotion();
+
+  const colors = palette[colorScheme ?? 'light'];
 
   const speedOptions = [
     { label: '0.5x', value: 0.5 },
@@ -91,7 +71,7 @@ const VideoOptionsModal: React.FC<VideoOptionsProps> = ({
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType={reducedMotion ? 'none' : 'fade'}
       onRequestClose={onClose}
     >
       <View style={[styles.overlay, { backgroundColor: colors.overlay }]}>
@@ -149,7 +129,7 @@ const VideoOptionsModal: React.FC<VideoOptionsProps> = ({
                     style={[
                       styles.optionButton,
                       {
-                        backgroundColor: currentSpeed === speed.value ? colors.primary : colors.surface,
+                        backgroundColor: currentSpeed === speed.value ? colors.buttonBg : colors.surface,
                         borderColor: colors.border,
                       }
                     ]}
@@ -319,4 +299,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default VideoOptionsModal; 
+export default VideoOptionsModal;

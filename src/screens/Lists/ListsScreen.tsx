@@ -1,3 +1,6 @@
+import useReducedMotion from '../../hooks/useReducedMotion';
+import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
+import { palette } from '../../theme/palette';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -9,7 +12,6 @@ import {
   TextInput,
   Alert,
   SafeAreaView,
-  useColorScheme,
   Dimensions,
   RefreshControl,
 } from 'react-native';
@@ -24,34 +26,7 @@ type ListsScreenProps = MainTabScreenProps<'Lists'>;
 
 const { width: screenWidth } = Dimensions.get('window');
 
-const Colors = {
-  light: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#ffffff',
-    surface: '#f8fafc',
-    text: '#1e293b',
-    textSecondary: '#64748b',
-    border: '#e2e8f0',
-    card: '#ffffff',
-    danger: '#dc2626',
-    success: '#16a34a',
-  },
-  dark: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#0f172a',
-    surface: '#1e293b',
-    text: '#f1f5f9',
-    textSecondary: '#94a3b8',
-    border: '#334155',
-    card: '#1e293b',
-    danger: '#ef4444',
-    success: '#22c55e',
-  },
-};
+const Colors = palette;
 
 interface ListWithAnimes extends AnimeList {
   animes: Anime[];
@@ -60,9 +35,10 @@ interface ListWithAnimes extends AnimeList {
 
 const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
   const colorScheme = useColorScheme();
+  const reducedMotion = useReducedMotion();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  
+
   const [lists, setLists] = useState<ListWithAnimes[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -78,10 +54,10 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
   const loadLists = async () => {
     try {
       setLoading(true);
-      
+
       // Charger toutes les listes
       const userLists = await databaseService.getAllLists();
-      
+
       // Charger les animés pour chaque liste
       const listsWithAnimes = await Promise.all(
         userLists.map(async (list) => {
@@ -238,12 +214,12 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
         <View style={styles.listTitleContainer}>
           <Text style={[styles.listTitle, { color: colors.text }]}>{item.name}</Text>
           {item.isDefault && (
-            <View style={[styles.defaultBadge, { backgroundColor: colors.primary }]}>
+            <View style={[styles.defaultBadge, { backgroundColor: colors.buttonBg }]}>
               <Text style={styles.defaultBadgeText}>Par défaut</Text>
             </View>
           )}
         </View>
-        
+
         {!item.isDefault && (
           <View style={styles.listActions}>
             <TouchableOpacity
@@ -302,7 +278,7 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
   const renderCreateModal = () => (
     <Modal
       visible={showCreateModal}
-      animationType="slide"
+      animationType={reducedMotion ? 'none' : 'slide'}
       transparent={true}
       onRequestClose={() => setShowCreateModal(false)}
     >
@@ -311,7 +287,7 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
           <Text style={[styles.modalTitle, { color: colors.text }]}>
             Créer une nouvelle liste
           </Text>
-          
+
           <TextInput
             style={[
               styles.textInput,
@@ -340,9 +316,9 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
                 Annuler
               </Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
-              style={[styles.modalButton, styles.createButton, { backgroundColor: colors.primary }]}
+              style={[styles.modalButton, styles.createButton, { backgroundColor: colors.buttonBg }]}
               onPress={createList}
             >
               <Text style={styles.createButtonText}>Créer</Text>
@@ -356,7 +332,7 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
   const renderEditModal = () => (
     <Modal
       visible={showEditModal}
-      animationType="slide"
+      animationType={reducedMotion ? 'none' : 'slide'}
       transparent={true}
       onRequestClose={() => setShowEditModal(false)}
     >
@@ -365,7 +341,7 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
           <Text style={[styles.modalTitle, { color: colors.text }]}>
             Modifier la liste
           </Text>
-          
+
           <TextInput
             style={[
               styles.textInput,
@@ -395,9 +371,9 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
                 Annuler
               </Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
-              style={[styles.modalButton, styles.createButton, { backgroundColor: colors.primary }]}
+              style={[styles.modalButton, styles.createButton, { backgroundColor: colors.buttonBg }]}
               onPress={editList}
             >
               <Text style={styles.createButtonText}>Modifier</Text>
@@ -412,7 +388,7 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
     <View style={[styles.header, { backgroundColor: colors.background, paddingTop: insets.top }]}>
       <Text style={[styles.headerTitle, { color: colors.text }]}>Mes Listes</Text>
       <TouchableOpacity
-        style={[styles.addButton, { backgroundColor: colors.primary }]}
+        style={[styles.addButton, { backgroundColor: colors.buttonBg }]}
         onPress={() => setShowCreateModal(true)}
       >
         <Ionicons name="add" size={24} color="white" />
@@ -459,7 +435,7 @@ const ListsScreen: React.FC<ListsScreenProps> = ({ navigation }) => {
               Créez votre première liste pour organiser vos animés
             </Text>
             <TouchableOpacity
-              style={[styles.createFirstButton, { backgroundColor: colors.primary }]}
+              style={[styles.createFirstButton, { backgroundColor: colors.buttonBg }]}
               onPress={() => setShowCreateModal(true)}
             >
               <Text style={styles.createFirstButtonText}>Créer une liste</Text>
@@ -482,12 +458,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 16,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -1,
   },
   addButton: {
     width: 44,
@@ -497,19 +474,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   listContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingBottom: 100,
   },
   listCard: {
-    borderRadius: 12,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.035,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 0,
   },
   listHeader: {
     flexDirection: 'row',
@@ -530,7 +507,7 @@ const styles = StyleSheet.create({
   defaultBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 20,
   },
   defaultBadgeText: {
     color: 'white',
@@ -558,7 +535,7 @@ const styles = StyleSheet.create({
   animeThumbnail: {
     width: 60,
     height: 80,
-    borderRadius: 8,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 4,
@@ -604,7 +581,7 @@ const styles = StyleSheet.create({
   createFirstButton: {
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 14,
   },
   createFirstButtonText: {
     color: 'white',
@@ -619,18 +596,19 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: screenWidth - 40,
-    borderRadius: 12,
+    borderRadius: 20,
     padding: 24,
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    letterSpacing: -0.4,
     marginBottom: 20,
     textAlign: 'center',
   },
   textInput: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 14,
     padding: 12,
     fontSize: 16,
     marginBottom: 24,
@@ -642,7 +620,7 @@ const styles = StyleSheet.create({
   modalButton: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 14,
     alignItems: 'center',
   },
   cancelButton: {
@@ -663,4 +641,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ListsScreen; 
+export default ListsScreen;

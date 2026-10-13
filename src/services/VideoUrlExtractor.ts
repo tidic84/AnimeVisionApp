@@ -29,21 +29,21 @@ export class VideoUrlExtractor {
      /https?:\/\/[^"'\s>]+\.m3u8[^"'\s>]*/gi,
      /"(https?:\/\/[^"]*\.m3u8[^"]*)"/gi,
      /'(https?:\/\/[^']*\.m3u8[^']*)'/gi,
-     
+
      // Patterns pour players vidéo
      /source[:\s]*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
      /file[:\s]*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
      /src[:\s]*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
-     
+
      // Patterns pour jwplayer
      /jwplayer.*?file[:\s]*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
      /\.setup.*?file[:\s]*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
-     
+
      // Patterns pour configurations JavaScript
      /video_url[:\s]*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
      /stream_url[:\s]*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
      /hls[:\s]*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
-     
+
      // Patterns pour data/variables
      /data-src[:\s]*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
      /var\s+\w+\s*=\s*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi
@@ -70,10 +70,10 @@ export class VideoUrlExtractor {
              console.log(`[HLS Extractor] 📡 ${embedUrls.length} URLs embed récupérées`);
 
        // Filtrer seulement les embeds (pas les MP4 directs)
-       const embedsOnly = embedUrls.filter(url => 
-         url.includes('embed') || 
-         url.includes('vidmoly') || 
-         url.includes('sibnet') || 
+       const embedsOnly = embedUrls.filter(url =>
+         url.includes('embed') ||
+         url.includes('vidmoly') ||
+         url.includes('sibnet') ||
          url.includes('sendvid')
        );
 
@@ -92,12 +92,12 @@ export class VideoUrlExtractor {
        const failedEmbeds: string[] = [];
        for (const embedUrl of embedsOnly) {
          console.log(`[HLS Extractor] 🔍 Extraction HLS depuis: ${embedUrl}`);
-         
+
          const result = await this.extractHLSFromEmbed(embedUrl);
          if (result.success && result.urls.length > 0) {
            const extractionTime = Date.now() - startTime;
            console.log(`[HLS Extractor] ✅ HLS extrait en ${extractionTime}ms`);
-           
+
            return {
              ...result,
              embedUrl,
@@ -111,7 +111,7 @@ export class VideoUrlExtractor {
              // Si aucune extraction client n'a fonctionné, essayer l'API backend
        console.log(`[HLS Extractor] ⚠️ Extraction client échouée, tentative fallback API backend`);
        const backendResult = await this.fallbackToBackendExtraction(episodeId, startTime);
-       
+
        if (!backendResult.success) {
          return {
            success: false,
@@ -120,12 +120,12 @@ export class VideoUrlExtractor {
            extractionTime: Date.now() - startTime
          };
        }
-       
+
        return backendResult;
 
     } catch (error: any) {
       console.error('[HLS Extractor] ❌ Erreur:', error.message);
-      
+
       // Ultime fallback vers l'API backend
       try {
         return await this.fallbackToBackendExtraction(episodeId, startTime);
@@ -145,8 +145,8 @@ export class VideoUrlExtractor {
    */
   private async getEmbedUrlsFromAPI(episodeId: string): Promise<string[]> {
     try {
-      const baseUrl = API_ADDRESS || 'https://formally-liberal-drum.ngrok-free.app';
-      
+      const baseUrl = (API_ADDRESS || 'http://localhost:3000').replace(/\/+$/, '');
+
       // Utiliser la nouvelle API pour récupérer l'épisode avec ses streaming_servers
       const response = await fetch(`${baseUrl}/api/episode/${episodeId}`, {
         method: 'GET',
@@ -162,7 +162,7 @@ export class VideoUrlExtractor {
       }
 
       const data = await response.json();
-      
+
       if (data.data && Array.isArray(data.data.streaming_servers)) {
         // Nouveau format de l'API : streaming_servers avec URL
         const embedUrls = data.data.streaming_servers
@@ -171,9 +171,9 @@ export class VideoUrlExtractor {
             // Priorité : HD > SD, serveur 2 > serveur 1 > sibnet
             const priorityA = a.quality === 'HD' ? 2 : (a.quality === 'SD' ? 1 : 0);
             const priorityB = b.quality === 'HD' ? 2 : (b.quality === 'SD' ? 1 : 0);
-            
+
             if (priorityA !== priorityB) return priorityB - priorityA;
-            
+
             // Priorité par nom de serveur
             if (a.name.includes('Serveur 2')) return -1;
             if (b.name.includes('Serveur 2')) return 1;
@@ -182,7 +182,7 @@ export class VideoUrlExtractor {
             return 0;
           })
           .map((server: any) => server.url);
-        
+
         console.log(`[HLS Extractor] 📊 ${data.data.streaming_servers.length} serveurs trouvés, ${embedUrls.length} embeds extraits`);
         console.log('[HLS Extractor] 🎯 Serveurs:', data.data.streaming_servers.map((s: any) => `${s.name} (${s.quality})`));
         return embedUrls;
@@ -202,7 +202,7 @@ export class VideoUrlExtractor {
    */
   private async fallbackToBackendExtraction(episodeId: string, startTime: number): Promise<ExtractionResult> {
     console.log(`[HLS Extractor] ❌ Pas de fallback backend disponible pour la nouvelle API`);
-    
+
     return {
       success: false,
       urls: [],
@@ -255,7 +255,7 @@ export class VideoUrlExtractor {
   private async extractHLSFromUrl(url: string): Promise<ExtractionResult> {
     try {
       console.log(`[HLS Extractor] 🌐 Début extraction pour: ${this.getHostFromUrl(url)}`);
-      
+
       // Headers adaptés selon l'hébergeur
       const hostname = this.getHostFromUrl(url);
       const headers = this.getHeadersForHost(hostname);
@@ -265,7 +265,7 @@ export class VideoUrlExtractor {
       const timeoutId = setTimeout(() => controller.abort(), 20000); // Plus de temps pour les serveurs lents
 
       console.log(`[HLS Extractor] 📤 Envoi requête HTTP vers ${hostname}...`);
-      
+
       const response = await fetch(url, {
         method: 'GET',
         headers,
@@ -273,7 +273,7 @@ export class VideoUrlExtractor {
       });
 
       clearTimeout(timeoutId);
-      
+
       console.log(`[HLS Extractor] 📥 Réponse reçue: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
@@ -282,17 +282,17 @@ export class VideoUrlExtractor {
 
       const html = await response.text();
       console.log(`[HLS Extractor] 📄 HTML récupéré: ${html.length} caractères pour ${hostname}`);
-      
+
       // Vérifier si le HTML est valide
       const isValidHtml = html.trim().startsWith('<') || html.includes('<html') || html.includes('<script') || html.includes('<div');
-      
+
       if (!isValidHtml) {
         console.log(`[HLS Extractor] ⚠️ HTML invalide ou corrompu, longueur: ${html.length}`);
         const sample = html.substring(0, 100).replace(/[^\x20-\x7E]/g, '?');
         console.log(`[HLS Extractor] 📋 Échantillon nettoyé: ${sample}`);
         throw new Error('HTML corrompu ou compressé');
       }
-      
+
       // Essayer d'abord l'extraction spécifique à l'hébergeur
       console.log(`[HLS Extractor] 🎯 Tentative extraction spécifique pour ${hostname}...`);
       const specificResult = this.extractWithSpecificStrategy(url, html);
@@ -435,31 +435,31 @@ export class VideoUrlExtractor {
    */
   private extractWithAdvancedPatterns(html: string): string[] {
     const urls = new Set<string>();
-    
+
     // Patterns JavaScript courants pour players vidéo
     const jsPatterns = [
       // JWPlayer configurations
       /jwplayer\([^)]*\)\.setup\([^}]*file[:\s]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^}]*\)/gi,
-      
+
       // Video.js et players HTML5
       /new\s+Video[^}]*source[:\s]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^}]*/gi,
-      
+
       // Configurations player modernes
       /player[^}]*url[:\s]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^}]*/gi,
-      
+
       // Variables JavaScript contenant des URLs
       /(?:var|let|const)\s+[^=]*=\s*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"];/gi,
-      
+
       // Appels AJAX ou fetch pour récupérer des URLs
       /fetch\([^)]*['"](https?:\/\/[^'"]*(?:api|stream|video)[^'"]*)['"][^)]*/gi,
-      
+
       // URLs dans des objets de configuration
       /\{[^}]*(?:url|src|file)[:\s]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^}]*\}/gi,
-      
+
       // Patterns pour serveurs populaires
       /(?:sibnet|vidmoly|oneupload|sendvid)[^'"]*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"][^"]*/gi,
     ];
-    
+
     for (const pattern of jsPatterns) {
       let match;
       while ((match = pattern.exec(html)) !== null) {
@@ -469,12 +469,12 @@ export class VideoUrlExtractor {
         }
       }
     }
-    
+
     // Recherche dans les data-attributes HTML5
     const dataAttrPatterns = [
       /data-(?:src|url|file)[=:]\s*['"](https?:\/\/[^'"]*(?:\.m3u8|\.mp4|\.webm)[^'"]*)['"]?/gi,
     ];
-    
+
     for (const pattern of dataAttrPatterns) {
       let match;
       while ((match = pattern.exec(html)) !== null) {
@@ -484,7 +484,7 @@ export class VideoUrlExtractor {
         }
       }
     }
-    
+
     return Array.from(urls);
   }
 
@@ -515,10 +515,10 @@ export class VideoUrlExtractor {
    */
   private extractInterestingSections(html: string): string[] {
     const sections = [];
-    
+
     // Chercher mentions de "m3u8", "stream", "video", "player"
     const keywords = ['m3u8', 'stream', 'video', 'player', 'source', 'file'];
-    
+
     for (const keyword of keywords) {
       const regex = new RegExp(`.{0,100}${keyword}.{0,100}`, 'gi');
       const matches = html.match(regex);
@@ -526,7 +526,7 @@ export class VideoUrlExtractor {
         sections.push(`${keyword}: ${matches.slice(0, 2).join(' | ')}`);
       }
     }
-    
+
     return sections;
   }
 
@@ -555,7 +555,7 @@ export class VideoUrlExtractor {
    */
   private extractFromVidmoly(html: string): string[] {
     const urls = new Set<string>();
-    
+
     // Patterns spécifiques à Vidmoly
     const patterns = [
       /jwplayer\s*\(\s*['"]\w+['\"]\s*\)\s*\.setup\s*\(\s*\{[^}]*file\s*:\s*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
@@ -584,7 +584,7 @@ export class VideoUrlExtractor {
    */
   private extractFromSibnet(html: string): string[] {
     const urls = new Set<string>();
-    
+
     // Patterns pour Sibnet
     const patterns = [
       /src\s*:\s*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
@@ -612,7 +612,7 @@ export class VideoUrlExtractor {
    */
   private extractFromOneupload(html: string): string[] {
     const urls = new Set<string>();
-    
+
     // Patterns pour OneUpload
     const patterns = [
       /file\s*:\s*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
@@ -639,7 +639,7 @@ export class VideoUrlExtractor {
    */
   private extractFromMovearnpre(html: string): string[] {
     const urls = new Set<string>();
-    
+
     // Patterns pour Movearnpre
     const patterns = [
       /stream_url\s*:\s*['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]?/gi,
@@ -691,11 +691,11 @@ export class VideoUrlExtractor {
      ];
 
      const urls = new Set<string>();
-     
+
      for (const pattern of alternativePatterns) {
        let match;
        pattern.lastIndex = 0;
-       
+
        while ((match = pattern.exec(html)) !== null) {
          const url = match[1];
          if (url && this.isValidHLSUrl(url)) {
@@ -712,7 +712,7 @@ export class VideoUrlExtractor {
    */
   private extractHLSFromHTML(html: string): string[] {
     const hlsUrls = new Set<string>();
-    
+
     // Patterns étendus pour HLS
     const extendedPatterns = [
       ...this.HLS_PATTERNS,
@@ -739,7 +739,7 @@ export class VideoUrlExtractor {
     for (const pattern of extendedPatterns) {
       let match;
       pattern.lastIndex = 0; // Reset regex global
-      
+
       while ((match = pattern.exec(html)) !== null) {
         const url = match[1] || match[0];
         if (this.isValidHLSUrl(url)) {
@@ -849,9 +849,9 @@ export class VideoUrlExtractor {
       typeof url === 'string' &&
       url.length > 10 &&
       (url.startsWith('http://') || url.startsWith('https://')) &&
-      (url.includes('embed') || 
-       url.includes('vidmoly') || 
-       url.includes('sibnet') || 
+      (url.includes('embed') ||
+       url.includes('vidmoly') ||
+       url.includes('sibnet') ||
        url.includes('oneupload') ||
        url.includes('movearnpre') ||
        url.includes('sendvid'))
@@ -860,4 +860,4 @@ export class VideoUrlExtractor {
 }
 
 export default new VideoUrlExtractor();
-export type { ExtractedVideoUrl, ExtractionResult }; 
+export type { ExtractedVideoUrl, ExtractionResult };

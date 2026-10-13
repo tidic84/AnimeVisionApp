@@ -6,6 +6,8 @@ node_modules/
 # Expo
 .expo/
 dist/
+dist-web/
+dist-android/
 web-build/
 expo-env.d.ts
 
@@ -58,4 +60,4 @@ dev-debug.log
 
 # Task files
 # tasks.json
-# tasks/ 
+# tasks/

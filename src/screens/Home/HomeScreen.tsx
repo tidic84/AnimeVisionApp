@@ -1,3 +1,7 @@
+import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
+import { FadeIn, MotionPressable } from '../../components/Motion';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { palette } from '../../theme/palette';
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -6,10 +10,10 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
-  useColorScheme,
   RefreshControl,
 
   Dimensions,
+  useWindowDimensions,
   ImageBackground,
   Image,
 } from 'react-native';
@@ -29,15 +33,12 @@ import ApiGuard from '../../components/ApiGuard';
 // Composant de message d'erreur simple
 const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ message, onRetry }) => {
   const colorScheme = useColorScheme();
-  const colors = {
-    light: { background: '#ffffff', text: '#1e293b', primary: '#6366f1', surface: '#f8fafc' },
-    dark: { background: '#0f172a', text: '#f1f5f9', primary: '#818cf8', surface: '#1e293b' },
-  }[colorScheme ?? 'light'];
+  const colors = palette[colorScheme ?? 'light'];
 
   return (
     <View style={[styles.errorContainer, { backgroundColor: colors.surface }]}>
       <Text style={[styles.errorText, { color: colors.text }]}>{message}</Text>
-      <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.primary }]} onPress={onRetry}>
+      <TouchableOpacity style={[styles.retryButton, { backgroundColor: colors.buttonBg }]} onPress={onRetry}>
         <Text style={styles.retryButtonText}>Réessayer</Text>
       </TouchableOpacity>
     </View>
@@ -47,19 +48,19 @@ const ErrorMessage: React.FC<{ message: string; onRetry: () => void }> = ({ mess
 // Composant de skeleton simple
 const SkeletonCard: React.FC<{ width: number; height: number; style?: any }> = ({ width, height, style }) => {
   const colorScheme = useColorScheme();
-  
+
   return (
-    <View 
+    <View
       style={[
-        { 
-          width, 
-          height, 
+        {
+          width,
+          height,
           backgroundColor: colorScheme === 'dark' ? '#1e293b' : '#f1f5f9',
           borderRadius: 12,
           marginRight: 12,
-        }, 
+        },
         style
-      ]} 
+      ]}
     />
   );
 };
@@ -67,19 +68,19 @@ const SkeletonCard: React.FC<{ width: number; height: number; style?: any }> = (
 // Composant de skeleton pour le texte
 const SkeletonText: React.FC<{ width: string | number; height: number; style?: any }> = ({ width, height, style }) => {
   const colorScheme = useColorScheme();
-  
+
   return (
-    <View 
+    <View
       style={[
-        { 
-          width, 
-          height, 
+        {
+          width,
+          height,
           backgroundColor: colorScheme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
           borderRadius: 4,
           marginBottom: 8,
-        }, 
+        },
         style
-      ]} 
+      ]}
     />
   );
 };
@@ -96,6 +97,8 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const HomeScreenContent: React.FC = () => {
   const navigation = useNavigation();
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const [latestEpisodes, setLatestEpisodes] = useState<Episode[]>([]);
   const [continueWatching, setContinueWatching] = useState<Episode[]>([]);
@@ -106,29 +109,12 @@ const HomeScreenContent: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [currentCarouselIndex, setCurrentCarouselIndex] = useState(0);
-  
+
   // États d'erreur séparés pour chaque section
   const [episodesError, setEpisodesError] = useState<string | null>(null);
   const [animesError, setAnimesError] = useState<string | null>(null);
 
-  const colors = {
-    light: {
-      background: '#ffffff',
-      text: '#1e293b',
-      textSecondary: '#64748b',
-      surface: '#f8fafc',
-      border: '#e2e8f0',
-      primary: '#6366f1',
-    },
-    dark: {
-      background: '#0f172a',
-      text: '#f1f5f9',
-      textSecondary: '#94a3b8',
-      surface: '#1e293b',
-      border: '#334155',
-      primary: '#818cf8',
-    },
-  }[colorScheme ?? 'light'];
+  const colors = palette[colorScheme ?? 'light'];
 
   // Chargement initial seulement
   useEffect(() => {
@@ -147,25 +133,25 @@ const HomeScreenContent: React.FC = () => {
         // Vérifier si on a un cache complet et valide
         const hasCompleteCache = await hybridScrapingService.hasCompleteHomeCache();
         const hasData = latestEpisodes.length > 0 && recommendedAnimes.length > 0;
-        
+
         if (hasCompleteCache && hasData) {
           console.log('[HomeScreen] Cache complet et données présentes - pas de rechargement');
           // Actualiser seulement la section "Continuer à regarder" depuis la DB
           updateContinueWatching();
           return;
         }
-        
+
         // Vérifier l'âge du cache
         const cacheAge = hybridScrapingService.getCacheAge();
         const isRecentCache = (cacheAge.latestEpisodes && cacheAge.latestEpisodes < 30) ||
                              (cacheAge.popularAnimes && cacheAge.popularAnimes < 60);
-        
+
         if (hasData && isRecentCache) {
           console.log(`[HomeScreen] Cache récent (épisodes: ${cacheAge.latestEpisodes}min, animés: ${cacheAge.popularAnimes}min) - pas de rechargement`);
           updateContinueWatching();
           return;
         }
-        
+
         // Ne recharger que si vraiment nécessaire
         if (!hasData) {
           console.log('[HomeScreen] Rechargement nécessaire - pas de données');
@@ -184,8 +170,8 @@ const HomeScreenContent: React.FC = () => {
     try {
       if (latestEpisodes.length > 0) {
         const watchHistory = await databaseService.getWatchHistory();
-        const continueEpisodes = latestEpisodes.filter(ep => 
-          watchHistory.some(history => 
+        const continueEpisodes = latestEpisodes.filter(ep =>
+          watchHistory.some(history =>
             history.episodeId === ep.id && history.progress > 10 && history.progress < 90
           )
         );
@@ -203,21 +189,21 @@ const HomeScreenContent: React.FC = () => {
       setLoadingAnimes(true);
       setEpisodesError(null);
       setAnimesError(null);
-      
+
       console.log('[HomeScreen] Début du chargement des données...');
-      
+
       // Vérifier le cache avant tout
       const cacheStats = hybridScrapingService.getCacheStats?.() || { memoryEntries: 0 };
       const hasValidCache = cacheStats.memoryEntries > 0;
-      
+
       console.log(`[Cache] ${hasValidCache ? 'PRÉSENT' : 'ABSENT'} (${cacheStats.memoryEntries} entrées)`);
-      
+
       // Délai minimum seulement pour la première visite ET sans cache
       const shouldShowSkeleton = !hasLoadedOnce && !hasValidCache;
-      const minLoadingTime = shouldShowSkeleton ? 
-        new Promise(resolve => setTimeout(resolve, 800)) : 
+      const minLoadingTime = shouldShowSkeleton ?
+        new Promise(resolve => setTimeout(resolve, 800)) :
         Promise.resolve();
-      
+
       // Charger les derniers épisodes
       const episodesPromise = hybridScrapingService.getLatestEpisodes()
         .then((episodes: Episode[]) => {
@@ -234,7 +220,7 @@ const HomeScreenContent: React.FC = () => {
           setLoadingEpisodes(false);
           return [];
         });
-      
+
       // Charger les animés classiques
       const animesPromise = hybridScrapingService.getPopularAnimes()
         .then((animes: Anime[]) => {
@@ -251,7 +237,7 @@ const HomeScreenContent: React.FC = () => {
           setLoadingAnimes(false);
           return [];
         });
-      
+
       // Attendre toutes les promesses
       const [episodes] = await Promise.all([
         episodesPromise,
@@ -281,7 +267,7 @@ const HomeScreenContent: React.FC = () => {
   const onRefresh = () => {
     console.log('[Pull-to-Refresh] Début du refresh...');
     setIsRefreshing(true);
-    
+
     // Utiliser la méthode forceRefresh pour vider complètement le cache et recharger
     hybridScrapingService.forceRefresh()
       .then(({ latestEpisodes, popularAnimes }: { latestEpisodes: Episode[], popularAnimes: Anime[] }) => {
@@ -305,7 +291,7 @@ const HomeScreenContent: React.FC = () => {
     console.log('[HomeScreen] Nouvelle tentative de chargement des épisodes...');
     setLoadingEpisodes(true);
     setEpisodesError(null);
-    
+
     hybridScrapingService.getLatestEpisodes()
       .then((episodes: Episode[]) => {
         setLatestEpisodes(episodes);
@@ -323,7 +309,7 @@ const HomeScreenContent: React.FC = () => {
     console.log('[HomeScreen] Nouvelle tentative de chargement des animés...');
     setLoadingAnimes(true);
     setAnimesError(null);
-    
+
     hybridScrapingService.getPopularAnimes()
       .then((animes: Anime[]) => {
         setRecommendedAnimes(animes.slice(0, 10));
@@ -343,10 +329,10 @@ const HomeScreenContent: React.FC = () => {
   const playEpisode = (episode: Episode) => {
     console.log('[HomeScreen] Navigation vers VideoPlayer pour:', episode.title);
     console.log('[HomeScreen] AnimeId:', episode.animeId, 'EpisodeId:', episode.id);
-    (navigation as any).navigate('VideoPlayer', { 
-      episodeId: episode.id, 
+    (navigation as any).navigate('VideoPlayer', {
+      episodeId: episode.id,
       animeId: episode.animeId,
-      autoPlay: true 
+      autoPlay: true
     });
   };
 
@@ -382,7 +368,7 @@ const HomeScreenContent: React.FC = () => {
           backgroundColor: colorScheme === 'dark' ? '#475569' : '#cbd5e1'
         }]} />
       </View>
-      
+
       {/* Contenu */}
       <View style={styles.episodeSkeletonContent}>
         {/* Titre anime */}
@@ -405,12 +391,12 @@ const HomeScreenContent: React.FC = () => {
           backgroundColor: colorScheme === 'dark' ? '#475569' : '#cbd5e1'
         }]} />
       </View>
-      
+
       {/* Titre */}
       <SkeletonText width="90%" height={16} style={{ marginTop: 8, marginBottom: 4 }} />
       {/* Sous-titre */}
       <SkeletonText width="70%" height={14} style={{ marginBottom: 8 }} />
-      
+
       {/* Métadonnées */}
       <View style={styles.animeSkeletonMeta}>
         <SkeletonText width={35} height={12} style={{ marginRight: 8, marginBottom: 0 }} />
@@ -433,21 +419,22 @@ const HomeScreenContent: React.FC = () => {
   // Carousel simple sans animations complexes
   const renderCarouselItem = ({ item: anime }: { item: Anime }) => (
     <TouchableOpacity
-      style={styles.carouselItem}
+      style={[styles.carouselItem, { width: viewportWidth, height: Math.min(520, Math.max(380, viewportHeight * 0.6)) }]}
       onPress={() => navigateToAnimeDetail(anime.id)}
       activeOpacity={1}
     >
       <ImageBackground
-        source={{ uri: anime.thumbnail }}
+        source={{ uri: anime.banner || anime.thumbnail }}
         style={styles.carouselBackground}
         resizeMode="cover"
       >
         <LinearGradient
-          colors={['transparent', 'rgba(0, 0, 0, 0.5)', 'rgba(255,255,255,1)']}
-          locations={[0, 0.7, 1]}
+          colors={['rgba(16,16,24,0.06)', 'rgba(16,16,24,0.62)', '#101018']}
+          locations={[0, 0.45, 1]}
           style={styles.carouselGradient}
         >
-          <View style={styles.carouselContent}>
+          <FadeIn style={styles.carouselContent}>
+            <Text style={styles.heroEyebrow}>LA SÉLECTION ANIMEVISION</Text>
             <View style={styles.carouselInfo}>
               <Text style={styles.carouselTitle} numberOfLines={2}>
                 {anime.title}
@@ -459,30 +446,31 @@ const HomeScreenContent: React.FC = () => {
                 <View style={styles.carouselRating}>
                   <Ionicons name="star" size={16} color="#fbbf24" />
                   <Text style={styles.carouselRatingText}>
-                    {anime.rating.toFixed(1)}
+                    {anime.rating > 0 ? anime.rating.toFixed(1) : 'À découvrir'}
                   </Text>
                 </View>
-                <Text style={styles.carouselYear}>{anime.year}</Text>
+                <Text style={styles.carouselYear}>{anime.year > 1900 ? anime.year : ''}</Text>
                 <Text style={styles.carouselGenres}>
-                  {anime.genres.slice(0, 2).join(' • ')}
+                  {(anime.genres || []).slice(0, 2).join(' • ')}
                 </Text>
               </View>
             </View>
-            <TouchableOpacity 
+            <MotionPressable
+              accessibilityLabel={`Découvrir ${anime.title}`}
               style={styles.playButton}
               onPress={() => navigateToAnimeDetail(anime.id)}
             >
               <Ionicons name="play" size={24} color="#ffffff" />
-              <Text style={styles.playButtonText}>REGARDER</Text>
-            </TouchableOpacity>
-          </View>
+              <Text style={styles.playButtonText}>Découvrir l’anime</Text>
+            </MotionPressable>
+          </FadeIn>
         </LinearGradient>
       </ImageBackground>
     </TouchableOpacity>
   );
 
   const renderCarouselSkeleton = () => (
-    <View style={styles.carouselItem}>
+    <View style={[styles.carouselItem, { width: viewportWidth, height: Math.min(520, Math.max(380, viewportHeight * 0.6)) }]}>
       <View style={[styles.carouselBackground, { backgroundColor: colorScheme === 'dark' ? '#1e293b' : '#f1f5f9' }]}>
         <View style={styles.carouselGradient}>
           <View style={styles.carouselContent}>
@@ -504,13 +492,28 @@ const HomeScreenContent: React.FC = () => {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar style="light" translucent />
+      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      <View style={[styles.brandHeader, { paddingTop: insets.top + 16 }]}>
+        <View style={styles.brandLockup}>
+          <View style={styles.brandIcon}><Ionicons name="play" size={18} color="#FFFFFF" /></View>
+          <Text style={[styles.brandTitle, { color: colors.text }]}>anime<Text style={{ color: colors.primary }}>vision.</Text></Text>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Actualiser l’accueil" disabled={isRefreshing} onPress={onRefresh} style={styles.searchShortcut}>
+            <Ionicons name="refresh-outline" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Rechercher un anime" onPress={() => (navigation as any).navigate('Catalog')} style={[styles.searchShortcut, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Ionicons name="search-outline" size={20} color={colors.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={{ paddingBottom: 24 }}
         contentInsetAdjustmentBehavior="never"
         refreshControl={
-          <RefreshControl 
-            refreshing={isRefreshing} 
+          <RefreshControl
+            refreshing={isRefreshing}
             onRefresh={onRefresh}
             tintColor={colors.primary}
             colors={[colors.primary]}
@@ -522,11 +525,11 @@ const HomeScreenContent: React.FC = () => {
           {loadingAnimes ? (
             renderCarouselSkeleton()
           ) : animesError ? (
-            <View style={styles.carouselItem}>
+            <View style={[styles.carouselItem, { width: viewportWidth, height: Math.min(520, Math.max(380, viewportHeight * 0.6)) }]}>
               <View style={[styles.carouselBackground, { backgroundColor: colors.surface }]}>
                 <View style={styles.carouselGradient}>
-                  <ErrorMessage 
-                    message={animesError} 
+                  <ErrorMessage
+                    message={animesError}
                     onRetry={retryLoadAnimes}
                   />
                 </View>
@@ -541,12 +544,12 @@ const HomeScreenContent: React.FC = () => {
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={(event) => {
-                const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                const index = Math.round(event.nativeEvent.contentOffset.x / viewportWidth);
                 setCurrentCarouselIndex(index);
               }}
             />
           )}
-          
+
           {/* Indicateurs de pagination simples */}
           {!loadingAnimes && !animesError && recommendedAnimes.length > 0 && (
             <View style={styles.pagination}>
@@ -556,9 +559,10 @@ const HomeScreenContent: React.FC = () => {
                   style={[
                     styles.paginationDot,
                     {
-                      backgroundColor: index === currentCarouselIndex ? 
-                        (colorScheme === 'dark' ? '#ffffff' : '#1e293b') :
-                        (colorScheme === 'dark' ? 'rgba(255, 255, 255, 0.4)' : 'rgba(30, 41, 59, 0.4)'),
+                      backgroundColor: index === currentCarouselIndex ?
+                        colors.primary :
+                        'rgba(255,255,255,0.35)',
+                      width: index === currentCarouselIndex ? 24 : 6,
                     }
                   ]}
                 />
@@ -604,8 +608,8 @@ const HomeScreenContent: React.FC = () => {
           {loadingEpisodes ? (
             renderSkeletonList(5, 'episode')
           ) : episodesError ? (
-            <ErrorMessage 
-              message={episodesError} 
+            <ErrorMessage
+              message={episodesError}
               onRetry={retryLoadEpisodes}
             />
           ) : latestEpisodes.length === 0 ? (
@@ -644,8 +648,8 @@ const HomeScreenContent: React.FC = () => {
           {loadingAnimes ? (
             renderSkeletonList(5, 'anime')
           ) : animesError ? (
-            <ErrorMessage 
-              message={animesError} 
+            <ErrorMessage
+              message={animesError}
               onRetry={retryLoadAnimes}
             />
           ) : recommendedAnimes.length === 0 ? (
@@ -656,7 +660,7 @@ const HomeScreenContent: React.FC = () => {
             </View>
           ) : (
             <FlatList
-              data={recommendedAnimes.slice(5, 10)}
+              data={recommendedAnimes.slice(0, 10)}
               renderItem={renderAnimeCard}
               keyExtractor={(item) => item.id}
               horizontal
@@ -671,6 +675,12 @@ const HomeScreenContent: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
+  brandHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 18 },
+  brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandIcon: { width: 32, height: 32, borderRadius: 11, backgroundColor: '#7354D2', alignItems: 'center', justifyContent: 'center' },
+  brandTitle: { fontSize: 23, fontWeight: '800', letterSpacing: -1 },
+  searchShortcut: { width: 44, height: 44, borderRadius: 16, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  heroEyebrow: { color: '#C6B5EC', fontSize: 10, fontWeight: '700', letterSpacing: 2.5, marginBottom: 12 },
   container: {
     flex: 1,
     backgroundColor: 'transparent',
@@ -711,7 +721,7 @@ const styles = StyleSheet.create({
   // Styles du caroussel
   carouselContainer: {
     position: 'relative',
-    marginBottom: 0,
+    marginBottom: 32,
   },
   carouselItem: {
     width: screenWidth,
@@ -724,8 +734,8 @@ const styles = StyleSheet.create({
   carouselGradient: {
     flex: 1,
     justifyContent: 'flex-end',
-    paddingHorizontal: 20,
-    paddingBottom: 120,
+    paddingHorizontal: 28,
+    paddingBottom: 54,
   },
   carouselContent: {
     flex: 1,
@@ -735,8 +745,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   carouselTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 36,
+    fontWeight: '800',
+    letterSpacing: -1,
+    maxWidth: 650,
     color: '#ffffff',
     marginBottom: 8,
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
@@ -744,9 +756,10 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   carouselDescription: {
-    fontSize: 16,
-    color: '#ffffff',
-    lineHeight: 22,
+    fontSize: 14,
+    color: '#C7C3D2',
+    maxWidth: 600,
+    lineHeight: 21,
     marginBottom: 12,
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 0, height: 1 },
@@ -780,10 +793,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   playButton: {
-    backgroundColor: '#1e293b',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+    backgroundColor: '#7354D2',
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+    borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
@@ -801,7 +814,7 @@ const styles = StyleSheet.create({
   },
   pagination: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 18,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -809,8 +822,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   paginationDot: {
-    width: 8,
-    height: 8,
+    width: 6,
+    height: 6,
     borderRadius: 4,
     marginHorizontal: 4,
     elevation: 2,
@@ -824,24 +837,25 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 32,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    paddingHorizontal: 24,
+    marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: -0.6,
   },
   retryIconButton: {
     padding: 4,
   },
   horizontalList: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 24,
   },
   errorContainer: {
     margin: 16,
@@ -865,8 +879,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   stackCard: {
-    width: screenWidth * 0.7,
-    height: screenHeight * 0.85,
+    width: 200,
+    height: 195,
     marginRight: 12,
   },
   stackCardTouchable: {
@@ -883,8 +897,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   episodeSkeletonCard: {
-    width: screenWidth * 0.7,
-    height: screenHeight * 0.85,
+    width: 200,
+    height: 195,
     marginRight: 12,
     borderRadius: 12,
     overflow: 'hidden',
@@ -906,8 +920,8 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   animeSkeletonCard: {
-    width: screenWidth * 0.7,
-    height: screenHeight * 0.85,
+    width: 200,
+    height: 195,
     marginRight: 12,
     borderRadius: 12,
     overflow: 'hidden',
@@ -945,5 +959,5 @@ const styles = StyleSheet.create({
   },
 });
 
-export default HomeScreen; 
+export default HomeScreen;
 

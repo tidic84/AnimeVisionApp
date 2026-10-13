@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
+import { palette } from '../../theme/palette';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,8 +10,8 @@ import {
   TextInput,
   ScrollView,
   SafeAreaView,
-  useColorScheme,
   Dimensions,
+  useWindowDimensions,
   RefreshControl,
   ActivityIndicator,
   Image,
@@ -27,32 +29,7 @@ type CatalogScreenProps = MainTabScreenProps<'Catalog'>;
 
 const { width: screenWidth } = Dimensions.get('window');
 
-const Colors = {
-  light: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#ffffff',
-    surface: '#f8fafc',
-    text: '#1e293b',
-    textSecondary: '#64748b',
-    border: '#e2e8f0',
-    card: '#ffffff',
-    accent: '#3b82f6',
-  },
-  dark: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#0f172a',
-    surface: '#1e293b',
-    text: '#f1f5f9',
-    textSecondary: '#94a3b8',
-    border: '#334155',
-    card: '#1e293b',
-    accent: '#60a5fa',
-  },
-};
+const Colors = palette;
 
 const GENRES = [
   'Action', 'Aventure', 'Comédie', 'Drame', 'Fantasy', 'Horreur',
@@ -61,7 +38,7 @@ const GENRES = [
   'Musique', 'Psychologique', 'Historique', 'Josei', 'Seinen', 'Shojo', 'Shonen'
 ];
 
-const YEARS = Array.from({ length: 30 }, (_, i) => 2024 - i);
+const YEARS = Array.from({ length: new Date().getFullYear() - 1959 }, (_, i) => new Date().getFullYear() - i);
 
 const SORT_OPTIONS = [
   { key: 'popularity', label: 'Popularité' },
@@ -82,12 +59,18 @@ interface FilterState {
 
 const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
   const colorScheme = useColorScheme();
+  const { width: viewportWidth } = useWindowDimensions();
+  const columnCount = viewportWidth > 1100 ? 6 : viewportWidth > 760 ? 4 : viewportWidth > 540 ? 3 : 2;
+  const cardWidth = (viewportWidth - 48 - (columnCount - 1) * 14) / columnCount;
   const colors = Colors[colorScheme ?? 'light'];
   const { isApiAvailable } = useApi();
   const insets = useSafeAreaInsets();
-  
+
+  const latestRequest = useRef(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [availableGenres, setAvailableGenres] = useState(GENRES);
+  const [totalItems, setTotalItems] = useState(0);
   const [animes, setAnimes] = useState<Anime[]>([]);
-  const [filteredAnimes, setFilteredAnimes] = useState<Anime[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -109,21 +92,27 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
   });
 
   useEffect(() => {
-    if (isApiAvailable) {
-      loadAnimes();
-    }
+    if (!isApiAvailable) return;
+    let active = true;
+    apiService.getAvailableGenres().then(genres => { if (active && genres.length) setAvailableGenres(genres); });
+    return () => { active = false; };
   }, [isApiAvailable]);
 
   useEffect(() => {
-    applyFilters();
-  }, [animes, searchQuery, filters]);
+    if (!isApiAvailable) return;
+    const timeout = setTimeout(() => { loadAnimes(1, true); }, searchQuery.trim() ? 300 : 0);
+    return () => { clearTimeout(timeout); latestRequest.current += 1; };
+  }, [isApiAvailable, searchQuery, filters]);
 
   const loadAnimes = async (pageNum = 1, refresh = false) => {
     if (!isApiAvailable) return;
+    const requestId = ++latestRequest.current;
+    setLoadError(null);
 
     try {
       if (refresh) {
-        setLoading(true);
+        if (!searchQuery.trim() && animes.length === 0) setLoading(true);
+        setIsChangingPage(true);
         setPage(1);
         setHasMore(true);
         setPageCache(new Map()); // Vider le cache
@@ -134,64 +123,41 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
       }
 
       // Vérifier le cache d'abord
-      if (pageCache.has(pageNum) && !refresh) {
+      if (pageCache.has(pageNum) && !refresh && !searchQuery.trim()) {
         console.log(`[Catalog] 🚀 Page ${pageNum} chargée depuis le cache`);
         setAnimes(pageCache.get(pageNum)!);
         setPage(pageNum);
         setIsChangingPage(false);
-        
+
         // Précharger les pages adjacentes en arrière-plan
-        preloadAdjacentPages(pageNum);
         return;
       }
 
       console.log(`[Catalog] 📡 Chargement de la page ${pageNum} depuis l'API`);
-      const response = await apiService.getAnimeList(pageNum, 20);
-      
+      const response = await apiService.searchAnimesByFilters({
+        query: searchQuery.trim(), genres: filters.genres, years: filters.years,
+        studio: filters.studio.trim(), status: filters.status === 'all' ? undefined : filters.status,
+        sortBy: filters.sortBy, sortOrder: filters.sortOrder, page: pageNum, limit: 20,
+      });
+      if (requestId !== latestRequest.current) return;
+
       const animeData = response.animes || [];
-      
+
       // Mettre en cache
-      setPageCache(prev => new Map(prev.set(pageNum, animeData)));
-      
+      if (!searchQuery.trim()) setPageCache(prev => new Map(prev).set(pageNum, animeData));
+
       setAnimes(animeData);
       setHasMore(response.hasMore);
       setTotalPages(response.totalPages || 1);
+      setTotalItems(response.totalItems ?? animeData.length);
       setPage(pageNum);
-      
+
       // Précharger les pages adjacentes
-      preloadAdjacentPages(pageNum);
     } catch (error) {
+      if (requestId === latestRequest.current) setLoadError('Le catalogue ne peut pas être chargé. Réessayez dans un instant.');
       console.error('[Catalog] Erreur lors du chargement des animés:', error);
     } finally {
-      setLoading(false);
-      setIsChangingPage(false);
-    }
-  };
-
-  // Fonction pour précharger les pages adjacentes
-  const preloadAdjacentPages = async (currentPage: number) => {
-    const pagesToPreload = [];
-    
-    // Page suivante
-    if (currentPage < totalPages) {
-      pagesToPreload.push(currentPage + 1);
-    }
-    
-    // Page précédente
-    if (currentPage > 1) {
-      pagesToPreload.push(currentPage - 1);
-    }
-    
-    for (const pageToLoad of pagesToPreload) {
-      if (!pageCache.has(pageToLoad)) {
-        try {
-          console.log(`[Catalog] 🔄 Préchargement de la page ${pageToLoad}`);
-          const response = await apiService.getAnimeList(pageToLoad, 20);
-          setPageCache(prev => new Map(prev.set(pageToLoad, response.animes || [])));
-        } catch (error) {
-          console.warn(`[Catalog] Erreur préchargement page ${pageToLoad}:`, error);
-        }
-      }
+      if (requestId === latestRequest.current) { setLoading(false); setIsChangingPage(false); }
     }
   };
 
@@ -199,7 +165,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
     setRefreshing(true);
     await loadAnimes(1, true);
     setRefreshing(false);
-  }, []);
+  }, [isApiAvailable, searchQuery, filters]);
 
   // Pagination : page suivante/précédente optimisées
   const goToPrevPage = () => {
@@ -220,76 +186,6 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
     }
   };
 
-
-  const applyFilters = useMemo(() => {
-    return () => {
-      let filtered = [...animes];
-
-      // Recherche par titre
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        filtered = filtered.filter(anime =>
-          anime.title.toLowerCase().includes(query) ||
-          anime.originalTitle?.toLowerCase().includes(query) ||
-          anime.genres.some(genre => genre.toLowerCase().includes(query))
-        );
-      }
-
-      // Filtre par genres
-      if (filters.genres.length > 0) {
-        filtered = filtered.filter(anime =>
-          filters.genres.some(genre => anime.genres.includes(genre))
-        );
-      }
-
-      // Filtre par statut
-      if (filters.status !== 'all') {
-        filtered = filtered.filter(anime => anime.status === filters.status);
-      }
-
-      // Filtre par années
-      if (filters.years.length > 0) {
-        filtered = filtered.filter(anime => filters.years.includes(anime.year));
-      }
-
-      // Filtre par studio
-      if (filters.studio.trim()) {
-        const studio = filters.studio.toLowerCase();
-        filtered = filtered.filter(anime =>
-          anime.studio.toLowerCase().includes(studio)
-        );
-      }
-
-      // Tri
-      filtered.sort((a, b) => {
-        let comparison = 0;
-        
-        switch (filters.sortBy) {
-          case 'popularity':
-            comparison = a.rating - b.rating; // Plus la note est haute, plus c'est populaire
-            break;
-          case 'rating':
-            comparison = a.rating - b.rating;
-            break;
-          case 'year':
-            comparison = a.year - b.year;
-            break;
-          case 'title':
-            comparison = a.title.localeCompare(b.title);
-            break;
-          case 'newest':
-            comparison = a.year - b.year;
-            break;
-          default:
-            return 0;
-        }
-
-        return filters.sortOrder === 'desc' ? -comparison : comparison;
-      });
-
-      setFilteredAnimes(filtered);
-    };
-  }, [animes, searchQuery, filters]);
 
   const toggleGenre = (genre: string) => {
     setFilters(prev => ({
@@ -338,7 +234,9 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
 
   const renderAnimeCard = ({ item }: { item: Anime }) => (
     <TouchableOpacity
-      style={[styles.animeCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+      accessibilityRole="button"
+      accessibilityLabel={`Découvrir ${item.title}`}
+      style={[styles.animeCard, { width: cardWidth, height: cardWidth * 1.48, backgroundColor: colors.card, borderColor: colors.border }]}
       onPress={() => navigateToAnimeDetail(item)}
       activeOpacity={0.7}
     >
@@ -355,7 +253,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
           </Text>
         </View>
       )}
-      
+
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.8)']}
         style={styles.animeOverlay}
@@ -364,31 +262,31 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
           <Text style={[styles.animeTitle, { color: '#ffffff' }]} numberOfLines={2}>
             {item.title}
           </Text>
-          
+
           <View style={styles.animeMetadata}>
             <Text style={[styles.animeYear, { color: '#ffffff' }]}>
-              {item.year > 1900 ? item.year : 'N/A'}
+              {item.year > 1900 ? item.year : '—'}
             </Text>
             <View style={styles.ratingContainer}>
               <Ionicons name="star" size={14} color="#fbbf24" />
               <Text style={[styles.animeRating, { color: '#ffffff' }]}>
-                {item.rating > 0 ? item.rating.toFixed(1) : 'N/A'}
+                {item.rating > 0 ? item.rating.toFixed(1) : '—'}
               </Text>
             </View>
           </View>
 
           <Text style={[styles.animeGenres, { color: '#ffffff' }]} numberOfLines={1}>
-            {item.genres.slice(0, 3).join(', ')}
+            {(item.genres || []).slice(0, 3).join(', ')}
           </Text>
 
-          <View style={[
+          {item.status !== AnimeStatus.UNKNOWN && <View style={[
             styles.statusBadge,
             { backgroundColor: getStatusColor(item.status) + '90' }
           ]}>
             <Text style={[styles.statusText, { color: '#ffffff' }]}>
               {getStatusText(item.status)}
             </Text>
-          </View>
+          </View>}
         </View>
       </LinearGradient>
     </TouchableOpacity>
@@ -412,7 +310,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
   const getStatusText = (status: AnimeStatus | string) => {
     // Handle both enum values and string values from API
     const statusStr = typeof status === 'string' ? status.toLowerCase() : status;
-    
+
     switch (statusStr) {
       case AnimeStatus.ONGOING:
       case 'ongoing':
@@ -468,7 +366,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
                   style={[
                     styles.sortOption,
                     {
-                      backgroundColor: filters.sortBy === option.key ? colors.primary : colors.surface,
+                      backgroundColor: filters.sortBy === option.key ? colors.buttonBg : colors.surface,
                       borderColor: colors.border,
                     }
                   ]}
@@ -483,7 +381,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
                 </TouchableOpacity>
               ))}
             </View>
-            
+
             <TouchableOpacity
               style={[styles.sortOrderButton, { borderColor: colors.border }]}
               onPress={() => setFilters(prev => ({
@@ -518,7 +416,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
                   style={[
                     styles.statusOption,
                     {
-                      backgroundColor: filters.status === status.key ? colors.primary : colors.surface,
+                      backgroundColor: filters.status === status.key ? colors.buttonBg : colors.surface,
                       borderColor: colors.border,
                     }
                   ]}
@@ -539,13 +437,13 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
           <View style={styles.filterSection}>
             <Text style={[styles.filterTitle, { color: colors.text }]}>Genres</Text>
             <View style={styles.genresContainer}>
-              {GENRES.map((genre) => (
+              {availableGenres.map((genre) => (
                 <TouchableOpacity
                   key={genre}
                   style={[
                     styles.genreChip,
                     {
-                      backgroundColor: filters.genres.includes(genre) ? colors.primary : colors.surface,
+                      backgroundColor: filters.genres.includes(genre) ? colors.buttonBg : colors.surface,
                       borderColor: colors.border,
                     }
                   ]}
@@ -572,7 +470,7 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
                   style={[
                     styles.yearChip,
                     {
-                      backgroundColor: filters.years.includes(year) ? colors.primary : colors.surface,
+                      backgroundColor: filters.years.includes(year) ? colors.buttonBg : colors.surface,
                       borderColor: colors.border,
                     }
                   ]}
@@ -645,10 +543,12 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: insets.bottom }]}> 
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      {loadError && <TouchableOpacity accessibilityRole="button" onPress={() => loadAnimes(1, true)} style={{ padding: 16, backgroundColor: colors.surface }}><Text style={{ color: colors.error }}>{loadError} Appuyer pour réessayer.</Text></TouchableOpacity>}
       {/* Header avec recherche */}
+      <View style={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 4 }}><Text style={{ color: colors.textSecondary, fontSize: 10, letterSpacing: 2, fontWeight: '700', marginBottom: 8 }}>TROUVEZ VOTRE PROCHAINE HISTOIRE</Text><Text style={{ color: colors.text, fontSize: 32, fontWeight: '800', letterSpacing: -1 }}>Explorer</Text></View>
       <View style={styles.header}>
-        <View style={[styles.searchContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+        <View style={[styles.searchContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Ionicons name="search" size={20} color={colors.textSecondary} />
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
@@ -665,7 +565,9 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
         </View>
 
         <TouchableOpacity
-          style={[styles.filterButton, { backgroundColor: colors.primary }]}
+          accessibilityRole="button"
+          accessibilityLabel="Filtrer le catalogue"
+          style={[styles.filterButton, { backgroundColor: colors.buttonBg }]}
           onPress={() => setShowFilters(true)}
         >
           <Ionicons name="options" size={20} color="white" />
@@ -677,13 +579,15 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
+      <View style={styles.resultsHeader}><Text style={[styles.resultsCount, { color: colors.textSecondary }]}>{isChangingPage ? 'Recherche en cours…' : `${totalItems.toLocaleString('fr-FR')} anime${totalItems > 1 ? 's' : ''}`}</Text></View>
       {/* Résultats */}
       <View style={{ flex: 1 }}>
         <FlatList
-          data={filteredAnimes}
+          data={animes}
           keyExtractor={(item) => item.id}
           renderItem={renderAnimeCard}
-          numColumns={2}
+          key={columnCount}
+          numColumns={columnCount}
           contentContainerStyle={styles.listContainer}
           columnWrapperStyle={styles.row}
           showsVerticalScrollIndicator={false}
@@ -697,10 +601,10 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
           ListEmptyComponent={() => (
             <View style={styles.emptyContainer}>
               <Ionicons name="search-outline" size={64} color={colors.textSecondary} />
-              <Text style={[styles.emptyTitle, { color: colors.text }]}> 
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>
                 Aucun résultat
               </Text>
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}> 
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
                 Essayez de modifier vos critères de recherche
               </Text>
             </View>
@@ -710,22 +614,22 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
 
       {/* Pagination - visible quand il y a des résultats et que l'API est disponible */}
       {!loading && isApiAvailable && animes.length > 0 && (
-        <View style={[styles.paginationContainer, { bottom: 60 + insets.bottom + 10 }]}>
+        <View style={[styles.paginationContainer, { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 }, { bottom: 74 + insets.bottom + 10 }]}>
           <TouchableOpacity
             onPress={goToPrevPage}
             disabled={page === 1 || isChangingPage}
             style={[
               styles.paginationButton,
-              { 
-                backgroundColor: colors.primary,
-                opacity: (page === 1 || isChangingPage) ? 0.5 : 1 
+              {
+                backgroundColor: colors.buttonBg,
+                opacity: (page === 1 || isChangingPage) ? 0.5 : 1
               }
             ]}
           >
             <Ionicons name="chevron-back" size={16} color="white" />
             <Text style={styles.paginationButtonText}>Précédent</Text>
           </TouchableOpacity>
-          
+
           <View style={styles.paginationInfo}>
             {isChangingPage ? (
               <ActivityIndicator size="small" color={colors.primary} />
@@ -735,15 +639,15 @@ const CatalogScreen: React.FC<CatalogScreenProps> = ({ navigation }) => {
               </Text>
             )}
           </View>
-          
+
           <TouchableOpacity
             onPress={goToNextPage}
             disabled={Boolean(!hasMore || (totalPages && page >= totalPages) || isChangingPage)}
             style={[
               styles.paginationButton,
-              { 
-                backgroundColor: colors.primary,
-                opacity: (!hasMore || (totalPages && page >= totalPages) || isChangingPage) ? 0.5 : 1 
+              {
+                backgroundColor: colors.buttonBg,
+                opacity: (!hasMore || (totalPages && page >= totalPages) || isChangingPage) ? 0.5 : 1
               }
             ]}
           >
@@ -764,7 +668,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 16,
     alignItems: 'center',
   },
@@ -774,7 +678,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 14,
     borderWidth: 1,
     marginRight: 12,
   },
@@ -786,7 +690,7 @@ const styles = StyleSheet.create({
   filterButton: {
     width: 44,
     height: 44,
-    borderRadius: 8,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
@@ -808,30 +712,31 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   resultsHeader: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingBottom: 8,
   },
   resultsCount: {
     fontSize: 14,
   },
   listContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingBottom: 0,
   },
   row: {
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    gap: 14,
   },
   animeCard: {
     width: (screenWidth - 60) / 2,
     height: 280,
-    borderRadius: 12,
+    borderRadius: 20,
     marginBottom: 16,
     borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.035,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 0,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -952,14 +857,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e2e8f0',
   },
   filtersTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    letterSpacing: -0.4,
   },
   clearButton: {
     fontSize: 16,
@@ -967,7 +873,7 @@ const styles = StyleSheet.create({
   },
   filtersContent: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   filterSection: {
     marginVertical: 20,
@@ -999,7 +905,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 14,
     borderWidth: 1,
     alignSelf: 'flex-start',
   },
@@ -1057,7 +963,7 @@ const styles = StyleSheet.create({
   },
   studioInput: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 16,
@@ -1071,7 +977,7 @@ const styles = StyleSheet.create({
     width: '90%',
     maxWidth: 400,
     alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)', // blanc semi-transparent
+    backgroundColor: 'transparent', // blanc semi-transparent
     borderRadius: 15, // bel arrondi
     paddingHorizontal: 18,
     paddingVertical: 6,
@@ -1087,7 +993,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 14,
     justifyContent: 'center',
   },
   paginationButtonText: {
@@ -1107,4 +1013,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CatalogScreen; 
+export default CatalogScreen;

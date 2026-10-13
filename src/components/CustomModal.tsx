@@ -1,5 +1,8 @@
+import { useAppColorScheme as useColorScheme } from '../contexts/ThemeContext';
 import React from 'react';
-import { Modal, View, StyleSheet, TouchableWithoutFeedback } from 'react-native';
+import { palette } from '../theme/palette';
+import useReducedMotion from '../hooks/useReducedMotion';
+import { Modal, View, StyleSheet, TouchableWithoutFeedback, } from 'react-native';
 
 interface CustomModalProps {
   visible: boolean;
@@ -16,10 +19,12 @@ const CustomModal: React.FC<CustomModalProps> = ({
   transparent = true,
   alignment = 'center',
 }) => {
+  const reducedMotion = useReducedMotion();
+  const colors = palette[useColorScheme() ?? 'light'];
   return (
     <Modal
       visible={visible}
-      animationType="fade"
+      animationType={reducedMotion ? 'none' : 'fade'}
       transparent={transparent}
       onRequestClose={onRequestClose}
     >
@@ -30,6 +35,7 @@ const CustomModal: React.FC<CustomModalProps> = ({
       <View
         style={[
           styles.container,
+          { backgroundColor: colors.surface },
           alignment === 'bottom' && styles.bottomSheet,
         ]}
       >
@@ -67,4 +73,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CustomModal; 
+export default CustomModal;

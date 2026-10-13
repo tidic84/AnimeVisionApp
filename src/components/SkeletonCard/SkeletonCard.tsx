@@ -1,21 +1,25 @@
+import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet, useColorScheme } from 'react-native';
+import { View, Animated, StyleSheet, } from 'react-native';
+import useReducedMotion from '../../hooks/useReducedMotion';
+import { palette } from '../../theme/palette';
 
 interface SkeletonCardProps {
   type?: 'anime' | 'episode';
   size?: 'small' | 'medium' | 'large';
 }
 
-const SkeletonCard: React.FC<SkeletonCardProps> = ({ 
-  type = 'anime', 
-  size = 'medium' 
+const SkeletonCard: React.FC<SkeletonCardProps> = ({
+  type = 'anime',
+  size = 'medium'
 }) => {
   const colorScheme = useColorScheme();
+  const reducedMotion = useReducedMotion();
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const pulse = () => {
-      Animated.sequence([
+    if (reducedMotion) { pulseAnim.setValue(0); return; }
+    const animation = Animated.loop(Animated.sequence([
         Animated.timing(pulseAnim, {
           toValue: 1,
           duration: 1200,
@@ -26,17 +30,16 @@ const SkeletonCard: React.FC<SkeletonCardProps> = ({
           duration: 1200,
           useNativeDriver: false,
         }),
-      ]).start(() => pulse());
-    };
-
-    pulse();
-  }, [pulseAnim]);
+      ]));
+    animation.start();
+    return () => animation.stop();
+  }, [pulseAnim, reducedMotion]);
 
   const backgroundColor = pulseAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [
-      colorScheme === 'dark' ? '#1e293b' : '#f1f5f9',
-      colorScheme === 'dark' ? '#334155' : '#cbd5e1',
+      palette[colorScheme ?? 'light'].surface,
+      palette[colorScheme ?? 'light'].border,
     ],
   });
 
@@ -63,7 +66,7 @@ const SkeletonCard: React.FC<SkeletonCardProps> = ({
             { backgroundColor, width: dimensions.width, height: dimensions.height * 0.6 }
           ]}
         />
-        
+
         {/* Episode Info */}
         <View style={styles.episodeInfo}>
           <Animated.View
@@ -72,7 +75,7 @@ const SkeletonCard: React.FC<SkeletonCardProps> = ({
           <Animated.View
             style={[styles.skeletonText, styles.episodeSubtitle, { backgroundColor }]}
           />
-          
+
           {/* Progress Bar */}
           <View style={styles.progressContainer}>
             <Animated.View
@@ -93,7 +96,7 @@ const SkeletonCard: React.FC<SkeletonCardProps> = ({
           { backgroundColor, width: dimensions.width, height: dimensions.height * 0.75 }
         ]}
       />
-      
+
       {/* Title */}
       <View style={styles.animeInfo}>
         <Animated.View
@@ -190,4 +193,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default SkeletonCard; 
+export default SkeletonCard;

@@ -1,10 +1,13 @@
+import { useAppColorScheme as useColorScheme } from '../contexts/ThemeContext';
+import useReducedMotion from '../hooks/useReducedMotion';
+import { palette } from '../theme/palette';
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme, View } from 'react-native';
+import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RootStackParamList, MainTabParamList } from '../types/navigation';
@@ -23,30 +26,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 // Configuration des couleurs pour les thèmes
-const Colors = {
-  light: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#ffffff',
-    surface: '#f8fafc',
-    text: '#1e293b',
-    tabBar: '#ffffff',
-    tabBarInactive: '#64748b',
-    border: '#e2e8f0',
-  },
-  dark: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#0f172a',
-    surface: '#1e293b',
-    text: '#f1f5f9',
-    tabBar: '#1e293b',
-    tabBarInactive: '#64748b',
-    border: '#334155',
-  },
-};
+const Colors = palette;
 
 // Composant Fallback pour les icônes
 const FallbackIcon: React.FC<{ size: number; color: string }> = ({ size, color }) => (
@@ -97,7 +77,7 @@ function MainTabNavigator() {
           const iconColor = color || colors.tabBarInactive;
 
           // Griser les onglets désactivés en mode offline
-          const finalColor = (!isApiAvailable && route.name !== 'Downloads' && route.name !== 'Settings') 
+          const finalColor = (!isApiAvailable && route.name !== 'Downloads' && route.name !== 'Settings')
             ? colors.tabBarInactive + '50' // Semi-transparent
             : iconColor;
 
@@ -105,19 +85,21 @@ function MainTabNavigator() {
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.tabBarInactive,
+        tabBarLabelPosition: 'below-icon',
         tabBarStyle: {
           backgroundColor: colors.tabBar,
-          height: 60 + insets.bottom,
-          paddingBottom: 10 + insets.bottom,
+          height: 74 + insets.bottom,
+          paddingBottom: 8 + insets.bottom,
           paddingTop: 6,
           position: 'relative',
-          borderTopWidth: 0,
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
           shadowOpacity: 0,
           elevation: 0,
         },
         tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: '500',
+          fontSize: 11,
+          fontWeight: '600',
         },
         headerStyle: {
           backgroundColor: colors.background,
@@ -130,14 +112,14 @@ function MainTabNavigator() {
         },
         headerTintColor: colors.text,
         // Désactiver la navigation pour les onglets qui nécessitent l'API
-        tabBarButton: (!isApiAvailable && route.name !== 'Downloads' && route.name !== 'Settings') 
+        tabBarButton: (!isApiAvailable && route.name !== 'Downloads' && route.name !== 'Settings')
           ? () => null // Masquer complètement les onglets désactivés
           : undefined,
       })}
     >
       {isApiAvailable && (
-        <Tab.Screen 
-          name="Home" 
+        <Tab.Screen
+          name="Home"
           component={HomeScreen}
           options={{
             title: 'Accueil',
@@ -146,8 +128,8 @@ function MainTabNavigator() {
         />
       )}
       {isApiAvailable && (
-        <Tab.Screen 
-          name="Lists" 
+        <Tab.Screen
+          name="Lists"
           component={ListsScreen}
           options={{
             title: 'Mes Listes',
@@ -156,8 +138,8 @@ function MainTabNavigator() {
         />
       )}
       {isApiAvailable && (
-        <Tab.Screen 
-          name="Catalog" 
+        <Tab.Screen
+          name="Catalog"
           component={CatalogScreen}
           options={{
             title: 'Catalogue',
@@ -165,26 +147,28 @@ function MainTabNavigator() {
             tabBarStyle: {
               position: 'absolute',
               backgroundColor: colors.tabBar,
-              height: 60 + insets.bottom,
-              paddingBottom: 10 + insets.bottom,
+              height: 74 + insets.bottom,
+              paddingBottom: 8 + insets.bottom,
               paddingTop: 6,
-              borderTopWidth: 0,
+              borderTopWidth: 1,
+          borderTopColor: colors.border,
               shadowOpacity: 0,
               elevation: 0,
             },
           }}
         />
       )}
-      <Tab.Screen 
-        name="Downloads" 
+      <Tab.Screen
+        name="Downloads"
         component={DownloadsScreen}
         options={{
           title: 'Téléchargements',
+          tabBarLabel: 'Hors ligne',
           headerShown: false,
         }}
       />
-      <Tab.Screen 
-        name="Settings" 
+      <Tab.Screen
+        name="Settings"
         component={SettingsScreen}
         options={{
           title: 'Paramètres',
@@ -196,6 +180,7 @@ function MainTabNavigator() {
 }
 
 export default function AppNavigator() {
+  const reducedMotion = useReducedMotion();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
@@ -234,6 +219,7 @@ export default function AppNavigator() {
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       <Stack.Navigator
         screenOptions={{
+          animation: reducedMotion ? 'none' : 'fade',
           headerStyle: {
             backgroundColor: colors.background,
           },
@@ -245,27 +231,27 @@ export default function AppNavigator() {
           headerTintColor: colors.text,
         }}
       >
-        <Stack.Screen 
-          name="MainTabs" 
+        <Stack.Screen
+          name="MainTabs"
           component={MainTabNavigator}
           options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="AnimeDetail" 
+        <Stack.Screen
+          name="AnimeDetail"
           component={AnimeDetailScreen}
-          options={{ 
+          options={{
             headerShown: false,
           }}
         />
-        <Stack.Screen 
-          name="VideoPlayer" 
+        <Stack.Screen
+          name="VideoPlayer"
           component={VideoPlayerScreen}
-          options={{ 
+          options={{
             headerShown: false,
-            animation: 'slide_from_bottom',
+            animation: reducedMotion ? 'none' : 'slide_from_bottom',
           }}
         />
       </Stack.Navigator>
     </NavigationContainer>
   );
-} 
+}

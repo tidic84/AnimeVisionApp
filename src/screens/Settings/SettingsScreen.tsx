@@ -1,3 +1,11 @@
+import downloadService from '../../services/downloadService';
+import apiService from '../../services/apiService';
+import { useApi } from '../../contexts/ApiContext';
+import { useTheme } from '../../contexts/ThemeContext';
+import useReducedMotion from '../../hooks/useReducedMotion';
+import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
+import { FadeIn } from '../../components/Motion';
+import { palette } from '../../theme/palette';
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -8,7 +16,6 @@ import {
   Switch,
   Alert,
   SafeAreaView,
-  useColorScheme,
   Modal,
   TextInput,
   Linking,
@@ -20,59 +27,32 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type SettingsScreenProps = MainTabScreenProps<'Settings'>;
 
-const Colors = {
-  light: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#ffffff',
-    surface: '#f8fafc',
-    text: '#1e293b',
-    textSecondary: '#64748b',
-    border: '#e2e8f0',
-    card: '#ffffff',
-    danger: '#dc2626',
-    success: '#16a34a',
-  },
-  dark: {
-    primaryStart: '#219B9B',
-    primaryEnd: '#0F6B7B',
-    primary: '#0F6B7B',
-    background: '#0f172a',
-    surface: '#1e293b',
-    text: '#f1f5f9',
-    textSecondary: '#94a3b8',
-    border: '#334155',
-    card: '#1e293b',
-    danger: '#ef4444',
-    success: '#22c55e',
-  },
-};
+const Colors = palette;
 
 interface AppSettings {
   // MyAnimeList
   malEnabled: boolean;
   malUsername: string;
   malToken: string;
-  
+
   // Lecture
   defaultQuality: string;
   autoplay: boolean;
   skipIntro: boolean;
   skipOutro: boolean;
   subtitlesEnabled: boolean;
-  
+
   // Téléchargements
   downloadQuality: string;
   wifiOnly: boolean;
   autoDelete: boolean;
   maxStorageGB: number;
-  
+
   // Notifications
   notificationsEnabled: boolean;
   newEpisodesNotif: boolean;
   remindersEnabled: boolean;
-  
+
   // Interface
   darkMode: boolean;
   language: string;
@@ -95,10 +75,14 @@ const STORAGE_OPTIONS = [
 ];
 
 const SettingsScreen: React.FC<SettingsScreenProps> = () => {
+  const { isApiAvailable, setApiAvailable, setApiError } = useApi();
+  const [checkingConnection, setCheckingConnection] = useState(false);
   const colorScheme = useColorScheme();
+  const { setScheme } = useTheme();
+  const reducedMotion = useReducedMotion();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  
+
   const [settings, setSettings] = useState<AppSettings>({
     malEnabled: false,
     malUsername: '',
@@ -146,6 +130,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     try {
       const updatedSettings = { ...settings, ...newSettings };
       setSettings(updatedSettings);
+      if (newSettings.darkMode !== undefined) setScheme(newSettings.darkMode ? 'dark' : 'light');
       await AsyncStorage.setItem('appSettings', JSON.stringify(updatedSettings));
     } catch (error) {
       console.error('[Settings] Erreur lors de la sauvegarde des paramètres:', error);
@@ -154,8 +139,20 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   };
 
   const calculateStorageUsed = async () => {
-    // TODO: Calculer l'espace de stockage utilisé par les téléchargements
-    setStorageUsed(2.3); // Exemple: 2.3 GB utilisés
+    try {
+      const storage = await downloadService.getStorageInfo();
+      setStorageUsed(Number((storage.usedSize / (1024 ** 3)).toFixed(2)));
+    } catch { setStorageUsed(0); }
+  };
+
+  const retryConnection = async () => {
+    if (checkingConnection) return;
+    setCheckingConnection(true);
+    try {
+      const connected = await apiService.testConnection();
+      setApiAvailable(connected);
+      setApiError(connected ? null : 'Connexion au catalogue indisponible');
+    } finally { setCheckingConnection(false); }
   };
 
   const handleMalSync = async () => {
@@ -196,7 +193,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
         malUsername: malUsername.trim(),
         malToken: 'mock_token', // En réalité, ce serait le token OAuth
       });
-      
+
       setShowMalModal(false);
       setMalUsername('');
       Alert.alert('Succès', 'Connexion à MyAnimeList réussie !');
@@ -256,12 +253,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   };
 
   const renderSection = (title: string, children: React.ReactNode) => (
-    <View style={styles.section}>
+    <FadeIn style={styles.section}>
       <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text>
       <View style={[styles.sectionContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
         {children}
       </View>
-    </View>
+    </FadeIn>
   );
 
   const renderSettingRow = (
@@ -297,7 +294,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
           )}
         </View>
       </View>
-      
+
       <View style={styles.settingRowRight}>
         {value && (
           <Text style={[styles.settingValue, { color: colors.textSecondary }]}>
@@ -306,6 +303,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
         )}
         {onSwitchChange && (
           <Switch
+            accessibilityLabel={title}
             value={switchValue}
             onValueChange={onSwitchChange}
             trackColor={{ false: colors.border, true: colors.primary }}
@@ -328,14 +326,14 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   ) => (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType={reducedMotion ? 'none' : 'slide'}
       transparent={true}
       onRequestClose={onClose}
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
           <Text style={[styles.modalTitle, { color: colors.text }]}>{title}</Text>
-          
+
           {QUALITY_OPTIONS.map((option) => (
             <TouchableOpacity
               key={option.value}
@@ -360,7 +358,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               )}
             </TouchableOpacity>
           ))}
-          
+
           <TouchableOpacity
             style={[styles.modalButton, { backgroundColor: colors.border }]}
             onPress={onClose}
@@ -375,14 +373,14 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   const renderStorageModal = () => (
     <Modal
       visible={showStorageModal}
-      animationType="slide"
+      animationType={reducedMotion ? 'none' : 'slide'}
       transparent={true}
       onRequestClose={() => setShowStorageModal(false)}
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
           <Text style={[styles.modalTitle, { color: colors.text }]}>Stockage maximum</Text>
-          
+
           {STORAGE_OPTIONS.map((option) => (
             <TouchableOpacity
               key={option.value}
@@ -407,7 +405,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               )}
             </TouchableOpacity>
           ))}
-          
+
           <TouchableOpacity
             style={[styles.modalButton, { backgroundColor: colors.border }]}
             onPress={() => setShowStorageModal(false)}
@@ -422,7 +420,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   const renderMalModal = () => (
     <Modal
       visible={showMalModal}
-      animationType="slide"
+      animationType={reducedMotion ? 'none' : 'slide'}
       transparent={true}
       onRequestClose={() => setShowMalModal(false)}
     >
@@ -431,11 +429,11 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
           <Text style={[styles.modalTitle, { color: colors.text }]}>
             Connecter MyAnimeList
           </Text>
-          
+
           <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>
             Entrez votre nom d'utilisateur MyAnimeList pour synchroniser votre liste et votre progression.
           </Text>
-          
+
           <TextInput
             style={[
               styles.textInput,
@@ -452,7 +450,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
             autoCapitalize="none"
             autoCorrect={false}
           />
-          
+
           <View style={styles.modalActions}>
             <TouchableOpacity
               style={[styles.modalButton, { backgroundColor: colors.border }]}
@@ -463,9 +461,9 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
             >
               <Text style={[styles.modalButtonText, { color: colors.text }]}>Annuler</Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
-              style={[styles.modalButton, { backgroundColor: colors.primary }]}
+              style={[styles.modalButton, { backgroundColor: colors.buttonBg }]}
               onPress={connectToMAL}
             >
               <Text style={[styles.modalButtonText, { color: 'white' }]}>Connecter</Text>
@@ -478,13 +476,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
 
   const renderHeader = () => (
     <View style={[styles.header, { backgroundColor: colors.background, paddingTop: insets.top }]}>
-      {/* ... */}
+<Text style={{ color: colors.textSecondary, fontSize: 10, letterSpacing: 2, fontWeight: '700', marginTop: 20 }}>VOTRE EXPÉRIENCE, À VOTRE FAÇON</Text><Text style={{ color: colors.text, fontSize: 32, fontWeight: '800', letterSpacing: -1, marginTop: 8, marginBottom: 28 }}>Paramètres</Text>
     </View>
   );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {renderHeader()}
+        {renderSection('Connexion', renderSettingRow('refresh', 'Connexion au catalogue', 'Vérifier la connexion et retrouver le catalogue', checkingConnection ? 'Vérification…' : isApiAvailable ? 'Connecté' : 'Hors ligne', retryConnection))}
         {/* MyAnimeList */}
         {renderSection('MyAnimeList', (
           <>
@@ -745,7 +745,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
         (value) => saveSettings({ defaultQuality: value }),
         'Qualité par défaut'
       )}
-      
+
       {renderQualityModal(
         showDownloadQualityModal,
         () => setShowDownloadQualityModal(false),
@@ -753,7 +753,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
         (value) => saveSettings({ downloadQuality: value }),
         'Qualité de téléchargement'
       )}
-      
+
       {renderStorageModal()}
       {renderMalModal()}
     </SafeAreaView>
@@ -772,13 +772,14 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    letterSpacing: -0.4,
     marginBottom: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   sectionContent: {
-    marginHorizontal: 20,
-    borderRadius: 12,
+    marginHorizontal: 24,
+    borderRadius: 20,
     borderWidth: 1,
     overflow: 'hidden',
   },
@@ -789,7 +790,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: 'rgba(128,112,158,0.13)',
   },
   settingRowPressable: {
     opacity: 1,
@@ -839,12 +840,13 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '90%',
     maxWidth: 400,
-    borderRadius: 12,
+    borderRadius: 20,
     padding: 24,
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    letterSpacing: -0.4,
     marginBottom: 16,
     textAlign: 'center',
   },
@@ -868,7 +870,7 @@ const styles = StyleSheet.create({
   },
   textInput: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 16,
@@ -882,7 +884,7 @@ const styles = StyleSheet.create({
   modalButton: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 14,
     alignItems: 'center',
     marginHorizontal: 4,
   },
@@ -892,8 +894,8 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: 20,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
 });
 
-export default SettingsScreen; 
+export default SettingsScreen;

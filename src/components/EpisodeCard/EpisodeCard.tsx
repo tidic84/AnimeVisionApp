@@ -1,3 +1,6 @@
+import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
+import { MotionPressable } from '../Motion';
+import { palette } from '../../theme/palette';
 import React from 'react';
 import {
   View,
@@ -5,7 +8,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
-  useColorScheme,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -18,40 +20,15 @@ interface EpisodeCardProps {
   showProgress?: boolean;
 }
 
-const EpisodeCard: React.FC<EpisodeCardProps> = ({ 
-  episode, 
-  onPress, 
+const EpisodeCard: React.FC<EpisodeCardProps> = ({
+  episode,
+  onPress,
   size = 'medium',
   showProgress = true
 }) => {
   const colorScheme = useColorScheme();
 
-  const colors = {
-    light: {
-      background: '#ffffff',
-      text: '#1e293b',
-      textSecondary: '#64748b',
-      surface: '#f8fafc',
-      border: '#e2e8f0',
-      primaryStart: '#219B9B',
-      primaryEnd: '#0F6B7B',
-      primary: '#0F6B7B',
-      success: '#10b981',
-      warning: '#f59e0b',
-    },
-    dark: {
-      background: '#0f172a',
-      text: '#f1f5f9',
-      textSecondary: '#94a3b8',
-      surface: '#1e293b',
-      border: '#334155',
-      primaryStart: '#219B9B',
-      primaryEnd: '#0F6B7B',
-      primary: '#0F6B7B',
-      success: '#34d399',
-      warning: '#fbbf24',
-    },
-  }[colorScheme ?? 'light'];
+  const colors = palette[colorScheme ?? 'light'];
 
   const getSizeStyles = () => {
     switch (size) {
@@ -94,10 +71,10 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
   };
 
   return (
-    <TouchableOpacity
+    <MotionPressable
       style={[
         styles.container,
-        { backgroundColor: colors.background, width: sizeStyles.width }
+        { backgroundColor: colors.surface, borderColor: colors.border, width: sizeStyles.width }
       ]}
       onPress={() => onPress(episode)}
     >
@@ -106,7 +83,7 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
           source={{ uri: episode.thumbnail || episode.anime_poster || '' }}
           style={[styles.thumbnail, { height: sizeStyles.thumbnailHeight }]}
         />
-        
+
         {/* Overlay avec bouton play */}
         <View style={styles.overlay}>
           <Ionicons name="play-circle" size={40} color="rgba(255,255,255,0.9)" />
@@ -119,9 +96,9 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
               <View
                 style={[
                   styles.progressFill,
-                  { 
-                    backgroundColor: colors.primary,
-                    width: `${episode.watchProgress}%` 
+                  {
+                    backgroundColor: colors.buttonBg,
+                    width: `${Math.min(100, Math.max(0, episode.watchProgress))}%`
                   }
                 ]}
               />
@@ -132,7 +109,7 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
         {/* Durée */}
         <View style={styles.durationBadge}>
           <Text style={styles.durationText}>
-            {formatDuration(episode.duration)}
+            {episode.duration > 0 ? formatDuration(episode.duration) : 'Épisode'}
           </Text>
         </View>
 
@@ -147,28 +124,29 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
           </View>
         )}
       </View>
-      
+
       <View style={styles.info}>
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
           {episode.animeTitle || episode.title}
         </Text>
-        
+
         <Text style={[styles.episodeNumber, { color: colors.textSecondary }]}>
-          Épisode {episode.number}
+          {Number(episode.num_saison) > 0 && Number(episode.num_saison) < 100 ? `S${episode.num_saison} · ` : ''}Épisode {episode.number}
         </Text>
-        
+
         <Text style={[styles.duration, { color: colors.textSecondary }]}>
-          {Math.floor(episode.duration / 60)} min
+          {episode.duration > 0 ? `${Math.floor(episode.duration / 60)} min` : episode.langue || 'VOSTFR'}
         </Text>
       </View>
-    </TouchableOpacity>
+    </MotionPressable>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 12,
-    marginRight: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginRight: 14,
     overflow: 'hidden',
     elevation: 0,
     shadowOpacity: 0,
@@ -233,7 +211,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 4,
     lineHeight: 18,
   },
@@ -246,4 +224,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default EpisodeCard; 
+export default EpisodeCard;

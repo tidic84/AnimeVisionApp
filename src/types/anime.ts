@@ -97,6 +97,7 @@ export interface WatchHistory {
 }
 
 export enum AnimeStatus {
+  UNKNOWN = 'unknown',
   ONGOING = 'ongoing',
   COMPLETED = 'completed',
   UPCOMING = 'upcoming',
@@ -159,4 +160,4 @@ export interface ApiError {
   message: string;
   status: number;
   timestamp: string;
-} 
+}

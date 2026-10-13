@@ -4,11 +4,17 @@ import { API_ADDRESS } from '@env';
 class ApiService {
   private baseUrl: string;
 
+  private titleFromUrl(value?: string): string {
+    if (!value) return '';
+    const slug = value.split('/').filter(Boolean).pop() || '';
+    return slug.replace(/\.(jpg|png|webp)$/i, '').replace(/[-_]/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+  }
+
   constructor() {
     // Utiliser la nouvelle URL de l'API
-    this.baseUrl = API_ADDRESS || 'https://formally-liberal-drum.ngrok-free.app';
+    this.baseUrl = (API_ADDRESS || 'http://localhost:3000').replace(/\/+$/, '');
     console.log(`[ApiService] Utilisation de l'API: ${this.baseUrl}`);
-    
+
     if (!API_ADDRESS) {
       console.warn('[ApiService] Variable API_ADDRESS non définie dans .env, utilisation du fallback');
     }
@@ -16,57 +22,61 @@ class ApiService {
 
   private async fetchWithErrorHandling<T>(endpoint: string): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+
     try {
       console.log(`[ApiService] Requête: ${endpoint}`);
-      
+
       const response = await fetch(url, {
+        signal: controller.signal,
         method: 'GET',
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15',
-          'Referer': this.baseUrl,
           'ngrok-skip-browser-warning': 'true',
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Vérifier si c'est une erreur de l'API
       if (data.error) {
         const error = data as ApiError;
         throw new Error(error.message);
       }
-      
+
       console.log(`[ApiService SUCCESS] ${endpoint} - Réponse reçue`);
       return data;
-      
+
     } catch (error: any) {
       console.error(`[ApiService ERROR] ${endpoint}:`, error.message);
       throw new Error(`Erreur API ${endpoint}: ${error.message}`);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
   private mapApiAnimeToAnime(apiAnime: any): Anime {
     return {
       id: apiAnime.id.toString(),
-      title: apiAnime.titre,
+      title: apiAnime.titre?.trim() || apiAnime.titre_alt?.split(',')[0]?.trim() || this.titleFromUrl(apiAnime.url_anime_sama) || 'Anime sans titre',
       originalTitle: apiAnime.titre_alt || apiAnime.titre,
       synopsis: apiAnime.synopsis || '',
       genres: Array.isArray(apiAnime.genres) ? apiAnime.genres : [],
       studio: apiAnime.studio || '',
-      year: apiAnime.annee || apiAnime.year || new Date().getFullYear(),
-      rating: apiAnime.note || apiAnime.rating || 0,
-      status: this.mapStatusToAnimeStatus(apiAnime.statut || apiAnime.status || 'ongoing'),
+      year: Number(apiAnime.annee || apiAnime.year) || 0,
+      rating: Number(apiAnime.note ?? apiAnime.rating) || 0,
+      status: this.mapStatusToAnimeStatus(apiAnime.statut || apiAnime.status || 'unknown'),
       thumbnail: apiAnime.poster || '',
       banner: apiAnime.banniere,
-      episodeCount: apiAnime.episode_count || apiAnime.nb_episodes || 0, // Utiliser les données de l'API si disponibles
-      duration: 24, // Durée par défaut en minutes
+      episodeCount: Number(apiAnime.episode_count || apiAnime.nb_episodes) || 0,
+      duration: Number(apiAnime.duree || apiAnime.duration) || 0,
+      malId: Number(apiAnime.mal_id) || undefined,
       titre_alt: apiAnime.titre_alt,
       titre_jap: apiAnime.titre_jap,
       url_anime_sama: apiAnime.url_anime_sama,
@@ -79,27 +89,27 @@ class ApiService {
 
   private mapApiEpisodeToEpisode(apiEpisode: any, animeId?: string): Episode {
     const streamingUrls = this.convertStreamingServersToUrls(apiEpisode.streaming_servers || []);
-    
+
     // Déterminer l'animeId - depuis les paramètres, depuis l'épisode, ou depuis la saison
-    let episodeAnimeId = animeId || 
-                        apiEpisode.anime_id?.toString() || 
+    let episodeAnimeId = animeId ||
+                        apiEpisode.anime_id?.toString() ||
                         '';
-    
-    // Si on n'a toujours pas d'animeId mais qu'on a une saison_id, 
+
+    // Si on n'a toujours pas d'animeId mais qu'on a une saison_id,
     // on va essayer de le récupérer plus tard si nécessaire
     if (!episodeAnimeId && apiEpisode.saison_id) {
       // Utiliser le saison_id temporairement - sera corrigé dans getSeasonEpisodes
       episodeAnimeId = `season_${apiEpisode.saison_id}`;
     }
-    
+
     return {
       id: apiEpisode.id.toString(),
       animeId: episodeAnimeId,
-      animeTitle: apiEpisode.anime_titre || '',
+      animeTitle: apiEpisode.anime_titre || apiEpisode.anime_titre_alt?.split(',')[0]?.trim() || this.titleFromUrl(apiEpisode.anime_poster) || '',
       number: apiEpisode.num_episode,
       title: apiEpisode.titre_episode || `Episode ${apiEpisode.num_episode}`,
-      thumbnail: apiEpisode.thumbnail || apiEpisode.anime_poster || 'https://via.placeholder.com/300x400/1e293b/ffffff?text=Episode',
-      duration: (apiEpisode.duree || 24) * 60, // Convertir minutes en secondes
+      thumbnail: apiEpisode.thumbnail || apiEpisode.anime_poster || '',
+      duration: (Number(apiEpisode.duree) || 0) * 60,
       watchProgress: 0,
       isWatched: false,
       downloadStatus: 'not_downloaded' as any,
@@ -118,7 +128,7 @@ class ApiService {
   }
 
   private convertStreamingServersToUrls(servers: StreamingServer[]): Array<{quality: VideoQuality, url: string}> {
-    return servers.map(server => ({
+    return servers.filter(server => server.url).map(server => ({
       quality: this.mapQualityToVideoQuality(server.quality),
       url: server.url
     }));
@@ -134,6 +144,7 @@ class ApiService {
       case 'ended':
         return AnimeStatus.COMPLETED;
       case 'airing':
+      case 'releasing':
       case 'en_cours':
       case 'en cours':
       case 'diffusion':
@@ -146,13 +157,14 @@ class ApiService {
       case 'a_venir':
       case 'à venir':
       case 'not yet aired':
+      case 'not_yet_released':
         return AnimeStatus.UPCOMING;
       case 'paused':
       case 'pause':
       case 'hiatus':
         return AnimeStatus.PAUSED;
       default:
-        return AnimeStatus.PAUSED;
+        return AnimeStatus.UNKNOWN;
     }
   }
 
@@ -245,7 +257,7 @@ class ApiService {
 
   async getEpisodeById(episodeId: string): Promise<Episode> {
     const response = await this.fetchWithErrorHandling<ApiResponse<any>>(`/api/episode/${episodeId}`);
-    
+
     // Pour un épisode individuel, nous devons récupérer l'animeId via la saison
     let animeId = '';
     if (response.data.saison_id) {
@@ -257,7 +269,7 @@ class ApiService {
         console.warn(`[ApiService] Impossible de récupérer l'anime_id pour la saison ${response.data.saison_id}:`, error);
       }
     }
-    
+
     return this.mapApiEpisodeToEpisode(response.data, animeId);
   }
 
@@ -267,7 +279,7 @@ class ApiService {
       endpoint += `&langue=${langue}`;
     }
     const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(endpoint);
-    
+
     // Pour les derniers épisodes, nous avons déjà toutes les infos nécessaires dans la réponse
     return response.data.map(episode => {
       // Utiliser l'anime_id depuis la réponse s'il est disponible
@@ -310,18 +322,18 @@ class ApiService {
         console.error('[ApiService] animeId vide ou undefined dans getAnimeEpisodes');
         return [];
       }
-      
+
       // Récupérer les saisons de l'animé
       const seasons = await this.getAnimeSeasons(animeId);
-      
+
       // Récupérer tous les épisodes de toutes les saisons
       const allEpisodes: Episode[] = [];
       for (const season of seasons) {
         const episodes = await this.getSeasonEpisodes(season.id, animeId);
         allEpisodes.push(...episodes);
       }
-      
-      return allEpisodes.sort((a, b) => a.number - b.number);
+
+      return allEpisodes.sort((a, b) => Number(a.num_saison || 1) - Number(b.num_saison || 1) || a.number - b.number);
     } catch (error) {
       console.error(`[ApiService] Erreur lors de la récupération des épisodes pour l'animé ${animeId}:`, error);
       return [];
@@ -339,7 +351,7 @@ class ApiService {
         this.getLatestEpisodes(20, 'vostfr'),
         this.getPopularAnimes(20),
       ]);
-      
+
       return {
         latest_episodes: latestEpisodes,
         popular_animes: popularAnimes,
@@ -355,8 +367,8 @@ class ApiService {
 
   async testConnection(): Promise<boolean> {
     try {
-      await this.getHealthStatus();
-      return true;
+      const health = await this.getHealthStatus();
+      return health.status === 'ok';
     } catch {
       return false;
     }
@@ -405,16 +417,19 @@ class ApiService {
   async searchAnimesByFilters(filters: {
     query?: string;
     genre?: string;
+    genres?: string[];
+    years?: number[];
+    studio?: string;
     year?: number;
     status?: string;
     sortBy?: string;
     sortOrder?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ 
-    animes: Anime[], 
-    hasMore: boolean, 
-    totalPages?: number, 
+  }): Promise<{
+    animes: Anime[],
+    hasMore: boolean,
+    totalPages?: number,
     totalItems?: number,
     currentPage?: number
   }> {
@@ -422,8 +437,20 @@ class ApiService {
       // Utiliser l'endpoint popular pour le catalogue
       const page = filters.page || 1;
       const limit = filters.limit || 20;
-      const raw = await this.fetchWithErrorHandling<ApiResponse<any>>(`/api/anime/popular?limit=${limit}&page=${page}`);
-      const animeArray = raw.animes || raw.data || [];
+      const parameters: Record<string, string> = { page: String(page), limit: String(limit) };
+      if (filters.query?.trim()) parameters.q = filters.query.trim();
+      if (filters.genres?.length) parameters.genres = filters.genres.join(',');
+      else if (filters.genre) parameters.genres = filters.genre;
+      if (filters.years?.length) parameters.years = filters.years.join(',');
+      else if (filters.year) parameters.years = String(filters.year);
+      if (filters.studio) parameters.studio = filters.studio;
+      if (filters.status) parameters.status = filters.status;
+      if (filters.sortBy) parameters.sortBy = filters.sortBy;
+      if (filters.sortOrder) parameters.sortOrder = filters.sortOrder;
+      const query = Object.entries(parameters).map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
+      const endpoint = `/api/anime/search?${query}`;
+      const raw = await this.fetchWithErrorHandling<ApiResponse<any>>(endpoint);
+      const animeArray = raw.data || [];
       const animes: Anime[] = Array.isArray(animeArray) ? animeArray.map(anime => this.mapApiAnimeToAnime(anime)) : [];
       let totalItems = undefined;
       let totalPages = undefined;
@@ -444,18 +471,12 @@ class ApiService {
       };
     } catch (error) {
       console.error('[ApiService] Erreur lors de la recherche avec filtres:', error);
-      return {
-        animes: [],
-        hasMore: false,
-        totalPages: 0,
-        totalItems: 0,
-        currentPage: 1,
-      };
+      throw error;
     }
   }
 
   async getAnimeList(
-    page: number = 1, 
+    page: number = 1,
     limit: number = 20,
     options?: {
       search?: string;
@@ -465,10 +486,10 @@ class ApiService {
       sort_by?: string;
       sort_order?: string;
     }
-  ): Promise<{ 
-    animes: Anime[], 
-    hasMore: boolean, 
-    totalPages?: number, 
+  ): Promise<{
+    animes: Anime[],
+    hasMore: boolean,
+    totalPages?: number,
     totalItems?: number,
     currentPage?: number
   }> {

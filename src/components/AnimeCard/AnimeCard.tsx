@@ -1,3 +1,6 @@
+import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
+import { MotionPressable } from '../Motion';
+import { palette } from '../../theme/palette';
 import React from 'react';
 import {
   View,
@@ -5,7 +8,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
-  useColorScheme,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -20,28 +22,7 @@ interface AnimeCardProps {
 const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }) => {
   const colorScheme = useColorScheme();
 
-  const colors = {
-    light: {
-      background: '#ffffff',
-      text: '#1e293b',
-      textSecondary: '#64748b',
-      surface: '#f8fafc',
-      border: '#e2e8f0',
-      primaryStart: '#219B9B',
-      primaryEnd: '#0F6B7B',
-      primary: '#0F6B7B',
-    },
-    dark: {
-      background: '#0f172a',
-      text: '#f1f5f9',
-      textSecondary: '#94a3b8',
-      surface: '#1e293b',
-      border: '#334155',
-      primaryStart: '#219B9B',
-      primaryEnd: '#0F6B7B',
-      primary: '#0F6B7B',
-    },
-  }[colorScheme ?? 'light'];
+  const colors = palette[colorScheme ?? 'light'];
 
   const getSizeStyles = () => {
     switch (size) {
@@ -66,10 +47,10 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
   const sizeStyles = getSizeStyles();
 
   return (
-    <TouchableOpacity
+    <MotionPressable
       style={[
         styles.container,
-        { backgroundColor: colors.background, width: sizeStyles.width }
+        { backgroundColor: colors.surface, borderColor: colors.border, width: sizeStyles.width }
       ]}
       onPress={() => onPress(anime.id)}
     >
@@ -77,43 +58,44 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
         source={{ uri: anime.thumbnail }}
         style={[styles.thumbnail, { height: sizeStyles.thumbnailHeight }]}
       />
-      
+
       <View style={styles.info}>
         <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
           {anime.title}
         </Text>
-        
+
         <View style={styles.metadata}>
           <View style={styles.ratingContainer}>
             <Ionicons name="star" size={12} color="#fbbf24" />
             <Text style={[styles.rating, { color: colors.textSecondary }]}>
-              {anime.rating.toFixed(1)}
+              {anime.rating > 0 ? anime.rating.toFixed(1) : '—'}
             </Text>
           </View>
-          
+
           <Text style={[styles.year, { color: colors.textSecondary }]}>
-            {anime.year}
+            {anime.year > 1900 ? anime.year : '—'}
           </Text>
         </View>
-        
+
         <Text style={[styles.genres, { color: colors.textSecondary }]} numberOfLines={1}>
-          {anime.genres.slice(0, 2).join(', ')}
+          {(anime.genres || []).slice(0, 2).join(', ')}
         </Text>
-        
+
         <View style={styles.statusContainer}>
           <Text style={[styles.episodeCount, { color: colors.textSecondary }]}>
-            {anime.episodeCount} épisodes
+            {anime.episodeCount > 0 ? `${anime.episodeCount} épisodes` : 'À découvrir'}
           </Text>
         </View>
       </View>
-    </TouchableOpacity>
+    </MotionPressable>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 12,
-    marginRight: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginRight: 14,
     overflow: 'hidden',
     elevation: 0,
     shadowOpacity: 0,
@@ -127,7 +109,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 6,
     lineHeight: 18,
   },
@@ -162,4 +144,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AnimeCard; 
+export default AnimeCard;

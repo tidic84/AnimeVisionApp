@@ -1,5 +1,7 @@
+import { useAppColorScheme as useColorScheme } from '../contexts/ThemeContext';
+import { palette } from '../theme/palette';
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, useColorScheme } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface ErrorMessageProps {
@@ -8,31 +10,14 @@ interface ErrorMessageProps {
   type?: 'network' | 'parsing' | 'general';
 }
 
-const ErrorMessage: React.FC<ErrorMessageProps> = ({ 
-  message, 
-  onRetry, 
-  type = 'general' 
+const ErrorMessage: React.FC<ErrorMessageProps> = ({
+  message,
+  onRetry,
+  type = 'general'
 }) => {
   const colorScheme = useColorScheme();
-  
-  const colors = {
-    light: {
-      background: '#fef2f2',
-      border: '#fecaca',
-      text: '#b91c1c',
-      textSecondary: '#7f1d1d',
-      buttonBg: '#dc2626',
-      buttonText: '#ffffff',
-    },
-    dark: {
-      background: '#1f1617',
-      border: '#7f1d1d',
-      text: '#f87171',
-      textSecondary: '#dc2626',
-      buttonBg: '#dc2626',
-      buttonText: '#ffffff',
-    },
-  }[colorScheme ?? 'light'];
+
+  const colors = palette[colorScheme ?? 'light'];
 
   const getIcon = () => {
     switch (type) {
@@ -67,28 +52,28 @@ const ErrorMessage: React.FC<ErrorMessageProps> = ({
   };
 
   return (
-    <View style={[styles.container, { 
-      backgroundColor: colors.background, 
-      borderColor: colors.border 
+    <View style={[styles.container, {
+      backgroundColor: colors.background,
+      borderColor: colors.border
     }]}>
       <View style={styles.header}>
-        <Ionicons 
-          name={getIcon()} 
-          size={32} 
-          color={colors.text} 
+        <Ionicons
+          name={getIcon()}
+          size={32}
+          color={colors.text}
           style={styles.icon}
         />
         <Text style={[styles.title, { color: colors.text }]}>
           {getTitle()}
         </Text>
       </View>
-      
+
       <Text style={[styles.description, { color: colors.textSecondary }]}>
         {getDescription()}
       </Text>
 
       {onRetry && (
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.retryButton, { backgroundColor: colors.buttonBg }]}
           onPress={onRetry}
         >
@@ -142,4 +127,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ErrorMessage; 
+export default ErrorMessage;

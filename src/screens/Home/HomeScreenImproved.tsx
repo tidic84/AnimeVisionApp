@@ -1,3 +1,4 @@
+import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
@@ -6,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
-  useColorScheme,
   RefreshControl,
   SafeAreaView,
   Dimensions,
@@ -20,6 +20,8 @@ import { Episode, Anime } from '../../types/anime';
 import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
 import { useApi } from '../../contexts/ApiContext';
+import { RootStackParamList } from '../../types/navigation';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -49,11 +51,11 @@ const Colors = {
 };
 
 const HomeScreenImproved: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const { isApiAvailable, isOfflineMode } = useApi();
-  
+
   const [latestEpisodes, setLatestEpisodes] = useState<Episode[]>([]);
   const [continueWatching, setContinueWatching] = useState<Anime[]>([]);
   const [recommendedAnimes, setRecommendedAnimes] = useState<Anime[]>([]);
@@ -77,19 +79,19 @@ const HomeScreenImproved: React.FC = () => {
   const loadHomeData = async () => {
     try {
       setLoading(true);
-      
+
       // Charger en parallèle
       const [episodes, animes] = await Promise.all([
         apiService.getLatestEpisodes().catch(() => []),
         apiService.getPopularAnimes().catch(() => [])
       ]);
-      
+
       setLatestEpisodes(episodes.slice(0, 10));
       setRecommendedAnimes(animes.slice(0, 10));
-      
+
       // Mettre à jour "Continuer à regarder"
       await updateContinueWatching();
-      
+
     } catch (error) {
       console.error('[HomeScreen] Erreur lors du chargement:', error);
     } finally {
@@ -108,21 +110,21 @@ const HomeScreenImproved: React.FC = () => {
 
   const onRefresh = useCallback(async () => {
     if (!isApiAvailable) return;
-    
+
     setRefreshing(true);
     await loadHomeData();
     setRefreshing(false);
   }, [isApiAvailable]);
 
   const navigateToAnimeDetail = (animeId: string) => {
-    navigation.navigate('AnimeDetail' as never, { animeId } as never);
+    navigation.navigate('AnimeDetail', { animeId });
   };
 
   const playEpisode = (episode: Episode) => {
-    navigation.navigate('VideoPlayer' as never, { 
+    navigation.navigate('VideoPlayer', {
       episodeId: episode.id,
-      animeId: episode.animeId 
-    } as never);
+      animeId: episode.animeId
+    });
   };
 
   if (isOfflineMode) {
@@ -165,7 +167,7 @@ const HomeScreenImproved: React.FC = () => {
       <View style={[styles.episodeThumbnail, { backgroundColor: colors.surface }]}>
         <Ionicons name="play" size={32} color={colors.primary} />
       </View>
-      
+
       <View style={styles.episodeInfo}>
         <Text style={[styles.episodeAnimeTitle, { color: colors.text }]} numberOfLines={1}>
           {item.animeTitle}
@@ -191,11 +193,11 @@ const HomeScreenImproved: React.FC = () => {
           {item.title[0]}
         </Text>
       </View>
-      
+
       <Text style={[styles.animeTitle, { color: colors.text }]} numberOfLines={2}>
         {item.title}
       </Text>
-      
+
       <View style={styles.animeMetadata}>
         <Text style={[styles.animeYear, { color: colors.textSecondary }]}>
           {item.year}
@@ -221,7 +223,7 @@ const HomeScreenImproved: React.FC = () => {
           {item.title[0]}
         </Text>
       </View>
-      
+
       <View style={styles.continueInfo}>
         <Text style={[styles.continueTitle, { color: colors.text }]} numberOfLines={1}>
           {item.title}
@@ -230,7 +232,7 @@ const HomeScreenImproved: React.FC = () => {
           Continuer à regarder
         </Text>
       </View>
-      
+
       <View style={[styles.playIcon, { backgroundColor: colors.primary }]}>
         <Ionicons name="play" size={16} color="white" />
       </View>
@@ -428,7 +430,7 @@ const styles = StyleSheet.create({
   horizontalList: {
     paddingHorizontal: 20,
   },
-  
+
   // Cards Continuer à regarder
   continueCard: {
     flexDirection: 'row',
@@ -598,4 +600,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default HomeScreenImproved; 
+export default HomeScreenImproved;

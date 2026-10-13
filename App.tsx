@@ -1,114 +1,48 @@
+import { ThemeProvider } from './src/contexts/ThemeContext';
+import { useAppColorScheme as useColorScheme } from './src/contexts/ThemeContext';
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator, StyleSheet, Text, Alert } from 'react-native';
+import { View, ActivityIndicator, Text, StyleSheet, } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import { ApiProvider, useApi } from './src/contexts/ApiContext';
 import databaseService from './src/services/databaseService';
 import apiService from './src/services/apiService';
+import { palette } from './src/theme/palette';
 
-// Composant principal de l'app qui utilise le contexte API
 function AppContent() {
   const { setApiAvailable, setApiError, setOfflineMode } = useApi();
-
+  const [ready, setReady] = useState(false);
+  const colors = palette[useColorScheme() ?? 'light'];
   useEffect(() => {
-    initializeApp();
-  }, []);
-
-  const initializeApp = async () => {
-    try {
-      console.log('[App] 🚀 Initialisation de l\'application...');
-      
-      // Démarrer l'app immédiatement avec squelette
-      setTimeout(async () => {
-        // Timeout de sécurité pour éviter le chargement infini
-        const initTimeout = setTimeout(() => {
-          console.warn('[App] ⚠️ Timeout d\'initialisation - mode hors ligne forcé');
-          setApiError('Timeout de connexion');
-          setOfflineMode(true);
-        }, 15000); // 15 secondes maximum
-        
-        // 1. Test CRITIQUE de l'API en premier
-        const isApiWorking = await testApiConnection();
-        
-        if (!isApiWorking) {
-          console.warn('[App] ❌ API non disponible - Mode hors ligne activé');
-          setApiError('API non disponible');
-          setOfflineMode(true);
-          
-          // Montrer un message informatif
-          Alert.alert(
-            'Mode Hors Ligne',
-            'L\'API n\'est pas disponible. Vous êtes redirigé vers les téléchargements où vous pouvez accéder au contenu hors ligne.',
-            [{ text: 'Continuer', style: 'default' }]
-          );
-        } else {
-          console.log('[App] ✅ API disponible - Mode normal');
-          setApiAvailable(true);
-        }
-        
-        // 2. Initialiser la base de données
-        await databaseService.initializeDatabase();
-        console.log('[App] ✅ Base de données initialisée');
-        
-        clearTimeout(initTimeout);
-        console.log('[App] ✅ Application prête');
-      }, 100); // Délai minimal pour afficher l'interface
-      
-    } catch (error) {
-      console.error('[App] ❌ Erreur lors de l\'initialisation:', error);
-      
-      // En cas d'erreur critique, forcer le mode hors ligne
-      setApiError(`Erreur d'initialisation: ${error}`);
-      setOfflineMode(true);
-      
-      Alert.alert(
-        'Erreur d\'initialisation',
-        'Une erreur est survenue. L\'application démarrera en mode hors ligne.',
-        [{ text: 'Continuer', style: 'default' }]
-      );
-    }
-  };
-
-  const testApiConnection = async (): Promise<boolean> => {
-    try {
-      console.log('[App] 🌐 Test de connexion API...');
-      
-      // Test avec timeout court
-      const testPromise = apiService.testConnection();
-      const timeoutPromise = new Promise<boolean>((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout API')), 8000)
-      );
-      
-      const isConnected = await Promise.race([testPromise, timeoutPromise]);
-      
-      if (isConnected) {
-        console.log('[App] ✅ API fonctionnelle');
-        return true;
-      } else {
-        console.warn('[App] ⚠️ API non fonctionnelle');
-        return false;
+    let mounted = true;
+    let timeout: ReturnType<typeof setTimeout>;
+    const initialize = async () => {
+      const connection = Promise.race([
+        apiService.testConnection(),
+        new Promise<boolean>(resolve => { timeout = setTimeout(() => resolve(false), 8000); }),
+      ]);
+      try {
+        // Screens may read lists/history immediately: initialize local storage first.
+        const [database, online] = await Promise.allSettled([databaseService.initializeDatabase(), connection]);
+        if (!mounted) return;
+        const connected = online.status === 'fulfilled' && online.value;
+        setApiAvailable(Boolean(connected));
+        if (!connected) { setApiError('Connexion indisponible'); setOfflineMode(true); }
+        if (database.status === 'rejected') console.error('[App] Stockage local indisponible:', database.reason);
+      } finally {
+        clearTimeout(timeout!);
+        if (mounted) setReady(true);
       }
-    } catch (error) {
-      console.warn('[App] ⚠️ Erreur test API:', error);
-      return false;
-    }
-  };
-
-  // Toujours afficher l'interface (avec squelette si nécessaire)
+    };
+    initialize();
+    return () => { mounted = false; clearTimeout(timeout!); };
+  }, []);
+  if (!ready) return <View style={[styles.launch, { backgroundColor: colors.background }]}><Text style={[styles.wordmark, { color: colors.text }]}>anime<Text style={{ color: colors.primary }}>vision.</Text></Text><ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} /><Text style={{ marginTop: 16, color: colors.textSecondary }}>Votre prochaine histoire vous attend.</Text></View>;
   return <AppNavigator />;
 }
 
-// Composant racine avec le provider
 export default function App() {
-  return (
-    <ApiProvider>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <AppContent />
-      </GestureHandlerRootView>
-    </ApiProvider>
-  );
+  return <SafeAreaProvider><ThemeProvider><ApiProvider><GestureHandlerRootView style={{ flex: 1 }}><AppContent /></GestureHandlerRootView></ApiProvider></ThemeProvider></SafeAreaProvider>;
 }
-
-const styles = StyleSheet.create({
-  // Styles supprimés car plus d'écran de chargement
-});
+const styles = StyleSheet.create({ launch: { flex: 1, alignItems: 'center', justifyContent: 'center' }, wordmark: { fontSize: 36, fontWeight: '800', letterSpacing: -1.5 } });
