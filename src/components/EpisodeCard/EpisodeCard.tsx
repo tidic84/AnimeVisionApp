@@ -1,3 +1,4 @@
+import { radii } from '../../theme/shape';
 import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
 import { MotionPressable } from '../Motion';
 import { palette } from '../../theme/palette';
@@ -151,7 +152,7 @@ const styles = StyleSheet.create({
     elevation: 0,
     shadowOpacity: 0,
   },
-  thumbnailContainer: {
+  thumbnailContainer: { borderRadius: radii.card, overflow: 'hidden',
     position: 'relative',
   },
   thumbnail: {

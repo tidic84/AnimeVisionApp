@@ -1,3 +1,4 @@
+import { radii } from '../../theme/shape';
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, FlatList, ImageBackground, RefreshControl, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -141,7 +142,7 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 18, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   brandText: { fontSize: 21, fontWeight: '700', letterSpacing: -.8 },
-  search: { padding: 8 },
+  search: { borderRadius: radii.pill, padding: 8 },
   hero: { marginBottom: 28 },
   heroGradient: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 34 },
   heroContent: { gap: 12, maxWidth: 700 },
@@ -149,9 +150,9 @@ const styles = StyleSheet.create({
   heroMetadata: { color: '#AAA', fontSize: 12 },
   heroDescription: { color: '#DDD', fontSize: 14, lineHeight: 21 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  heroButton: { flexDirection: 'row', gap: 9, alignItems: 'center', paddingHorizontal: 17, height: 46, borderRadius: 3 },
+  heroButton: { flexDirection: 'row', gap: 9, alignItems: 'center', paddingHorizontal: 17, height: 46, borderRadius: radii.pill },
   heroButtonText: { color: '#000', fontSize: 14, fontWeight: '700' },
-  heroInfo: { height: 46, width: 46, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: 3 },
+  heroInfo: { height: 46, width: 46, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: radii.pill },
   dots: { flexDirection: 'row', gap: 6, paddingHorizontal: 18 },
   section: { marginBottom: 30 },
   sectionHeading: { paddingHorizontal: 18, marginBottom: 14 },
@@ -159,6 +160,6 @@ const styles = StyleSheet.create({
   sectionSubtitle: { paddingHorizontal: 18, marginBottom: 14, fontSize: 14 },
   row: { paddingHorizontal: 18 },
   error: { padding: 28, alignItems: 'center', gap: 16 },
-  retry: { borderWidth: 1, padding: 12 },
-  browse: { borderWidth: 1, padding: 18, marginHorizontal: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12 },
+  retry: { borderRadius: radii.pill, borderWidth: 1, padding: 12 },
+  browse: { borderRadius: radii.pill, borderWidth: 1, padding: 18, marginHorizontal: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12 },
 });

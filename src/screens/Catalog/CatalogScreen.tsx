@@ -1,3 +1,4 @@
+import { radii } from '../../theme/shape';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, FlatList, Platform, Image, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -174,7 +175,7 @@ export default function CatalogScreen({ navigation }: MainTabScreenProps<'Catalo
   const button = (label: string, active: boolean, onPress: () => void) => <TouchableOpacity key={label} accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={[styles.chip, { backgroundColor: active ? colors.primary : colors.surface, borderColor: active ? colors.primary : colors.border }]}><Text style={{ color: active ? colors.buttonText : colors.text }}>{label}</Text></TouchableOpacity>;
   const renderCard = ({ item }: { item: Anime }) => (
     <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Découvrir ${item.title}`} activeOpacity={0.8} onPress={() => navigation.navigate('AnimeDetail', { animeId: item.id })} style={{ width: cardWidth, marginBottom: 22 }}>
-      {item.thumbnail ? <Image source={{ uri: item.thumbnail }} style={{ width: cardWidth, height: cardWidth * 1.5, backgroundColor: colors.surface }} resizeMode="cover" /> : <View style={[styles.posterPlaceholder, { width: cardWidth, height: cardWidth * 1.5, backgroundColor: colors.surface }]}><Ionicons name="film-outline" size={36} color={colors.textSecondary} /></View>}
+      {item.thumbnail ? <Image source={{ uri: item.thumbnail }} style={{ width: cardWidth, height: cardWidth * 1.5, borderRadius: radii.card, backgroundColor: colors.surface }} resizeMode="cover" /> : <View style={[styles.posterPlaceholder, { width: cardWidth, height: cardWidth * 1.5, borderRadius: radii.card, backgroundColor: colors.surface }]}><Ionicons name="film-outline" size={36} color={colors.textSecondary} /></View>}
       <Text numberOfLines={1} style={[styles.animeTitle, { color: colors.text }]}>{item.title}</Text>
       <Text numberOfLines={1} style={[styles.metadata, { color: colors.textSecondary }]}>{[item.year > 1900 ? item.year : '', ...(item.genres || []).slice(0, 2).map(genreLabel)].filter(Boolean).join(' · ') || 'Anime'}</Text>
     </TouchableOpacity>
@@ -203,12 +204,12 @@ const styles = StyleSheet.create({
   skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, overflow: 'hidden' },
   header: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 26, fontWeight: '700' }, iconButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  search: { marginHorizontal: 16, marginBottom: 14, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, borderWidth: 1 },
+  search: { borderRadius: radii.pill, marginHorizontal: 16, marginBottom: 14, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, borderWidth: 1 },
   tabs: { flexDirection: 'row', borderBottomWidth: 1 }, tab: { flex: 1, alignItems: 'center', paddingTop: 14, paddingBottom: 18, borderBottomWidth: 3 },
   toolbar: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', alignItems: 'center' },
-  animeTitle: { fontSize: 16, marginTop: 10, lineHeight: 22 }, metadata: { fontSize: 12, lineHeight: 18, marginTop: 10 }, posterPlaceholder: { justifyContent: 'center', alignItems: 'center' },
-  genreGrid: { padding: 16, paddingBottom: 30 }, genreRows: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, genreTile: { overflow: 'hidden' }, genreContent: { justifyContent: 'center', alignItems: 'center', gap: 8, padding: 6 }, genreName: { color: '#fff', textAlign: 'center', fontSize: 13, fontWeight: '500' },
+  animeTitle: { fontSize: 16, marginTop: 10, lineHeight: 22 }, metadata: { fontSize: 12, lineHeight: 18, marginTop: 10 }, posterPlaceholder: { borderRadius: radii.card, justifyContent: 'center', alignItems: 'center' },
+  genreGrid: { padding: 16, paddingBottom: 30 }, genreRows: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, genreTile: { borderRadius: radii.card, overflow: 'hidden' }, genreContent: { justifyContent: 'center', alignItems: 'center', gap: 8, padding: 6 }, genreName: { color: '#fff', textAlign: 'center', fontSize: 13, fontWeight: '500' },
   activeFilters: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 14 }, empty: { alignItems: 'center', paddingVertical: 70, paddingHorizontal: 24 }, emptyText: { textAlign: 'center', marginTop: 10, lineHeight: 22 },
   pagination: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 18, paddingBottom: 12, borderTopWidth: 1 }, sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 14 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1 }, sectionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 12, marginTop: 20 }, sortRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 15 }, studioInput: { borderWidth: 1, padding: 12, fontSize: 16 }, applyButton: { marginHorizontal: 16, marginTop: 16, padding: 15, alignItems: 'center' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { borderRadius: radii.pill, paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1 }, sectionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 12, marginTop: 20 }, sortRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 15 }, studioInput: { borderRadius: radii.control, borderWidth: 1, padding: 12, fontSize: 16 }, applyButton: { borderRadius: radii.pill, marginHorizontal: 16, marginTop: 16, padding: 15, alignItems: 'center' },
 });

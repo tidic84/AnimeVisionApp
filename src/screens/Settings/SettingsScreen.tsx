@@ -1,3 +1,4 @@
+import { radii } from '../../theme/shape';
 import downloadService from '../../services/downloadService';
 import apiService from '../../services/apiService';
 import { useApi } from '../../contexts/ApiContext';
@@ -648,7 +649,7 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '90%',
     maxWidth: 400,
-    borderRadius: 20,
+    borderRadius: radii.panel,
     padding: 24,
   },
   modalTitle: {
@@ -678,7 +679,7 @@ const styles = StyleSheet.create({
   },
   textInput: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: radii.control,
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 16,
@@ -692,7 +693,7 @@ const styles = StyleSheet.create({
   modalButton: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 14,
+    borderRadius: radii.pill,
     alignItems: 'center',
     marginHorizontal: 4,
   },

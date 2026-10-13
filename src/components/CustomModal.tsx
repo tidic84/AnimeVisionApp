@@ -1,3 +1,4 @@
+import { radii } from '../theme/shape';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useAppColorScheme } from '../contexts/ThemeContext';
@@ -32,4 +33,4 @@ export default function CustomModal({ visible, onRequestClose, children, transpa
     </View>
   </Modal>;
 }
-const styles = StyleSheet.create({ layout: { flex: 1, justifyContent: 'center', alignItems: 'center' }, content: { width: '90%', maxWidth: 560, maxHeight: '85%', borderRadius: 16, overflow: 'hidden' }, bottom: { width: '100%', maxWidth: 900, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 } });
+const styles = StyleSheet.create({ layout: { flex: 1, justifyContent: 'center', alignItems: 'center' }, content: { width: '90%', maxWidth: 560, maxHeight: '85%', borderRadius: radii.sheet, overflow: 'hidden' }, bottom: { width: '100%', maxWidth: 900, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 } });

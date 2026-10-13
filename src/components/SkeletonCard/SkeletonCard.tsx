@@ -1,3 +1,4 @@
+import { radii } from '../../theme/shape';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { View, Animated, Easing, Platform, StyleProp, ViewStyle, DimensionValue } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -29,7 +30,7 @@ export function SkeletonBlock({ width = '100%', height = 16, style }: { width?: 
   const phase = shared || local;
   const reduced = useReducedMotion();
   const [measuredWidth, setMeasuredWidth] = useState(typeof width === 'number' ? width : 200);
-  return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" onLayout={e => { const value = e.nativeEvent.layout.width; if (value > 0 && value !== measuredWidth) setMeasuredWidth(value); }} style={[{ width, height, backgroundColor: colors.surface, overflow: 'hidden', borderRadius: 3 }, style]}>
+  return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" onLayout={e => { const value = e.nativeEvent.layout.width; if (value > 0 && value !== measuredWidth) setMeasuredWidth(value); }} style={[{ width, height, backgroundColor: colors.surface, overflow: 'hidden', borderRadius: radii.card }, style]}>
     {!reduced && <Animated.View style={{ position: 'absolute', top: 0, bottom: 0, width: measuredWidth, transform: [{ translateX: phase.interpolate({ inputRange: [0, 1], outputRange: [-measuredWidth, measuredWidth] }) }] }}><LinearGradient colors={['transparent', colors.border, 'transparent']} locations={[0, .5, 1]} style={{ flex: 1, opacity: .45 }} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} /></Animated.View>}
   </View>;
 }

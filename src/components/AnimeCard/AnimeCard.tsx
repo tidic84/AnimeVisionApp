@@ -1,3 +1,4 @@
+import { radii } from '../../theme/shape';
 import { useAppColorScheme as useColorScheme } from '../../contexts/ThemeContext';
 import { MotionPressable } from '../Motion';
 import { palette } from '../../theme/palette';
@@ -74,14 +75,14 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 0,
+    borderRadius: radii.card,
     borderWidth: 0,
     marginRight: 14,
     overflow: 'hidden',
     elevation: 0,
     shadowOpacity: 0,
   },
-  thumbnail: {
+  thumbnail: { borderRadius: radii.card,
     width: '100%',
     resizeMode: 'cover',
   },

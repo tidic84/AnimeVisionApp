@@ -4,7 +4,7 @@ Les captures fournies le 13 octobre 2026 servent de référence pour les espacem
 affiches, onglets et organisation des écrans. L'application garde le nom AnimeVision
 et utilise les images et données de son catalogue.
 
-- Fond noir par défaut, accent violet, affiches rectangulaires et navigation lisible.
+- Fond noir par défaut, accent violet, affiches aux coins arrondis et navigation lisible.
   Le thème clair reste disponible dans Mon compte.
 - Accueil : grand carrousel, tendances, nouveaux épisodes, sélections par genre,
   reprise et Watchlist lorsqu'elles contiennent des éléments.
@@ -29,6 +29,10 @@ TypeScript ; exports Expo web, Android et iOS ; affichage web à 390 × 844 ;
 navigation des onglets ; création d'une collection ; édition du pseudo ; ajout à la Watchlist.
 Les vérifications web utilisent un profil de navigateur temporaire.
 Les exports natifs valident les bundles et ne remplacent pas un essai sur appareil.
+
+Les rayons sont partagés dans `src/theme/shape.ts` : cartes à 12 px, champs à 16 px,
+panneaux à 24 px, feuilles à 28 px et boutons principaux en forme de pilule.
+Les vignettes et leurs superpositions sont découpées ensemble pour garder les mêmes coins.
 
 ## Fiche anime, lecteur et fluidité
 
