@@ -1,8 +1,9 @@
+import loadScheduler, { LoadGroup } from '../services/loadScheduler';
 import { useAppColorScheme as useColorScheme } from '../contexts/ThemeContext';
 import useReducedMotion from '../hooks/useReducedMotion';
 import { palette } from '../theme/palette';
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +22,13 @@ import DownloadsScreen from '../screens/Downloads/DownloadsScreen';
 import SettingsScreen from '../screens/Settings/SettingsScreen';
 import AnimeDetailScreen from '../screens/AnimeDetail/AnimeDetailScreen';
 import VideoPlayerScreen from '../screens/VideoPlayer/VideoPlayerScreen';
+
+const navigationRef = createNavigationContainerRef<RootStackParamList>();
+const updateLoadPriority = () => {
+  const name: string | undefined = navigationRef.getCurrentRoute()?.name;
+  const group: LoadGroup = name === 'Home' ? 'home' : name === 'Catalog' ? 'catalog' : name === 'AnimeDetail' ? 'detail' : name === 'VideoPlayer' ? 'player' : 'local';
+  loadScheduler.setActiveGroup(group);
+};
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -49,7 +57,7 @@ function MainTabNavigator() {
   // Déterminer la route initiale en fonction de la disponibilité de l'API
   const getInitialRouteName = (): keyof MainTabParamList => {
     // La route initiale doit exister aussi lorsque le catalogue est indisponible.
-    return isApiAvailable ? "Home" : "Downloads";
+    return "Home";
   };
 
   return (
@@ -78,12 +86,12 @@ function MainTabNavigator() {
           const iconColor = color || colors.tabBarInactive;
 
           // Griser les onglets désactivés en mode offline
-          const finalColor = (!isApiAvailable && route.name !== 'Downloads' && route.name !== 'Settings')
-            ? colors.tabBarInactive + '50' // Semi-transparent
-            : iconColor;
+          const finalColor = iconColor;
 
           return <Ionicons name={iconName} size={iconSize} color={finalColor} />;
         },
+        lazy: false,
+        freezeOnBlur: false,
         animation: reducedMotion ? 'none' : 'fade',
         transitionSpec: { animation: 'timing', config: { duration: reducedMotion ? 0 : 200, easing: Easing.out(Easing.cubic) } },
         sceneStyle: { backgroundColor: colors.background },
@@ -115,13 +123,8 @@ function MainTabNavigator() {
           fontWeight: '600',
         },
         headerTintColor: colors.text,
-        // Désactiver la navigation pour les onglets qui nécessitent l'API
-        tabBarButton: (!isApiAvailable && route.name !== 'Downloads' && route.name !== 'Settings')
-          ? () => null // Masquer complètement les onglets désactivés
-          : undefined,
       })}
     >
-      {isApiAvailable && (
         <Tab.Screen
           name="Home"
           component={HomeScreen}
@@ -130,8 +133,6 @@ function MainTabNavigator() {
             headerShown: false,
           }}
         />
-      )}
-      {isApiAvailable && (
         <Tab.Screen
           name="Lists"
           component={ListsScreen}
@@ -140,8 +141,6 @@ function MainTabNavigator() {
             headerShown: false,
           }}
         />
-      )}
-      {isApiAvailable && (
         <Tab.Screen
           name="Catalog"
           component={CatalogScreen}
@@ -161,7 +160,6 @@ function MainTabNavigator() {
             },
           }}
         />
-      )}
       <Tab.Screen
         name="Downloads"
         component={DownloadsScreen}
@@ -190,6 +188,9 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer
+      ref={navigationRef}
+      onReady={updateLoadPriority}
+      onStateChange={updateLoadPriority}
       theme={{
         dark: colorScheme === 'dark',
         colors: {

@@ -54,3 +54,18 @@ des mouvements est partagée et respectée. Aucun délai artificiel de chargemen
 
 Validation complémentaire : TypeScript, exports web/Android/iOS, sélection des saisons 1/2
 des Carnets de l'Apothicaire, ouverture du lecteur intégré et entrée/sortie plein écran web.
+
+## Chargement sans bloquer la navigation
+
+Les cinq onglets sont montés dès le démarrage et restent accessibles pendant les requêtes,
+y compris quand l'API est indisponible. SQLite s'initialise une seule fois ; ses lecteurs
+attendent cette initialisation sans masquer toute l'application.
+
+La file HTTP traite les vérifications système, puis les données de la page active, puis
+les autres requêtes dans leur ordre d'arrivée. Deux requêtes au maximum sont actives,
+avec une seule requête d'arrière-plan pour garder une place à la page ouverte.
+Au changement de page, les requêtes de l'ancienne page peuvent libérer leur place,
+puis reprendre automatiquement. Les requêtes identiques en attente sont partagées.
+
+Validation : `node scripts/test-load-scheduler.cjs` (six scénarios) et navigation entre
+les cinq onglets dans un navigateur avec des requêtes API retardées de dix secondes.

@@ -4,15 +4,15 @@ import { Anime, Episode, AnimeList, WatchHistory, UserAnimeStatus, WatchStatus, 
 class DatabaseService {
   private db: SQLite.SQLiteDatabase | null = null;
 
-  async initializeDatabase(): Promise<void> {
-    try {
-      this.db = await SQLite.openDatabaseAsync('animevision.db');
-      await this.createTables();
-      await this.createDefaultList();
-    } catch (error) {
-      console.error('Erreur lors de l\'initialisation de la base de données:', error);
-      throw error;
-    }
+  private initialization: Promise<void> | null = null;
+  initializeDatabase(): Promise<void> {
+    if (!this.initialization) this.initialization = this.openDatabase().catch(error => { this.initialization = null; throw error; });
+    return this.initialization;
+  }
+  private async openDatabase(): Promise<void> {
+    this.db = await SQLite.openDatabaseAsync('animevision.db');
+    await this.createTables();
+    await this.createDefaultList();
   }
 
   private async createTables(): Promise<void> {
@@ -136,6 +136,7 @@ class DatabaseService {
 
   // CRUD pour les animés
   async saveAnime(anime: Anime): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     await this.db.runAsync(
@@ -163,6 +164,7 @@ class DatabaseService {
   }
 
   async getAnime(animeId: string): Promise<Anime | null> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const result = await this.db.getFirstAsync(
@@ -179,6 +181,7 @@ class DatabaseService {
   }
 
   async getAllAnimes(): Promise<Anime[]> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const results = await this.db.getAllAsync('SELECT * FROM animes') as any[];
@@ -190,6 +193,7 @@ class DatabaseService {
 
   // CRUD pour les épisodes
   async saveEpisode(episode: Episode): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     await this.db.runAsync(
@@ -216,6 +220,7 @@ class DatabaseService {
   }
 
   async getAnimeEpisodes(animeId: string): Promise<Episode[]> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const results = await this.db.getAllAsync(
@@ -233,6 +238,7 @@ class DatabaseService {
   }
 
   async updateEpisodeProgress(episodeId: string, progress: number, isWatched: boolean = false): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     await this.db.runAsync(
@@ -243,6 +249,7 @@ class DatabaseService {
 
   // CRUD pour les listes
   async createAnimeList(name: string): Promise<string> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const listId = `list-${Date.now()}`;
@@ -254,6 +261,7 @@ class DatabaseService {
   }
 
   async getAnimeLists(): Promise<AnimeList[]> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const lists = await this.db.getAllAsync('SELECT * FROM animeLists ORDER BY isDefault DESC, name ASC') as any[];
@@ -279,6 +287,7 @@ class DatabaseService {
   }
 
   async addAnimeToList(listId: string, animeId: string): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     await this.db.runAsync(
@@ -288,6 +297,7 @@ class DatabaseService {
   }
 
   async removeAnimeFromList(listId: string, animeId: string): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     await this.db.runAsync(
@@ -297,6 +307,7 @@ class DatabaseService {
   }
 
   async deleteAnimeList(listId: string): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     // Ne pas supprimer la liste par défaut
@@ -315,6 +326,7 @@ class DatabaseService {
 
   // Historique de visionnage
   async updateWatchHistory(animeId: string, episodeId: string, progress: number): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     await this.db.runAsync(
@@ -325,11 +337,13 @@ class DatabaseService {
   }
 
   async removeWatchHistory(animeId: string, episodeId: string): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
     await this.db.runAsync('DELETE FROM watchHistory WHERE animeId = ? AND episodeId = ?', [animeId, episodeId]);
   }
 
   async getWatchHistory(limit: number = 20): Promise<WatchHistory[]> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const results = await this.db.getAllAsync(
@@ -346,6 +360,7 @@ class DatabaseService {
   }
 
   async getRecentlyWatchedAnimes(limit: number = 10): Promise<Anime[]> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const results = await this.db.getAllAsync(
@@ -363,6 +378,7 @@ class DatabaseService {
 
   // Statut utilisateur des animés
   async updateUserAnimeStatus(status: UserAnimeStatus): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     await this.db.runAsync(
@@ -382,6 +398,7 @@ class DatabaseService {
   }
 
   async getUserAnimeStatus(animeId: string): Promise<UserAnimeStatus | null> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const result = await this.db.getFirstAsync(
@@ -404,6 +421,7 @@ class DatabaseService {
 
   // Paramètres
   async getSetting(key: string): Promise<string | null> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const result = await this.db.getFirstAsync(
@@ -415,6 +433,7 @@ class DatabaseService {
   }
 
   async setSetting(key: string, value: string): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     await this.db.runAsync(
@@ -425,6 +444,7 @@ class DatabaseService {
 
   // Nettoyage
   async clearCache(): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     // Supprimer les animés sans épisodes téléchargés et non dans les listes
@@ -448,6 +468,7 @@ class DatabaseService {
   }
 
   async getAnimesInList(listId: string): Promise<Anime[]> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     const results = await this.db.getAllAsync(
@@ -469,6 +490,7 @@ class DatabaseService {
   }
 
   async updateListName(listId: string, name: string): Promise<void> {
+    await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
 
     // Vérifier que ce n'est pas la liste par défaut

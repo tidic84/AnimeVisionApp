@@ -1,3 +1,4 @@
+import loadScheduler, { LoadGroup } from './loadScheduler';
 import { Episode, Anime, AnimeStatus, VideoQuality, Season, StreamingServer, ApiResponse, ApiError } from '../types/anime';
 import { API_ADDRESS } from '@env';
 
@@ -20,45 +21,41 @@ class ApiService {
     }
   }
 
+  private groupFor(endpoint: string): LoadGroup {
+    if (endpoint === '/health') return 'system';
+    if (/^\/api\/episode\/\d+(?:[/?]|$)/.test(endpoint)) return 'player';
+    if (/^\/api\/(?:anime|episode|saison)\/\d+(?:[/?]|$)/.test(endpoint)) return 'detail';
+    if (/^\/api\/(?:anime\/(?:latest|popular)|episodes\/latest|discover\/trending)/.test(endpoint)) return 'home';
+    if (/genre\//.test(endpoint)) return 'background';
+    return 'catalog';
+  }
+
   private async fetchWithErrorHandling<T>(endpoint: string): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-
-    try {
-      console.log(`[ApiService] Requête: ${endpoint}`);
-
-      const response = await fetch(url, {
-        signal: controller.signal,
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    return loadScheduler.schedule(this.groupFor(endpoint), url, async signal => {
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) controller.abort();
+      const timeout = setTimeout(abort, 12000);
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal,
+          method: 'GET',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const data = await response.json();
+        if (data.error) throw new Error((data as ApiError).message);
+        return data;
+      } catch (error: any) {
+        if (signal.aborted) throw error; // Scheduler resumes this background request later.
+        throw new Error(`Erreur API ${endpoint}: ${error.message}`);
+      } finally {
+        clearTimeout(timeout);
+        signal.removeEventListener('abort', abort);
       }
-
-      const data = await response.json();
-
-      // Vérifier si c'est une erreur de l'API
-      if (data.error) {
-        const error = data as ApiError;
-        throw new Error(error.message);
-      }
-
-      console.log(`[ApiService SUCCESS] ${endpoint} - Réponse reçue`);
-      return data;
-
-    } catch (error: any) {
-      console.error(`[ApiService ERROR] ${endpoint}:`, error.message);
-      throw new Error(`Erreur API ${endpoint}: ${error.message}`);
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   private mapApiAnimeToAnime(apiAnime: any): Anime {
