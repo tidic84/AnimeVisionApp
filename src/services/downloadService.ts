@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import { Episode, DownloadStatus, VideoQuality } from '../types/anime';
 import databaseService from './databaseService';

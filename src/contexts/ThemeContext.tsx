@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 type Scheme = 'light' | 'dark';
 const ThemeContext = createContext<{ scheme: Scheme; setScheme: (scheme: Scheme) => void } | null>(null);
 export function ThemeProvider({ children }: React.PropsWithChildren) {
-  const system = useColorScheme() ?? 'light';
+  const system: Scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const [preference, setPreference] = useState<Scheme | null>(null);
   useEffect(() => {
     let active = true;

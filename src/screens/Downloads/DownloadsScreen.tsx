@@ -48,7 +48,7 @@ const DownloadsScreen: React.FC<DownloadsScreenProps> = ({ navigation }) => {
   } | null>(null);
   const [showStorageModal, setShowStorageModal] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<Map<string, DownloadProgress>>(new Map());
-  const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
+  const [intervalId, setIntervalId] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     loadDownloads();

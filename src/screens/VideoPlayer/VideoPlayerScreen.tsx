@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useVideoPlayer, VideoView, VideoSource } from 'expo-video';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 
 import { RootStackScreenProps } from '../../types/navigation';
@@ -50,13 +50,13 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const skipAnimLeft = useRef(new Animated.Value(0)).current;
   const skipAnimRight = useRef(new Animated.Value(0)).current;
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // États pour multi-tap
   const [lastTap, setLastTap] = useState<number>(0);
   const [tapCount, setTapCount] = useState<number>(0);
   const [tapSide, setTapSide] = useState<'left' | 'right' | null>(null);
-  const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const tapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // États pour les animations de skip
   const [skipSeconds, setSkipSeconds] = useState<number>(10);
@@ -724,7 +724,7 @@ const VideoPlayerScreen: React.FC<VideoPlayerScreenProps> = () => {
       <VideoView
         style={styles.videoFullScreen}
         player={player}
-        allowsFullscreen={false}
+        fullscreenOptions={{ enable: false }}
         allowsPictureInPicture={false}
         showsTimecodes={false}
         nativeControls={false}
@@ -1241,4 +1241,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default VideoPlayerScreen; 
+export default VideoPlayerScreen;

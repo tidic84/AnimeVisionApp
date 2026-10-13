@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Episode, DownloadStatus, VideoQuality } from '../types/anime';
 import videoUrlExtractor from './VideoUrlExtractor';
 
