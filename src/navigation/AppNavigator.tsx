@@ -18,7 +18,7 @@ import { useApi } from '../contexts/ApiContext';
 import HomeScreen from '../screens/Home/HomeScreen';
 import ListsScreen from '../screens/Lists/ListsScreen';
 import CatalogScreen from '../screens/Catalog/CatalogScreen';
-import DownloadsScreen from '../screens/Downloads/DownloadsScreen';
+import PlanningScreen from '../screens/Planning/PlanningScreen';
 import SettingsScreen from '../screens/Settings/SettingsScreen';
 import AnimeDetailScreen from '../screens/AnimeDetail/AnimeDetailScreen';
 import VideoPlayerScreen from '../screens/VideoPlayer/VideoPlayerScreen';
@@ -26,7 +26,7 @@ import VideoPlayerScreen from '../screens/VideoPlayer/VideoPlayerScreen';
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const updateLoadPriority = () => {
   const name: string | undefined = navigationRef.getCurrentRoute()?.name;
-  const group: LoadGroup = name === 'Home' ? 'home' : name === 'Catalog' ? 'catalog' : name === 'AnimeDetail' ? 'detail' : name === 'VideoPlayer' ? 'player' : 'local';
+  const group: LoadGroup = name === 'Home' ? 'home' : name === 'Catalog' || name === 'Planning' ? 'catalog' : name === 'AnimeDetail' ? 'detail' : name === 'VideoPlayer' ? 'player' : 'local';
   loadScheduler.setActiveGroup(group);
 };
 
@@ -73,8 +73,8 @@ function MainTabNavigator() {
             iconName = focused ? 'bookmark' : 'bookmark-outline';
           } else if (route.name === 'Catalog') {
             iconName = focused ? 'grid' : 'grid-outline';
-          } else if (route.name === 'Downloads') {
-            iconName = focused ? 'download' : 'download-outline';
+          } else if (route.name === 'Planning') {
+            iconName = focused ? 'calendar' : 'calendar-outline';
           } else if (route.name === 'Settings') {
             iconName = focused ? 'person-circle' : 'person-circle-outline';
           } else {
@@ -161,11 +161,10 @@ function MainTabNavigator() {
           }}
         />
       <Tab.Screen
-        name="Downloads"
-        component={DownloadsScreen}
+        name="Planning"
+        component={PlanningScreen}
         options={{
-          title: 'Téléchargements',
-          tabBarLabel: 'Hors ligne',
+          title: 'Planning',
           headerShown: false,
         }}
       />

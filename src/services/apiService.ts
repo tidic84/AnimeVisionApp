@@ -1,5 +1,5 @@
 import loadScheduler, { LoadGroup } from './loadScheduler';
-import { Episode, Anime, AnimeStatus, VideoQuality, Season, StreamingServer, ApiResponse, ApiError } from '../types/anime';
+import { Episode, Anime, AnimeStatus, VideoQuality, Season, StreamingServer, ApiResponse, ApiError, SimulcastSeason, PlanningDay } from '../types/anime';
 import { API_ADDRESS } from '@env';
 
 class ApiService {
@@ -74,6 +74,7 @@ class ApiService {
       episodeCount: Number(apiAnime.episode_count || apiAnime.nb_episodes) || 0,
       duration: Number(apiAnime.duree || apiAnime.duration) || 0,
       malId: Number(apiAnime.mal_id) || undefined,
+      anilistId: Number(apiAnime.anilist_id) || undefined,
       titre_alt: apiAnime.titre_alt,
       titre_jap: apiAnime.titre_jap,
       url_anime_sama: apiAnime.url_anime_sama,
@@ -496,6 +497,26 @@ class ApiService {
       page,
       limit,
     });
+  }
+
+  /** Anime diffusés en ce moment (par défaut) ou pendant l'une des deux saisons précédentes. */
+  async getSimulcast(season?: SimulcastSeason): Promise<{ animes: Anime[]; season: SimulcastSeason; seasons: SimulcastSeason[] }> {
+    const query = season && !season.current ? `?season=${season.season}&year=${season.year}` : '';
+    const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/anime/simulcast${query}`);
+    return { animes: response.data.map(anime => this.mapApiAnimeToAnime(anime)), season: response.meta.season, seasons: response.meta.seasons };
+  }
+
+  /** Fiches du catalogue correspondant à des identifiants AniList (import MyAnimeList). */
+  async getAnimesByAnilistIds(ids: number[]): Promise<Anime[]> {
+    if (!ids.length) return [];
+    const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/anime/by-anilist?ids=${ids.join(',')}`);
+    return response.data.map(anime => this.mapApiAnimeToAnime(anime));
+  }
+
+  /** Sorties de la semaine, jour par jour (planning anime-sama). */
+  async getPlanning(): Promise<PlanningDay[]> {
+    const response = await this.fetchWithErrorHandling<ApiResponse<PlanningDay[]>>('/api/planning');
+    return response.data;
   }
 
   async getAnimeStats(): Promise<any> {

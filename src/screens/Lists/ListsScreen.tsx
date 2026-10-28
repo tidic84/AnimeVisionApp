@@ -1,5 +1,5 @@
 import { radii } from '../../theme/shape';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TextInput, ActivityIndicator, RefreshControl, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,6 +9,7 @@ import { palette } from '../../theme/palette';
 import { MainTabScreenProps } from '../../types/navigation';
 import { Anime, AnimeList, Episode, WatchHistory } from '../../types/anime';
 import databaseService from '../../services/databaseService';
+import * as malSync from '../../services/mal/malSync';
 import { FadeIn, LoadingSwap } from '../../components/Motion';
 import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/SkeletonCard';
 import useReducedMotion from '../../hooks/useReducedMotion';
@@ -17,13 +18,17 @@ import { DownloadsContent } from '../Downloads/DownloadsScreen';
 type ListData = AnimeList & { animes: Anime[] };
 type HistoryData = WatchHistory & { anime: Anime; episode: Episode | undefined };
 const tabs = ['Watchlist', 'Collections', 'Historique', 'Téléchargements'] as const;
+// Un seul comparateur : localeCompare(…, 'fr') recrée un comparateur à chaque appel (lent sous Hermes).
+const frenchCollator = new Intl.Collator('fr');
 
-export default function ListsScreen({ navigation }: MainTabScreenProps<'Lists'>) {
+export default function ListsScreen({ navigation, route }: MainTabScreenProps<'Lists'>) {
   const colors = palette[useAppColorScheme()];
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
   const { width } = useWindowDimensions();
-  const [tab, setTab] = useState<typeof tabs[number]>('Watchlist');
+  const [tab, setTab] = useState<typeof tabs[number]>(route.params?.tab || 'Watchlist');
+  // Les téléchargements n'ont plus d'onglet propre : on peut ouvrir cette section directement.
+  useEffect(() => { if (route.params?.tab) setTab(route.params.tab); }, [route.params?.tab]);
   const [lists, setLists] = useState<ListData[]>([]);
   const [history, setHistory] = useState<HistoryData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +59,7 @@ export default function ListsScreen({ navigation }: MainTabScreenProps<'Lists'>)
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   const watchlist = lists.find(list => list.isDefault);
   const selected = lists.find(list => list.id === selectedId);
-  const animes = (selected?.animes ?? watchlist?.animes ?? []).slice().sort((a, b) => sort ? a.title.localeCompare(b.title, 'fr') : 0);
+  const animes = (selected?.animes ?? watchlist?.animes ?? []).slice().sort((a, b) => sort ? frenchCollator.compare(a.title, b.title) : 0);
   const collections = lists.filter(list => !list.isDefault);
   const save = async () => {
     if (!name.trim() || !editor || saving) return;
@@ -75,14 +80,14 @@ export default function ListsScreen({ navigation }: MainTabScreenProps<'Lists'>)
   const openEditor = (list: AnimeList | 'new') => { setEditor(list); setName(list === 'new' ? '' : list.name); };
   const empty = (title: string, subtitle: string) => <View style={styles.empty}><Ionicons name={tab === 'Historique' ? 'time-outline' : 'bookmark-outline'} size={40} color={colors.textSecondary} /><Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{subtitle}</Text></View>;
   const animeRow = (anime: Anime, picker = false) => <View key={anime.id} style={styles.animeRow}>
-    <TouchableOpacity onPress={() => picker ? void (async () => { if (!selected) return; await databaseService.addAnimeToList(selected.id, anime.id); await load(); })().catch(() => setError('Impossible d’ajouter cet animé.')) : navigation.navigate('AnimeDetail', { animeId: anime.id })} style={styles.posterButton} accessibilityLabel={picker ? `Ajouter ${anime.title}` : anime.title}>
+    <TouchableOpacity onPress={() => picker ? void (async () => { if (!selected) return; await databaseService.addAnimeToList(selected.id, anime.id); if (selected.isDefault) void malSync.watchlistAdded(anime); await load(); })().catch(() => setError('Impossible d’ajouter cet animé.')) : navigation.navigate('AnimeDetail', { animeId: anime.id })} style={styles.posterButton} accessibilityLabel={picker ? `Ajouter ${anime.title}` : anime.title}>
       <Image source={{ uri: anime.thumbnail }} style={[styles.poster, { backgroundColor: colors.surface }]} />
     </TouchableOpacity>
     <View style={styles.rowInfo}>
       <TouchableOpacity onPress={() => navigation.navigate('AnimeDetail', { animeId: anime.id })}><Text style={[styles.animeTitle, { color: colors.text }]} numberOfLines={2}>{anime.title}</Text></TouchableOpacity>
       <Text style={[styles.meta, { color: colors.textSecondary }]}>{anime.episodeCount > 0 ? `${anime.episodeCount} épisodes` : 'Voir les épisodes'}</Text>
       <View style={styles.rowBottom}><Text style={[styles.meta, { color: colors.textSecondary, flex: 1 }]} numberOfLines={1}>{anime.genres.slice(0, 2).join(' • ')}</Text>
-        <TouchableOpacity accessibilityLabel={picker ? `Ajouter ${anime.title} à ${selected?.name}` : `Retirer ${anime.title} de la liste`} style={styles.iconButton} onPress={() => picker ? void (async () => { if (!selected) return; await databaseService.addAnimeToList(selected.id, anime.id); await load(); })().catch(() => setError('Impossible d’ajouter cet animé.')) : void remove(anime)}><Ionicons name={picker ? 'add-outline' : 'bookmark'} size={26} color={colors.primary} /></TouchableOpacity>
+        <TouchableOpacity accessibilityLabel={picker ? `Ajouter ${anime.title} à ${selected?.name}` : `Retirer ${anime.title} de la liste`} style={styles.iconButton} onPress={() => picker ? void (async () => { if (!selected) return; await databaseService.addAnimeToList(selected.id, anime.id); if (selected.isDefault) void malSync.watchlistAdded(anime); await load(); })().catch(() => setError('Impossible d’ajouter cet animé.')) : void remove(anime)}><Ionicons name={picker ? 'add-outline' : 'bookmark'} size={26} color={colors.primary} /></TouchableOpacity>
       </View>
     </View>
   </View>;

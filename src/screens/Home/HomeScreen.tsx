@@ -15,6 +15,7 @@ import ApiGuard from '../../components/ApiGuard';
 import hybridScrapingService from '../../services/hybridScrapingService';
 import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
+import * as malSync from '../../services/mal/malSync';
 import { Anime, Episode } from '../../types/anime';
 
 type Shelf = { title: string; subtitle?: string; items: Anime[] };
@@ -60,7 +61,7 @@ function HomeContent() {
     try {
       await databaseService.saveAnime(anime);
       if (watchlist.some(item => item.id === anime.id)) await databaseService.removeAnimeFromList(watchlistId, anime.id);
-      else await databaseService.addAnimeToList(watchlistId, anime.id);
+      else { await databaseService.addAnimeToList(watchlistId, anime.id); void malSync.watchlistAdded(anime); }
       await loadPersonal();
     } catch { setError('Impossible de mettre à jour la Watchlist. Réessayez.'); }
   };

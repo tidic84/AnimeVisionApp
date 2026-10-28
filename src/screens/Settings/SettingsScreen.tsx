@@ -1,6 +1,9 @@
 import { radii } from '../../theme/shape';
 import downloadService from '../../services/downloadService';
 import apiService from '../../services/apiService';
+import { LANGUAGE_OPTIONS } from '../../services/preferences';
+import * as mal from '../../services/mal/malService';
+import * as malSync from '../../services/mal/malSync';
 import { useApi } from '../../contexts/ApiContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import useReducedMotion from '../../hooks/useReducedMotion';
@@ -16,7 +19,6 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
-  SafeAreaView,
   Modal,
   TextInput,
   Linking,
@@ -39,6 +41,7 @@ interface AppSettings {
 
   // Lecture
   defaultQuality: string;
+  preferredLanguage: string;
   autoplay: boolean;
   skipIntro: boolean;
   skipOutro: boolean;
@@ -90,6 +93,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     malUsername: '',
     malToken: '',
     defaultQuality: '720p',
+    preferredLanguage: 'vostfr',
     autoplay: true,
     skipIntro: false,
     skipOutro: false,
@@ -106,12 +110,52 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   });
 
   const [showQualityModal, setShowQualityModal] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showDownloadQualityModal, setShowDownloadQualityModal] = useState(false);
   const [showStorageModal, setShowStorageModal] = useState(false);
   const [profileName, setProfileName] = useState('Mon profil');
   const [profileDraft, setProfileDraft] = useState('');
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [storageUsed, setStorageUsed] = useState(0);
+  const [malUser, setMalUser] = useState<string | null>(null);
+  const [malBusy, setMalBusy] = useState('');
+
+  useEffect(() => { mal.getUser().then(user => setMalUser(user?.name ?? null)).catch(() => {}); }, []);
+
+  const connectMal = async () => {
+    if (!mal.isConfigured()) {
+      Alert.alert('MyAnimeList', `Ajoutez le Client ID de votre application MAL dans le fichier .env de l’app (MAL_CLIENT_ID), puis relancez Expo.\n\nURL de redirection à déclarer sur myanimelist.net/apiconfig :\n${mal.redirectUri()}`);
+      return;
+    }
+    setMalBusy('Connexion…');
+    try {
+      const name = await mal.connect();
+      setMalUser(name);
+      await saveSettings({ malEnabled: true, malUsername: name });
+      Alert.alert('MyAnimeList', `Connecté en tant que ${name}. Voulez-vous importer votre liste maintenant ?`, [
+        { text: 'Plus tard', style: 'cancel' },
+        { text: 'Importer', onPress: () => void importMal() },
+      ]);
+    } catch (error) {
+      if (!(error instanceof Error && error.message === 'Connexion annulée')) Alert.alert('MyAnimeList', error instanceof Error ? error.message : 'Connexion impossible.');
+    } finally { setMalBusy(''); }
+  };
+
+  const importMal = async () => {
+    setMalBusy('Import…');
+    try {
+      const result = await malSync.importList(text => setMalBusy(text));
+      const missing = result.notFound.length ? `\n\n${result.notFound.length} absent(s) du catalogue : ${result.notFound.slice(0, 8).join(', ')}${result.notFound.length > 8 ? '…' : ''}` : '';
+      Alert.alert('Import MyAnimeList', `${result.matched} anime retrouvés sur ${result.total} entrées, ${result.addedToWatchlist} ajoutés à la Watchlist.${missing}`);
+    } catch (error) {
+      Alert.alert('Import MyAnimeList', error instanceof Error ? error.message : 'Import impossible.');
+    } finally { setMalBusy(''); }
+  };
+
+  const disconnectMal = () => Alert.alert('MyAnimeList', 'Se déconnecter ? Votre liste MAL n’est pas modifiée.', [
+    { text: 'Annuler', style: 'cancel' },
+    { text: 'Se déconnecter', style: 'destructive', onPress: async () => { await mal.disconnect(); setMalUser(null); await saveSettings({ malEnabled: false, malUsername: '' }); } },
+  ]);
 
   useEffect(() => {
     loadSettings();
@@ -123,7 +167,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     try {
       const savedSettings = await AsyncStorage.getItem('appSettings');
       if (savedSettings) {
-        setSettings(JSON.parse(savedSettings));
+        // Les réglages enregistrés avant l'ajout d'une option gardent sa valeur par défaut.
+        setSettings(previous => ({ ...previous, ...JSON.parse(savedSettings) }));
       }
     } catch (error) {
       console.error('[Settings] Erreur lors du chargement des paramètres:', error);
@@ -237,7 +282,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     onClose: () => void,
     currentValue: string,
     onSelect: (value: string) => void,
-    title: string
+    title: string,
+    options: { value: string; label: string }[] = QUALITY_OPTIONS
   ) => (
     <Modal
       visible={visible}
@@ -249,7 +295,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
         <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
           <Text style={[styles.modalTitle, { color: colors.textSecondary }]}>{title}</Text>
 
-          {QUALITY_OPTIONS.map((option) => (
+          {options.map((option) => (
             <TouchableOpacity
               key={option.value}
               style={[
@@ -361,7 +407,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    // Pas de SafeAreaView (déprécié) : l'en-tête applique lui-même insets.top pour passer sous la barre d'état.
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {renderHeader()}
         {renderSection('Profil', renderSettingRow('person', 'Modifier le profil', undefined, undefined, editProfile))}
@@ -375,6 +422,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               'Qualité vidéo préférée',
               QUALITY_OPTIONS.find(q => q.value === settings.defaultQuality)?.label,
               () => setShowQualityModal(true)
+            )}
+            {renderSettingRow(
+              'chatbubbles',
+              'Version préférée',
+              'Langue affichée par défaut sur les fiches',
+              LANGUAGE_OPTIONS.find(option => option.value === settings.preferredLanguage)?.label,
+              () => setShowLanguageModal(true)
             )}
             {renderSettingRow(
               'play-circle',
@@ -416,6 +470,29 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
         ))}
 
         {/* Téléchargements */}
+        {renderSection('MyAnimeList', malUser ? (
+          <>
+            {renderSettingRow('person-circle', 'Compte MyAnimeList', 'Épisodes vus et Watchlist sont envoyés sur MAL', malUser)}
+            {renderSettingRow(
+              'sync',
+              'Synchronisation automatique',
+              'Met à jour MAL quand vous regardez un épisode',
+              undefined,
+              undefined,
+              settings.malEnabled,
+              (value) => saveSettings({ malEnabled: value })
+            )}
+            {renderSettingRow('download', 'Importer ma liste MAL', 'Watchlist et statuts depuis votre liste MAL', malBusy || undefined, malBusy ? undefined : importMal)}
+            {renderSettingRow('log-out', 'Se déconnecter de MyAnimeList', undefined, undefined, malBusy ? undefined : disconnectMal, undefined, undefined, true)}
+          </>
+        ) : renderSettingRow(
+          'link',
+          'Se connecter à MyAnimeList',
+          mal.isConfigured() ? 'Synchroniser votre progression et votre Watchlist' : 'Client ID MyAnimeList à configurer',
+          malBusy || undefined,
+          malBusy ? undefined : connectMal
+        ))}
+
         {renderSection('Téléchargements', (
           <>
             {renderSettingRow(
@@ -549,6 +626,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
       )}
 
       {renderQualityModal(
+        showLanguageModal,
+        () => setShowLanguageModal(false),
+        settings.preferredLanguage,
+        (value) => saveSettings({ preferredLanguage: value }),
+        'Version préférée',
+        LANGUAGE_OPTIONS
+      )}
+
+      {renderQualityModal(
         showDownloadQualityModal,
         () => setShowDownloadQualityModal(false),
         settings.downloadQuality,
@@ -558,7 +644,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
 
       {renderStorageModal()}
       {renderProfileModal()}
-    </SafeAreaView>
+    </View>
   );
 };
 

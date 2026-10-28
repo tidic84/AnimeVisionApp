@@ -18,9 +18,9 @@ export type RootStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Lists: undefined;
+  Lists: { tab?: 'Téléchargements' } | undefined;
   Catalog: undefined;
-  Downloads: undefined;
+  Planning: undefined;
   Settings: undefined;
 };
 

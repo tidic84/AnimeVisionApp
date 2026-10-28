@@ -6,6 +6,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { ApiProvider, useApi } from './src/contexts/ApiContext';
 import databaseService from './src/services/databaseService';
 import apiService from './src/services/apiService';
+import * as malSync from './src/services/mal/malSync';
 
 function AppContent() {
   const { setApiAvailable, setApiError } = useApi();
@@ -17,6 +18,8 @@ function AppContent() {
       if (!mounted) return;
       setApiAvailable(connected);
       setApiError(connected ? null : 'Connexion indisponible');
+      // Mises à jour MyAnimeList restées en attente (épisodes vus hors connexion).
+      if (connected) void malSync.flushPending().catch(() => {});
     });
     return () => { mounted = false; };
   }, []);

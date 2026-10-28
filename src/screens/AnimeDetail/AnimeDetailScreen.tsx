@@ -15,6 +15,8 @@ import downloadService from '../../services/downloadService';
 import CustomModal from '../../components/CustomModal';
 import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/SkeletonCard';
 import { LoadingSwap } from '../../components/Motion';
+import { getPreferredLanguage } from '../../services/preferences';
+import * as malSync from '../../services/mal/malSync';
 
 const seasonTitle = (season: Season) => season.titre_saison?.trim() || (season.num_saison > 0 && season.num_saison < 100 ? `Saison ${season.num_saison}` : season.type || 'Épisodes');
 const episodeLanguage = (episode: Episode) => episode.langue?.toUpperCase() || [...new Set((episode.streaming_servers || []).map(server => server.langue?.toUpperCase()).filter(Boolean))].join(' / ');
@@ -41,7 +43,8 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   const [tab, setTab] = useState<'episodes' | 'similar'>('episodes');
   const [showSeasons, setShowSeasons] = useState(false);
   const [descending, setDescending] = useState(false);
-  const [language, setLanguage] = useState('all');
+  const [language, setLanguage] = useState(''); // '' = choix automatique
+  const [preferredLanguage, setPreferredLanguage] = useState('VOSTFR');
   const [episodeLimit, setEpisodeLimit] = useState(24);
   const [resumeId, setResumeId] = useState('');
   const [batchBusy, setBatchBusy] = useState(false);
@@ -62,7 +65,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
     setResumeId('');
     setSimilar([]);
     setEpisodesLoading(true);
-    setLanguage('all');
+    setLanguage('');
     setExpanded(false);
     try {
       const [detailsResult, seasonsResult, cachedResult, historyResult, listsResult] = await Promise.allSettled([
@@ -138,6 +141,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
 
   useFocusEffect(useCallback(() => {
     let active = true;
+    getPreferredLanguage().then(value => { if (active) setPreferredLanguage(value.toUpperCase()); });
     Promise.all([databaseService.getAnimeEpisodes(animeId), databaseService.getWatchHistory(1000)]).then(([cached, history]) => {
       if (!active) return;
       const map = new Map(cached.map(episode => [episode.id, episode]));
@@ -156,7 +160,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       const defaultList = lists.find(list => list.isDefault);
       if (!defaultList) throw new Error('La watchlist ne peut pas être chargée.');
       if (inWatchlist) await databaseService.removeAnimeFromList(defaultList.id, animeId);
-      else await databaseService.addAnimeToList(defaultList.id, animeId);
+      else { await databaseService.addAnimeToList(defaultList.id, animeId); void malSync.watchlistAdded(anime); }
       setInWatchlist(value => !value);
     } catch { Alert.alert('Watchlist', 'Impossible de modifier votre liste. Réessayez.'); }
     finally { setWatchlistBusy(false); }
@@ -198,10 +202,15 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       await enqueueDownload(episode);
     } catch (cause) { Alert.alert('Téléchargement', cause instanceof Error ? cause.message : 'Impossible de télécharger cet épisode.'); }
   };
-  const availableLanguages = [...new Set(episodes.map(episodeLanguage).filter(Boolean))];
-  const visibleEpisodes = episodes.filter(episode => language === 'all' || episodeLanguage(episode) === language).sort((a, b) => descending ? b.number - a.number : a.number - b.number);
+  // Une seule version à la fois : choix manuel, sinon celle de l'épisode en cours, sinon la préférence.
+  const languageRank = (value: string) => { const rank = ['VOSTFR', 'VF'].indexOf(value); return rank < 0 ? 99 : rank; };
+  const availableLanguages = [...new Set(episodes.map(episodeLanguage).filter(Boolean))].sort((a, b) => languageRank(a) - languageRank(b));
+  const resumeEpisode = episodes.find(episode => episode.id === resumeId);
+  const activeLanguage = [language, resumeEpisode ? episodeLanguage(resumeEpisode) : '', preferredLanguage].find(value => value && availableLanguages.includes(value)) || availableLanguages[0] || '';
+  const visibleEpisodes = episodes.filter(episode => !activeLanguage || !episodeLanguage(episode) || episodeLanguage(episode) === activeLanguage).sort((a, b) => descending ? b.number - a.number : a.number - b.number);
   const selectedSeason = seasons.find(season => season.id === seasonId);
-  const primaryEpisode = resumeId || [...episodes].sort((a, b) => a.number - b.number).find(episode => !episode.isWatched)?.id || episodes[0]?.id;
+  const inOrder = [...visibleEpisodes].sort((a, b) => a.number - b.number);
+  const primaryEpisode = resumeId || inOrder.find(episode => !episode.isWatched)?.id || inOrder[0]?.id;
   const batchDownload = () => {
     const candidates = visibleEpisodes.filter(episode => ![DownloadStatus.DOWNLOADED, DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(episode.downloadStatus) && (episode.streamingUrls.length || episode.streaming_servers?.length));
     if (!candidates.length) { Alert.alert('Téléchargements', 'Aucun nouvel épisode disponible au téléchargement.'); return; }
@@ -232,8 +241,8 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
         <View style={[styles.tabs, { borderBottomColor: colors.border }]}>{([{ key: 'episodes', label: 'Épisodes' }, { key: 'similar', label: 'Similaires' }] as const).map(option => <TouchableOpacity key={option.key} accessibilityRole="tab" accessibilityState={{ selected: tab === option.key }} onPress={() => setTab(option.key)} style={[styles.tab, { borderBottomColor: tab === option.key ? colors.primary : 'transparent' }]}><Text style={{ color: tab === option.key ? colors.text : colors.textSecondary, fontWeight: '700', fontSize: 15 }}>{option.label}</Text></TouchableOpacity>)}</View>
         {tab === 'episodes' ? <View style={{ paddingHorizontal: 16 }}>
           <View style={styles.episodeToolbar}><TouchableOpacity accessibilityLabel="Choisir une saison" disabled={!seasons.length} onPress={() => setShowSeasons(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={{ flexShrink: 1, color: colors.text, fontSize: 17, fontWeight: '600' }}>{selectedSeason ? seasonTitle(selectedSeason) : 'Épisodes'}</Text>{seasons.length > 0 && <Ionicons name="chevron-down" color={colors.text} size={20} />}</TouchableOpacity><TouchableOpacity accessibilityLabel={descending ? 'Trier les épisodes du premier au dernier' : 'Trier les épisodes du dernier au premier'} onPress={() => setDescending(value => !value)} style={styles.iconButton}><Ionicons name={descending ? 'arrow-up' : 'arrow-down'} size={22} color={colors.text} /></TouchableOpacity>{Platform.OS !== 'web' && <TouchableOpacity accessibilityLabel="Télécharger les épisodes affichés" disabled={batchBusy || episodesLoading} onPress={batchDownload} style={styles.iconButton}><Ionicons name="download-outline" size={23} color={batchBusy ? colors.textSecondary : colors.text} /></TouchableOpacity>}</View>
-          {availableLanguages.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 16 }}>{['all', ...availableLanguages].map(value => <TouchableOpacity key={value} onPress={() => setLanguage(value)} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: language === value ? colors.buttonBg : colors.surface }}><Text style={{ color: language === value ? colors.buttonText : colors.text }}>{value === 'all' ? 'Toutes les langues' : value}</Text></TouchableOpacity>)}</ScrollView>}
-          {episodeError && visibleEpisodes.length > 0 && <Text style={{ color: colors.warning, marginBottom: 16 }}>{episodeError}</Text>}<LoadingSwap loading={episodesLoading} skeleton={<SkeletonGroup>{episodeSkeleton}</SkeletonGroup>}>
+          {availableLanguages.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 16 }}>{availableLanguages.map(value => <TouchableOpacity key={value} accessibilityRole="button" accessibilityState={{ selected: activeLanguage === value }} accessibilityLabel={`Afficher la version ${value}`} onPress={() => setLanguage(value)} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: activeLanguage === value ? colors.buttonBg : colors.surface }}><Text style={{ color: activeLanguage === value ? colors.buttonText : colors.text }}>{value}</Text></TouchableOpacity>)}</ScrollView>}
+          {!!episodeError && visibleEpisodes.length > 0 &&<Text style={{ color: colors.warning, marginBottom: 16 }}>{episodeError}</Text>}<LoadingSwap loading={episodesLoading} skeleton={<SkeletonGroup>{episodeSkeleton}</SkeletonGroup>}>
             {episodeError && !visibleEpisodes.length ? <TouchableOpacity onPress={() => seasonId ? loadSeason(seasonId) : loadDetails()}><Text style={{ color: colors.error, paddingVertical: 24 }}>{episodeError}</Text></TouchableOpacity> : visibleEpisodes.length ? visibleEpisodes.slice(0, episodeLimit).map(episode => {
               const image = episode.thumbnail && !episode.thumbnail.includes('placeholder') ? episode.thumbnail : anime.banner || anime.thumbnail;
               const downloading = [DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(episode.downloadStatus);
@@ -246,7 +255,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
     </LoadingSwap>
     <TouchableOpacity accessibilityLabel="Retour" onPress={() => navigation.goBack()} style={[styles.back, { top: insets.top + 12 }]}><Ionicons name="chevron-back" color="#fff" size={29} /></TouchableOpacity>
     {!loading && anime && <View style={[styles.bottomBar, { paddingBottom: Math.max(12, insets.bottom), backgroundColor: colors.background, borderTopColor: colors.border }]}><TouchableOpacity disabled={!primaryEpisode} accessibilityLabel={resumeId ? 'Reprendre la lecture' : 'Commencer la lecture'} onPress={() => primaryEpisode && play(primaryEpisode)} style={[styles.primaryButton, { backgroundColor: colors.buttonBg, opacity: primaryEpisode ? 1 : 0.45 }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={{ color: colors.buttonText, fontWeight: '700', fontSize: 15 }}>{resumeId ? 'REPRENDRE LA LECTURE' : primaryEpisode ? 'COMMENCER À REGARDER' : 'AUCUN ÉPISODE DISPONIBLE'}</Text></TouchableOpacity></View>}
-    <CustomModal visible={showSeasons} onRequestClose={() => setShowSeasons(false)} alignment="bottom"><View style={{ paddingBottom: Math.max(insets.bottom, 16) }}><View style={styles.seasonsHeader}><Text style={{ color: colors.text, fontSize: 21, fontWeight: '700' }}>Saisons</Text><TouchableOpacity accessibilityLabel="Fermer les saisons" onPress={() => setShowSeasons(false)} style={styles.iconButton}><Ionicons name="close" color={colors.text} size={25} /></TouchableOpacity></View><ScrollView style={{ maxHeight: 420 }}>{seasons.map(season => <TouchableOpacity key={season.id} accessibilityState={{ selected: season.id === seasonId }} onPress={() => { setSeasonId(season.id); setLanguage('all'); setShowSeasons(false); }} style={[styles.seasonOption, { borderBottomColor: colors.border }]}><View style={{ flex: 1 }}><Text style={{ color: season.id === seasonId ? colors.primary : colors.text, fontSize: 16 }}>{seasonTitle(season)}</Text><Text style={{ color: colors.textSecondary, marginTop: 6, fontSize: 12 }}>{[season.annee_sortie || '', `${season.nb_episodes} épisodes`, season.type || ''].filter(Boolean).join(' · ')}</Text></View>{season.id === seasonId && <Ionicons name="checkmark" color={colors.primary} size={22} />}</TouchableOpacity>)}</ScrollView></View></CustomModal>
+    <CustomModal visible={showSeasons} onRequestClose={() => setShowSeasons(false)} alignment="bottom"><View style={{ paddingBottom: Math.max(insets.bottom, 16) }}><View style={styles.seasonsHeader}><Text style={{ color: colors.text, fontSize: 21, fontWeight: '700' }}>Saisons</Text><TouchableOpacity accessibilityLabel="Fermer les saisons" onPress={() => setShowSeasons(false)} style={styles.iconButton}><Ionicons name="close" color={colors.text} size={25} /></TouchableOpacity></View><ScrollView style={{ maxHeight: 420 }}>{seasons.map(season => <TouchableOpacity key={season.id} accessibilityState={{ selected: season.id === seasonId }} onPress={() => { setSeasonId(season.id); setShowSeasons(false); }} style={[styles.seasonOption, { borderBottomColor: colors.border }]}><View style={{ flex: 1 }}><Text style={{ color: season.id === seasonId ? colors.primary : colors.text, fontSize: 16 }}>{seasonTitle(season)}</Text><Text style={{ color: colors.textSecondary, marginTop: 6, fontSize: 12 }}>{[season.annee_sortie || '', `${season.nb_episodes} épisodes`, season.type || ''].filter(Boolean).join(' · ')}</Text></View>{season.id === seasonId && <Ionicons name="checkmark" color={colors.primary} size={22} />}</TouchableOpacity>)}</ScrollView></View></CustomModal>
   </View>;
 }
 

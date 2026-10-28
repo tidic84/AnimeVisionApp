@@ -30,7 +30,7 @@ const ApiGuard: React.FC<ApiGuardProps> = ({
           
           <TouchableOpacity 
             style={styles.button} 
-            onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Downloads' })}
+            onPress={() => (navigation as any).navigate('MainTabs', { screen: 'Lists', params: { tab: 'Téléchargements' } })}
           >
             <Ionicons name="download" size={20} color="white" />
             <Text style={styles.buttonText}>Accéder aux téléchargements</Text>

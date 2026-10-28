@@ -13,6 +13,8 @@ export interface Anime {
   episodeCount: number;
   duration: number; // en minutes
   malId?: number;
+  /** Identifiant AniList de la fiche (première saison) : sert à retrouver l'entrée MAL de chaque saison. */
+  anilistId?: number;
   titre_alt?: string;
   titre_jap?: string;
   url_anime_sama?: string;
@@ -153,6 +155,34 @@ export interface ApiResponse<T> {
     timestamp: string;
     [key: string]: any;
   };
+}
+
+export interface SimulcastSeason {
+  season: 'WINTER' | 'SPRING' | 'SUMMER' | 'FALL';
+  year: number;
+  label: string;
+  current: boolean;
+}
+
+export interface PlanningEntry {
+  slug: string;
+  anime_id: number | null;
+  title: string;
+  poster: string | null;
+  langue: string;
+  time: string | null;
+  release_at: string | null;
+  season_label: string | null;
+  // Déduit côté API (le planning d'anime-sama ne le donne pas) ; null si inconnu.
+  episode: number | null;
+  url: string;
+}
+
+export interface PlanningDay {
+  day: number;
+  label: string;
+  date: string;
+  entries: PlanningEntry[];
 }
 
 export interface ApiError {
