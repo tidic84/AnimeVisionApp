@@ -27,8 +27,9 @@ const tag = `v${version}`;
 const packageJson = fs.readFileSync(path.join(root, 'package.json'));
 run('npx expo prebuild --platform android --no-install --clean');
 fs.writeFileSync(path.join(root, 'package.json'), packageJson); // prebuild réécrit les scripts android/ios
+// Poste à 16 Go : arm64 seul (téléphones récents) et 2 workers pour limiter la mémoire.
 const gradlew = process.platform === 'win32' ? '.\\gradlew.bat' : './gradlew';
-run(`${gradlew} assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a`, path.join(root, 'android'));
+run(`${gradlew} assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a`, path.join(root, 'android'));
 
 const apk = path.join(root, `AnimeVision-${tag}.apk`);
 fs.copyFileSync(path.join(root, 'android/app/build/outputs/apk/release/app-release.apk'), apk);
