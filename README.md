@@ -90,6 +90,27 @@ console.log(animeSamaService.getCacheStats()); // 🆕 Monitoring
    - Notifications push pour nouveaux épisodes
    - Système de téléchargements hors-ligne
 
+## 📦 APK Android et mises à jour
+
+Chaque tag `vX.Y.Z` lance le workflow `.github/workflows/release.yml` : il construit l'APK signé
+et le publie dans une [release GitHub](https://github.com/tidic84/AnimeVisionApp/releases).
+
+```powershell
+npm run release            # 1.0.0 -> 1.0.1 (ou : minor, major, 1.4.0)
+gh run watch -R tidic84/AnimeVisionApp
+```
+
+L'app installée vérifie la dernière release au démarrage (au plus toutes les 6 h) et propose
+de télécharger puis d'installer l'APK. Paramètres > À propos > « Rechercher une mise à jour »
+force la vérification. Expo Go et le web ne s'auto-mettent pas à jour.
+
+Le workflow utilise ces réglages du dépôt :
+- variables `API_ADDRESS` (adresse de l'API intégrée à l'APK) et `ANDROID_KEY_ALIAS` ;
+- secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`, `MAL_CLIENT_ID`.
+
+La clé de signature est conservée hors du dépôt (`~/.android-keys/animevision-release.jks`).
+Sans elle, une nouvelle version ne peut plus s'installer par-dessus l'ancienne : la sauvegarder.
+
 ## 🎮 Test de l'Application
 
 ### Comment Tester le Scraping Réel

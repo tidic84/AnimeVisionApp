@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "AnimeVisionApp",
+    "name": "AnimeVision",
     "slug": "AnimeVisionApp",
     "scheme": "animevision",
     "version": "1.0.0",
@@ -9,17 +9,18 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.animevisionapp"
+      "bundleIdentifier": "com.tidic84.animevision"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.yourcompany.animevisionapp",
+      "package": "com.tidic84.animevision",
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
     },
     "web": {
@@ -38,7 +39,16 @@
         }
       ],
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "./plugins/withReleaseSigning"
     ]
   }
 }

@@ -4,6 +4,7 @@ import apiService from '../../services/apiService';
 import { LANGUAGE_OPTIONS } from '../../services/preferences';
 import * as mal from '../../services/mal/malService';
 import * as malSync from '../../services/mal/malSync';
+import * as updates from '../../services/updateService';
 import { useApi } from '../../contexts/ApiContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import useReducedMotion from '../../hooks/useReducedMotion';
@@ -119,6 +120,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
   const [storageUsed, setStorageUsed] = useState(0);
   const [malUser, setMalUser] = useState<string | null>(null);
   const [malBusy, setMalBusy] = useState('');
+  const [updateStatus, setUpdateStatus] = useState('');
 
   useEffect(() => { mal.getUser().then(user => setMalUser(user?.name ?? null)).catch(() => {}); }, []);
 
@@ -212,6 +214,22 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
       setProfileName(name);
       setShowProfileModal(false);
     } catch { Alert.alert('Erreur', 'Impossible de sauvegarder le profil'); }
+  };
+
+  const checkUpdate = async () => {
+    if (updateStatus) return;
+    setUpdateStatus('Recherche…');
+    try {
+      const update = await updates.checkForUpdate();
+      if (!update) Alert.alert('Mise à jour', `AnimeVision ${updates.currentVersion()} est la dernière version.`);
+      else if (updates.canSelfUpdate()) updates.promptUpdate(update);
+      else Alert.alert('Mise à jour', `La version ${update.version} est disponible. Elle s’installe depuis l’APK Android ; Expo Go se met à jour en relançant le serveur.`, [
+        { text: 'Fermer', style: 'cancel' },
+        { text: 'Voir sur GitHub', onPress: () => void Linking.openURL(update.pageUrl) },
+      ]);
+    } catch (error) {
+      Alert.alert('Mise à jour', error instanceof Error ? error.message : 'Vérification impossible.');
+    } finally { setUpdateStatus(''); }
   };
 
   const openURL = (url: string) => {
@@ -594,10 +612,10 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
           <>
             {renderSettingRow(
               'information-circle',
-              'Version',
-              'AnimeVisionApp v1.0.0',
-              undefined,
-              undefined
+              'Rechercher une mise à jour',
+              `AnimeVision v${updates.currentVersion()}`,
+              updateStatus || undefined,
+              checkUpdate
             )}
             {renderSettingRow(
               'globe',

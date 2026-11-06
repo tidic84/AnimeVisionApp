@@ -1,0 +1,69 @@
+# Construit l'APK Android signé et le publie dans une release GitHub.
+# Déclenché par un tag vX.Y.Z (voir `npm run release`). L'app consulte la dernière release pour se mettre à jour.
+name: Release Android
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier que le tag correspond à app.json
+        run: |
+          version=$(node -p "require('./app.json').expo.version")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "::error::Tag $GITHUB_REF_NAME ≠ app.json $version"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: npm ci
+
+      - name: Configuration de l'app (.env)
+        run: |
+          printf 'API_ADDRESS=%s\nMAL_CLIENT_ID=%s\n' "$API_ADDRESS" "$MAL_CLIENT_ID" > .env
+        env:
+          API_ADDRESS: ${{ vars.API_ADDRESS }}
+          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+
+      - run: npx expo prebuild --platform android --no-install
+
+      - name: Clé de signature
+        run: |
+          test -n "$KEYSTORE" || { echo "::error::Secret ANDROID_KEYSTORE_BASE64 manquant"; exit 1; }
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ vars.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Publier la release
+        run: |
+          apk="AnimeVision-$GITHUB_REF_NAME.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$apk"
+          gh release create "$GITHUB_REF_NAME" "$apk" --title "AnimeVision $GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
