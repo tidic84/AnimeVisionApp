@@ -113,7 +113,7 @@ function HomeContent() {
       {featured.length > 0 && <View style={styles.hero}>
         <FlatList horizontal pagingEnabled data={featured} keyExtractor={a => a.id} showsHorizontalScrollIndicator={false} onMomentumScrollEnd={e => setSlide(Math.round(e.nativeEvent.contentOffset.x / width))} renderItem={({ item: anime }) => (
           <ImageBackground source={{ uri: anime.banner || anime.thumbnail }} style={{ width, height: heroHeight }} resizeMode="cover" fadeDuration={280}>
-            <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,.18)', '#000000']} locations={[0, .35, .79]} style={styles.heroGradient}>
+            <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,.18)', palette.dark.background]} locations={[0, .35, .79]} style={styles.heroGradient}>
               <FadeIn style={styles.heroContent}>
                 <Text style={styles.heroTitle} numberOfLines={2}>{anime.title}</Text>
                 <Text style={styles.heroMetadata}>{[anime.year > 1900 ? String(anime.year) : '', ...anime.genres.slice(0, 3)].filter(Boolean).join(' · ')}</Text>

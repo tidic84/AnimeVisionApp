@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import useReducedMotion from '../../hooks/useReducedMotion';
 import { useAppColorScheme } from '../../contexts/ThemeContext';
 import { palette } from '../../theme/palette';
+import { motion } from '../../theme/tokens';
 
 const Phase = createContext<Animated.Value | null>(null);
 function usePhase(enabled: boolean) {
@@ -12,7 +13,7 @@ function usePhase(enabled: boolean) {
   const phase = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!enabled || reduced) { phase.setValue(0); return; }
-    const animation = Animated.loop(Animated.timing(phase, { toValue: 1, duration: 1800, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web', isInteraction: false }));
+    const animation = Animated.loop(Animated.timing(phase, { toValue: 1, duration: motion.duration.shimmer, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web', isInteraction: false }));
     animation.start();
     return () => { animation.stop(); phase.stopAnimation(); };
   }, [enabled, reduced, phase]);
