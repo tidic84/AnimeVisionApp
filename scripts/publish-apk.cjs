@@ -27,7 +27,7 @@ const tag = `v${version}`;
 const packageJson = fs.readFileSync(path.join(root, 'package.json'));
 run('npx expo prebuild --platform android --no-install --clean');
 fs.writeFileSync(path.join(root, 'package.json'), packageJson); // prebuild réécrit les scripts android/ios
-const gradlew = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
+const gradlew = process.platform === 'win32' ? '.\\gradlew.bat' : './gradlew';
 run(`${gradlew} assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a`, path.join(root, 'android'));
 
 const apk = path.join(root, `AnimeVision-${tag}.apk`);
