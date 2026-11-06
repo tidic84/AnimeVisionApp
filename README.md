@@ -100,6 +100,10 @@ npm run release            # 1.0.0 -> 1.0.1 (ou : minor, major, 1.4.0)
 gh run watch -R tidic84/AnimeVisionApp
 ```
 
+Sans GitHub Actions, `npm run release -- patch --local` construit l'APK sur ce poste
+(SDK Android et JDK de `~/tools`) puis l'attache à la release. Pour un tag déjà poussé :
+`node scripts/publish-apk.cjs`.
+
 L'app installée vérifie la dernière release au démarrage (au plus toutes les 6 h) et propose
 de télécharger puis d'installer l'APK. Paramètres > À propos > « Rechercher une mise à jour »
 force la vérification. Expo Go et le web ne s'auto-mettent pas à jour.

@@ -1,4 +1,5 @@
 // Publie une nouvelle version : `npm run release -- 1.2.0` (ou patch / minor / major).
+// Avec --local, l'APK est construit sur ce poste au lieu de GitHub Actions.
 // Met à jour app.json et package.json, commite, crée le tag vX.Y.Z et pousse :
 // le workflow GitHub construit alors l'APK et l'attache à la release.
 const { execSync } = require('child_process');
@@ -12,7 +13,8 @@ const pkgPath = path.join(root, 'package.json');
 const app = JSON.parse(fs.readFileSync(appPath, 'utf8'));
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
-const arg = process.argv[2];
+const local = process.argv.includes('--local');
+const arg = process.argv.slice(2).find(value => !value.startsWith('--'));
 const [major, minor, patch] = app.expo.version.split('.').map(Number);
 const next = arg === 'major' ? `${major + 1}.0.0`
   : arg === 'minor' ? `${major}.${minor + 1}.0`
@@ -29,4 +31,5 @@ run('git add app.json package.json');
 run(`git commit -m "chore: release v${next}"`);
 run(`git tag v${next}`);
 run('git push origin HEAD --follow-tags');
-console.log(`\nv${next} poussée. Suivi du build : gh run watch -R tidic84/AnimeVisionApp`);
+if (local) run('node scripts/publish-apk.cjs');
+else console.log(`\nv${next} poussée. Suivi du build : gh run watch -R tidic84/AnimeVisionApp`);
