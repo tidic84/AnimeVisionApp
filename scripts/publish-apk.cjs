@@ -8,6 +8,23 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const home = os.homedir();
+
+// Windows limite les chemins à 260 caractères : depuis un dossier profond, la compilation C++
+// boucle (« build.ninja still dirty »). On compile donc une copie du même commit dans C:\av.
+const shortRoot = process.env.ANDROID_SHORT_ROOT || 'C:\\av';
+if (process.platform === 'win32' && path.resolve(root) !== path.resolve(shortRoot)) {
+  const git = command => execSync(command, { cwd: shortRoot, stdio: 'inherit' });
+  const commit = execSync('git rev-parse HEAD', { cwd: root }).toString().trim();
+  if (!fs.existsSync(path.join(shortRoot, '.git'))) execSync(`git clone "${root}" "${shortRoot}"`, { stdio: 'inherit' });
+  git(`git fetch "${root}" ${commit}`);
+  git(`git checkout --force ${commit}`);
+  git('git remote set-url origin https://github.com/tidic84/AnimeVisionApp.git');
+  fs.copyFileSync(path.join(root, '.env'), path.join(shortRoot, '.env'));
+  git('npm ci --no-audit --no-fund');
+  git('node scripts/publish-apk.cjs');
+  process.exit(0);
+}
+
 const keys = process.env.ANDROID_KEYS_DIR || path.join(home, '.android-keys');
 const sdk = process.env.ANDROID_HOME || path.join(home, 'tools', 'android-sdk');
 const jdk = process.env.JAVA_HOME || path.join(home, 'tools', 'jdk-21.0.12.1+1');
