@@ -101,7 +101,7 @@ gh run watch -R tidic84/AnimeVisionApp
 ```
 
 Sans GitHub Actions, `npm run release -- patch --local` construit l'APK sur ce poste
-(SDK Android et JDK de `~/tools`, copie dans `C:v` pour éviter la limite de chemin
+(SDK Android et JDK de `~/tools`, copie dans `C:\av` pour éviter la limite de chemin
 de Windows) puis l'attache à la release. Pour un tag déjà poussé :
 `node scripts/publish-apk.cjs`.
 
