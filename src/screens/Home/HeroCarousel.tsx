@@ -1,11 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, FlatList, Image, NativeScrollEvent, NativeSyntheticEvent, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { radii } from '../../theme/shape';
 import { palette } from '../../theme/palette';
-import { motion } from '../../theme/tokens';
 import useReducedMotion from '../../hooks/useReducedMotion';
 import { MotionPressable } from '../../components/Motion';
 import { Anime } from '../../types/anime';
@@ -47,6 +46,8 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
   const slideRef = useRef(0);
   const shownSlide = useRef(0);
   const count = items.length;
+  // Télécharge toutes les images dès l'arrivée des données, pour qu'aucune n'apparaisse noire puis en fondu.
+  useEffect(() => { for (const anime of items) { const uri = anime.banner || anime.thumbnail; if (uri) Image.prefetch(uri).catch(() => {}); } }, [items]);
   const offset = useRef(0);
   const transition = useRef<Animated.CompositeAnimation | null>(null);
   const stopTransition = () => { transition.current?.stop(); transition.current = null; };
@@ -105,7 +106,7 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
     };
     const saved = isInWatchlist(anime);
     return <View style={{ width, height, overflow: 'hidden' }}>
-      <Animated.Image source={{ uri: anime.banner || anime.thumbnail }} resizeMode="cover" fadeDuration={motion.duration.medium} style={[StyleSheet.absoluteFill, imageStyle]} />
+      <Animated.Image source={{ uri: anime.banner || anime.thumbnail }} resizeMode="cover" fadeDuration={0} style={[StyleSheet.absoluteFill, imageStyle]} />
       <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,.18)', palette.dark.background]} locations={[0, .35, .79]} style={styles.gradient}>
         <Animated.View style={[styles.content, contentStyle]}>
           <Text style={styles.title} numberOfLines={2}>{anime.title}</Text>
@@ -127,6 +128,10 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
       pagingEnabled
       data={items}
       keyExtractor={a => a.id}
+      // Garde toutes les diapos montées : l'image suivante est déjà décodée quand elle entre.
+      initialNumToRender={count}
+      windowSize={count * 2 + 1}
+      removeClippedSubviews={false}
       showsHorizontalScrollIndicator={false}
       getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
       onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: nativeDriver, listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => { offset.current = event.nativeEvent.contentOffset.x; } })}
