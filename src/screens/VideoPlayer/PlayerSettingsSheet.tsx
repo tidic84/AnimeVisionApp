@@ -88,7 +88,7 @@ export default function PlayerSettingsSheet(props: Props) {
     </View>}
   </>;
 
-  return <Modal visible={visible} transparent animationType={reduced ? 'none' : 'slide'} onRequestClose={back} supportedOrientations={['portrait', 'landscape']}>
+  return <Modal visible={visible} transparent animationType={reduced ? 'none' : 'slide'} onRequestClose={back} supportedOrientations={['portrait', 'landscape']} statusBarTranslucent navigationBarTranslucent>
     <View style={[styles.backdrop, landscape && { alignItems: 'center' }]}>
       <TouchableOpacity style={StyleSheet.absoluteFill} accessibilityLabel="Fermer les paramètres" onPress={onClose} />
       <View style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom) }, landscape && { width: Math.min(560, width - insets.left - insets.right - 32) }]}>

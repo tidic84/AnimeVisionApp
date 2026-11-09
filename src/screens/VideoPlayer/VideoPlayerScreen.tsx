@@ -1,9 +1,10 @@
 import { radii } from '../../theme/shape';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, ActivityIndicator, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, ActivityIndicator, BackHandler, Platform } from 'react-native';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
+import { NavigationBar } from 'expo-navigation-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView, VideoSource } from 'expo-video';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -16,6 +17,8 @@ import databaseService from '../../services/databaseService';
 import { isFinished } from '../../utils/watchProgress';
 import * as malSync from '../../services/mal/malSync';
 import { getFavoriteHosts } from '../../services/preferences';
+import { getBackgroundPlayback } from '../../services/preferences';
+import { AppState } from 'react-native';
 import { hostOf, orderServers, probeServer, StreamProbe } from '../../services/streamHosts';
 import WebViewVideoPlayer from '../../components/WebViewVideoPlayer';
 import useReducedMotion from '../../hooks/useReducedMotion';
@@ -24,6 +27,7 @@ import { motion } from '../../theme/tokens';
 import { palette } from '../../theme/palette';
 import PlayerDetails from './PlayerDetails';
 import PlayerSettingsSheet, { Page, ServerChoice } from './PlayerSettingsSheet';
+import useStutterDetector from './useStutterDetector';
 
 const colors = palette.dark;
 const clock = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${Math.floor(Math.max(0, seconds) % 60).toString().padStart(2, '0')}`;
@@ -32,7 +36,7 @@ type SourceOption = { label: string; url: string };
 // Délai au-delà duquel un flux qui ne démarre pas est considéré comme hors service.
 const START_TIMEOUT = 25000;
 export default function VideoPlayerScreen({ route, navigation }: RootStackScreenProps<'VideoPlayer'>) {
-  const { episodeId, animeId, autoPlay = false, localFilePath, isOfflineMode = false } = route.params;
+  const { episodeId, animeId, autoPlay = false, localFilePath, isOfflineMode = false, startFullscreen = false } = route.params;
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
   const focused = useIsFocused();
@@ -45,7 +49,9 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
-  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(startFullscreen);
+  // Vrai quand on remplace l'écran par l'épisode suivant : il gère lui-même l'orientation.
+  const keepOrientation = useRef(false);
   const [settings, setSettings] = useState(false);
   const [controls, setControls] = useState(true);
   const [controlsActivity, setControlsActivity] = useState(0);
@@ -63,11 +69,18 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const [probes, setProbes] = useState<Record<string, StreamProbe | 'checking'>>({});
   const [active, setActive] = useState('');
   const [notice, setNotice] = useState('');
+  const [stutterOff, setStutterOff] = useState(false);
+  const [background, setBackground] = useState(false);
   const probeCache = useRef<Record<string, Promise<StreamProbe>>>({});
   const order = useRef<StreamingServer[]>([]);
   const activeRef = useRef('');
   const manualChoice = useRef(false);
   const session = useRef(0);
+  // Chaque choix de lecteur (auto ou manuel) prend un nouveau jeton : un résultat d'extraction arrivé après un choix plus récent est ignoré.
+  const pick = useRef(0);
+  const [frame, setFrame] = useState(false);
+  const [viewKey, setViewKey] = useState(0);
+  const remounts = useRef(0);
   const streamHeaders = useRef<Record<string, string>>({});
   const startTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failRef = useRef<(reason: string) => void>(() => {});
@@ -106,6 +119,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       return { url: server.url, label, status: state.status, detail: state.status === 'ok' ? undefined : state.reason, quality: state.status === 'ok' && state.height ? `${state.height}p` : undefined };
     });
   }, [ordered, probes]);
+  // Suggestion de changer de lecteur si la lecture native saccade ; inutile sans autre lecteur disponible.
+  const stutter = useStutterDetector(player, `${episodeId}|${active}`, !!source && !embed && !loading && !error && !stutterOff && !isOfflineMode && choices.length > 1);
   const labelOf = (url: string) => choices.find(choice => choice.url === url)?.label.split(' • ')[0] ?? hostOf(url).label;
   const probe = (server: StreamingServer, fresh = false) => {
     const cached = probeCache.current[server.url];
@@ -133,12 +148,14 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     } else { player.pause(); setSource(null); setSources([]); setEmbed(server.url); }
   };
   // Lecteurs testés dans l'ordre des favoris : le premier dont le flux s'extrait passe en lecture native, sinon le premier lecteur web plausible.
-  const playFirst = async () => {
-    const id = session.current;
+  // null : la recherche a été remplacée par un choix plus récent, qui gère lui-même le chargement.
+  const playFirst = async (): Promise<boolean | null> => {
+    const id = ++pick.current;
+    const sessionId = session.current;
     let fallback: StreamingServer | undefined;
     for (const server of order.current) {
       const result = await probe(server);
-      if (session.current !== id) return true;
+      if (pick.current !== id || session.current !== sessionId) return null;
       if (result.status === 'ok') { start(server, result); return true; }
       if (result.status === 'embed' && !fallback) fallback = server;
     }
@@ -156,10 +173,9 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     player.pause(); keepPosition(); setSource(null); setEmbed(''); setSources([]);
     // Un lecteur choisi à la main n'est pas remplacé d'office : on explique et on propose d'en changer.
     if (manualChoice.current) { setError(`${label} est hors service (${reason.toLowerCase()}). Choisissez un autre lecteur.`); return; }
-    const id = session.current;
     setLoading(true);
     void playFirst().then(found => {
-      if (session.current !== id) return;
+      if (found === null) return;
       setLoading(false);
       if (found) setNotice(`${label} est hors service (${reason.toLowerCase()}) : lecture sur ${labelOf(activeRef.current)}.`);
       else setError(`${label} est hors service et aucun autre lecteur ne fonctionne pour cet épisode.`);
@@ -169,18 +185,19 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const selectServer = async (choice: ServerChoice) => {
     const server = order.current.find(item => item.url === choice.url);
     if (!server || (choice.url === activeRef.current && !error && (source || embed))) return;
+    const id = ++pick.current;
     manualChoice.current = true;
     keepPosition(); player.pause(); setSource(null); setEmbed(''); setSources([]); setError(''); setNotice('');
     activeRef.current = server.url; setActive(server.url); setLoading(true);
     // Un lecteur déjà validé repart directement ; les autres sont re-testés (il a pu revenir depuis).
     const result = await probe(server, choice.status !== 'ok');
-    if (activeRef.current !== server.url) return;
+    if (pick.current !== id) return;
     setLoading(false);
     if (result.status === 'dead') setError(`${choice.label.split(' • ')[0]} est hors service (${result.reason.toLowerCase()}). Choisissez un autre lecteur.`);
     else start(server, result);
   };
   const openServers = () => { setSettingsPage('server'); setSettings(true); };
-  const navigateEpisode = useCallback((item: Episode) => { player.pause(); navigation.replace('VideoPlayer', { animeId, episodeId: item.id, autoPlay: true }); }, [animeId, navigation, player]);
+  const navigateEpisode = useCallback((item: Episode) => { player.pause(); keepOrientation.current = true; navigation.replace('VideoPlayer', { animeId, episodeId: item.id, autoPlay: true, startFullscreen: fullscreen }); }, [animeId, navigation, player, fullscreen]);
   const show = useCallback(() => { opacity.stopAnimation(); setControls(true); setControlsActivity(value => value + 1); Animated.timing(opacity, { toValue: 1, duration: reduced ? 0 : 160, useNativeDriver: true }).start(); }, [opacity, reduced]);
   const saveProgress = useCallback(() => {
     const value = progressRef.current;
@@ -192,15 +209,16 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     if (isFinished(progress)) void malSync.episodeWatched(animeId, episode);
   }, [animeId, episodeId, episode]);
   useEffect(() => {
-    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-    return () => { void ScreenOrientation.unlockAsync().catch(() => {}); opacity.stopAnimation(); if (hideTimer.current) clearTimeout(hideTimer.current); };
+    void ScreenOrientation.lockAsync(startFullscreen ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    return () => { if (!keepOrientation.current) void ScreenOrientation.unlockAsync().catch(() => {}); opacity.stopAnimation(); if (hideTimer.current) clearTimeout(hideTimer.current); };
   }, [opacity]);
   useEffect(() => {
     let active = true;
     setLoading(true); setError(''); setSource(null); setEmbed(''); setSources([]); setEpisode(null); setEpisodes([]); setAnime(null); setTime(0); setDuration(0); player.pause();
-    session.current += 1; probeCache.current = {}; order.current = []; activeRef.current = ''; manualChoice.current = false;
-    setProbes({}); setOrdered([]); setActive(''); setNotice('');
+    session.current += 1; pick.current += 1; probeCache.current = {}; order.current = []; activeRef.current = ''; manualChoice.current = false;
+    setProbes({}); setOrdered([]); setActive(''); setNotice(''); setStutterOff(false);
     progressRef.current = { time: 0, duration: 0 }; lastSave.current = 0; resumePercent.current = 0;
+    let superseded = false;
     const load = async () => {
       try {
         let item: Episode;
@@ -256,11 +274,12 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
         if (!order.current.length) { setError('Aucun lecteur disponible pour cet épisode.'); return; }
         const found = await playFirst();
         if (!active) return;
-        if (!found) setError('Tous les lecteurs de cet épisode sont hors service. Réessayez plus tard.');
+        if (found === null) superseded = true;
+        else if (!found) setError('Tous les lecteurs de cet épisode sont hors service. Réessayez plus tard.');
         // Les autres lecteurs sont testés en arrière-plan pour afficher leur état et leur qualité dans la liste.
         order.current.forEach(server => { void probe(server); });
       } catch (failure) { if (active) setError(failure instanceof Error ? failure.message : 'Impossible de charger cet épisode.'); }
-      finally { if (active) setLoading(false); }
+      finally { if (active && !superseded) setLoading(false); }
     };
     void load();
     return () => { active = false; };
@@ -268,13 +287,34 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   useEffect(() => {
     let active = true;
     if (startTimer.current) clearTimeout(startTimer.current);
+    setFrame(false); remounts.current = 0; setStatus(source ? 'loading' : 'idle');
     if (source && activeRef.current) startTimer.current = setTimeout(() => { startTimer.current = null; if (active) failRef.current('Délai de lecture dépassé'); }, START_TIMEOUT);
     void player.replaceAsync(source).then(() => { if (active && source) { player.playbackRate = speed; if (autoPlay || manualChoice.current) player.play(); } }).catch(() => { if (!active || !source) return; if (activeRef.current) failRef.current('Source illisible'); else setError('Le lecteur n’a pas pu ouvrir cette source. Essayez un autre serveur.'); });
     return () => { active = false; if (startTimer.current) { clearTimeout(startTimer.current); startTimer.current = null; } };
   }, [source, player]);
   useEffect(() => { player.playbackRate = speed; }, [player, speed]);
+  // Filet de sécurité Android : si la lecture tourne sans première image, la surface est restée masquée sur une ancienne vue ; on remonte la vue une fois.
+  useEffect(() => {
+    if (!source || embed || frame || !playing) return;
+    const timer = setTimeout(() => { if (remounts.current < 1) { remounts.current += 1; setViewKey(value => value + 1); } else setFrame(true); }, 2500);
+    return () => clearTimeout(timer);
+  }, [source, embed, frame, playing, viewKey]);
   // Changer de page laisse cet écran monté dans la pile : sans pause, le son continue en arrière-plan.
   useEffect(() => { if (!focused) { player.pause(); saveProgress(); } }, [focused, player, saveProgress]);
+  // Plein écran : barre de navigation (poignée ou boutons) masquée en immersif ; un balayage depuis le bord la fait réapparaître un instant. Seule la visibilité est touchée, pour ne pas imposer de style aux menus.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    NavigationBar.setHidden(fullscreen && focused);
+    return () => NavigationBar.setHidden(false);
+  }, [fullscreen, focused]);
+  // Option relue au retour sur l'écran (elle a pu changer dans les Paramètres).
+  useEffect(() => { if (focused) void getBackgroundPlayback().then(setBackground); }, [focused]);
+  useEffect(() => { player.staysActiveInBackground = background; player.showNowPlayingNotification = background; }, [player, background]);
+  // Hors de l'app (écran verrouillé, autre app), la vidéo se met en pause sauf si la lecture en arrière-plan est autorisée.
+  useEffect(() => {
+    const listener = AppState.addEventListener('change', state => { if (state !== 'active' && !background) { player.pause(); saveProgress(); } });
+    return () => listener.remove();
+  }, [player, background, saveProgress]);
   useEffect(() => () => { if (tapTimer.current) clearTimeout(tapTimer.current); if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
   useEffect(() => {
     const listeners = [
@@ -288,12 +328,12 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   }, [player, saveProgress, show, autoNext, next, navigateEpisode]);
   useEffect(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    if (playing && controls && !settings && drag === null) hideTimer.current = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: reduced ? 0 : 220, useNativeDriver: true }).start(({ finished }) => { if (finished) setControls(false); }), 3500);
+    if (playing && frame && controls && !settings && drag === null) hideTimer.current = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: reduced ? 0 : 220, useNativeDriver: true }).start(({ finished }) => { if (finished) setControls(false); }), 3500);
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
-  }, [playing, controls, settings, drag, opacity, reduced, controlsActivity]);
+  }, [playing, frame, controls, settings, drag, opacity, reduced, controlsActivity]);
   const toggleFullscreen = async () => { const target = !fullscreen; setFullscreen(target); show(); try { await ScreenOrientation.lockAsync(target ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch { setError('La rotation automatique n’est pas disponible sur cet appareil.'); } };
   useEffect(() => { const listener = BackHandler.addEventListener('hardwareBackPress', () => { if (!fullscreen) return false; void toggleFullscreen(); return true; }); return () => listener.remove(); }, [fullscreen]);
-  const seek = (position: number) => { if (!duration) return; const target = Math.max(0, Math.min(duration, position)); pendingSeek.current = { target, until: Date.now() + 2000 }; progressRef.current = { time: target, duration }; player.currentTime = target; setTime(target); show(); };
+  const seek = (position: number) => { if (!duration) return; const target = Math.max(0, Math.min(duration, position)); stutter.markSeek(); pendingSeek.current = { target, until: Date.now() + 2000 }; progressRef.current = { time: target, duration }; player.currentTime = target; setTime(target); show(); };
   // pageX (coordonnées écran) plutôt que locationX, qui est relatif à la vue touchée et donnait des positions fausses.
   const seekPosition = (pageX: number) => Math.max(0, Math.min(1, (pageX - seekBarX.current) / trackWidth.current)) * duration;
   const measureSeekBar = () => seekBar.current?.measure((_x, _y, barWidth, _height, pageX) => { if (barWidth > 0) { trackWidth.current = barWidth; seekBarX.current = pageX; } });
@@ -304,7 +344,6 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     Animated.timing(dragProgress, { toValue: dragging ? 1 : 0, duration: reduced ? 0 : motion.duration.micro, easing: motion.easing.standard, useNativeDriver: true }).start();
   }, [dragging, reduced, dragProgress]);
   const fraction = duration > 0 ? Math.max(0, Math.min(1, (drag ?? time) / duration)) : 0;
-  const icon = (name: React.ComponentProps<typeof Ionicons>['name'], label: string, action: () => void, disabled = false) => <TouchableOpacity accessibilityLabel={label} onPress={action} disabled={disabled} style={[styles.icon, disabled && { opacity: 0.3 }]}><Ionicons name={name} color="white" size={24} /></TouchableOpacity>;
   const hide = () => { opacity.stopAnimation(); Animated.timing(opacity, { toValue: 0, duration: reduced ? 0 : 160, useNativeDriver: true }).start(({ finished }) => { if (finished) setControls(false); }); };
   // Tap simple : affiche/masque l'interface. Double tap : ±10 s selon le côté touché (chaque tap rapide suivant ajoute 10 s).
   const handleTap = (x: number, areaWidth: number) => {
@@ -320,7 +359,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     if (tapTimer.current) { clearTimeout(tapTimer.current); tapTimer.current = null; }
     const delta = side === 'left' ? -10 : 10;
     const target = Math.max(0, Math.min(duration, player.currentTime + delta));
-    player.currentTime = target; setTime(target);
+    stutter.markSeek(); player.currentTime = target; setTime(target);
     setSeekHint(hint => ({ side, amount: (hint?.side === side ? hint.amount : 0) + 10 }));
     if (hintTimer.current) clearTimeout(hintTimer.current);
     hintTimer.current = setTimeout(() => setSeekHint(null), 700);
@@ -330,33 +369,38 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const control = (name: React.ComponentProps<typeof MaterialIcons>['name'], label: string, action: () => void, size = ui.icon) => <MotionPressable pressedScale={0.88} accessibilityLabel={label} onPress={() => { action(); show(); }} hitSlop={8} style={styles.control}><MaterialIcons name={name} color="white" size={size} /></MotionPressable>;
   const seriesTitle = anime?.title || episode?.animeTitle || '';
   const episodeTitle = episode ? `E${episode.number} - ${episode.title || episode.titre_episode || `Épisode ${episode.number}`}` : '';
+  // Même barre du haut pendant le chargement, une erreur ou un lecteur web que sur le lecteur natif : sinon d'anciennes icônes s'affichaient le temps de l'ouverture.
+  const topBar = <View pointerEvents="box-none" style={styles.top}>
+    {!fullscreen && <TouchableOpacity accessibilityLabel="Retour" onPress={() => navigation.goBack()} hitSlop={8} style={[styles.control, { marginLeft: -8 }]}><Ionicons name="chevron-down" color="white" size={ui.icon} /></TouchableOpacity>}
+    <View pointerEvents="none" style={styles.titles}><Text numberOfLines={1} style={[styles.overlayTitle, { fontSize: ui.title }]}>{seriesTitle}</Text>{!!episodeTitle && <Text numberOfLines={1} style={[styles.overlaySubtitle, { fontSize: ui.subtitle }]}>{episodeTitle}</Text>}</View>
+    <View style={[styles.actions, { gap: fullscreen ? 28 : 6 }]}>
+      {next && control('skip-next', 'Épisode suivant', () => navigateEpisode(next))}
+      {control('settings', 'Paramètres du lecteur', () => { setSettingsPage('main'); setSettings(true); })}
+      <TouchableOpacity accessibilityLabel={fullscreen ? 'Quitter le plein écran' : 'Plein écran'} onPress={() => void toggleFullscreen()} hitSlop={8} style={styles.control}><MaterialCommunityIcons name={fullscreen ? 'arrow-collapse' : 'arrow-expand'} color="white" size={ui.icon} /></TouchableOpacity>
+    </View>
+  </View>;
   return <View style={[styles.root, { paddingTop: fullscreen ? 0 : insets.top }]}><StatusBar style="light" hidden={fullscreen} />
     {/* Plein écran : flex 1 plutôt qu'une hauteur calculée depuis les dimensions, qui restent celles du portrait le temps de la rotation et poussaient la vidéo en bas de l'écran. */}
     <View style={[styles.video, fullscreen ? { flex: 1 } : { aspectRatio: 16 / 9 }]}>
-      {loading ? <View style={styles.empty}><ActivityIndicator size="large" color={colors.primary} />{!!ordered.length && <Text style={styles.error}>{active ? `Ouverture de ${labelOf(active)}…` : 'Recherche d’un lecteur disponible…'}</Text>}</View> : embed ? (focused ? <WebViewVideoPlayer key={embed} embedUrl={embed} onDead={reason => failRef.current(reason)} /> : null) : source ? <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} fullscreenOptions={{ enable: false }} contentFit="contain" /> : <View style={styles.empty}><Ionicons name="videocam-off-outline" color={colors.textSecondary} size={36} /><Text style={[styles.error, { textAlign: 'center' }]}>{error || 'Aucun lecteur disponible.'}</Text><View style={styles.emptyActions}>{choices.length > 1 && <TouchableOpacity onPress={openServers} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Changer de lecteur</Text></TouchableOpacity>}<TouchableOpacity onPress={() => setAttempt(value => value + 1)} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Réessayer</Text></TouchableOpacity></View></View>}
+      {/* Une seule VideoView pour toute la séance : la démonter pendant un chargement laissait parfois la surface de la nouvelle vue masquée (écran noir, son présent). */}
+      {!embed && <VideoView key={viewKey} player={player} style={StyleSheet.absoluteFill} nativeControls={false} fullscreenOptions={{ enable: false }} contentFit="contain" allowsPictureInPicture={background} startsPictureInPictureAutomatically={background} onFirstFrameRender={() => setFrame(true)} />}
+      {loading ? <View style={[StyleSheet.absoluteFill, styles.empty, styles.cover]}><ActivityIndicator size="large" color={colors.primary} />{!!ordered.length && <Text style={styles.error}>{active ? `Ouverture de ${labelOf(active)}…` : 'Recherche d’un lecteur disponible…'}</Text>}</View> : embed ? (focused ? <WebViewVideoPlayer key={embed} embedUrl={embed} background={background} onDead={reason => failRef.current(reason)} /> : null) : !source && <View style={[StyleSheet.absoluteFill, styles.empty, styles.cover]}><Ionicons name="videocam-off-outline" color={colors.textSecondary} size={36} /><Text style={[styles.error, { textAlign: 'center' }]}>{error || 'Aucun lecteur disponible.'}</Text><View style={styles.emptyActions}>{choices.length > 1 && <TouchableOpacity onPress={openServers} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Changer de lecteur</Text></TouchableOpacity>}<TouchableOpacity onPress={() => setAttempt(value => value + 1)} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Réessayer</Text></TouchableOpacity></View></View>}
       {!embed && source && !loading && <View accessible accessibilityLabel={controls ? 'Masquer les commandes' : 'Afficher les commandes'} accessibilityRole="button" onAccessibilityTap={() => controls ? hide() : show()} style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={event => handleTap(event.nativeEvent.locationX, trackArea.current)} onLayout={event => { trackArea.current = event.nativeEvent.layout.width; }} />}
       {seekHint && <View pointerEvents="none" style={[styles.seekHint, seekHint.side === 'left' ? { left: 0 } : { right: 0 }]}><MaterialIcons name={seekHint.side === 'left' ? 'fast-rewind' : 'fast-forward'} color="white" size={32} /><Text style={styles.seekHintText}>{seekHint.side === 'left' ? '-' : '+'}{seekHint.amount} s</Text></View>}
-      {(embed || loading || !source) ? <View style={[styles.embedToolbar, fullscreen && { paddingLeft: insets.left, paddingRight: insets.right }]}>{icon('chevron-back', 'Retour', () => fullscreen ? void toggleFullscreen() : navigation.goBack())}<View style={{ flex: 1 }} />{icon('settings-outline', 'Paramètres du lecteur', () => { setSettingsPage('main'); setSettings(true); })}{icon(fullscreen ? 'contract-outline' : 'expand-outline', 'Plein écran', () => void toggleFullscreen())}</View> : <Animated.View pointerEvents={controls ? 'box-none' : 'none'} style={[styles.overlay, { opacity, paddingLeft: ui.side + (fullscreen ? insets.left : 0), paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6, paddingBottom: fullscreen ? Math.max(8, insets.bottom) : 0 }]}>
+      {(embed || loading || !source) ? <View pointerEvents="box-none" style={[styles.staticBar, { paddingLeft: ui.side + (fullscreen ? insets.left : 0), paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6 }]}><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']} style={StyleSheet.absoluteFill} />{topBar}</View> : <Animated.View pointerEvents={controls ? 'box-none' : 'none'} style={[styles.overlay, { opacity, paddingLeft: ui.side + (fullscreen ? insets.left : 0), paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6, paddingBottom: fullscreen ? Math.max(8, insets.bottom) : 0 }]}>
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.scrim]} /><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']} style={styles.scrimTop} /><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.75)']} style={styles.scrimBottom} />
         <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, styles.center, { gap: ui.gap }]}>
           {control('replay-10', 'Reculer de 10 secondes', () => seek(time - 10), ui.skip)}
-          <MotionPressable pressedScale={0.88} accessibilityLabel={playing ? 'Pause' : 'Lire'} onPress={() => { playing ? player.pause() : player.play(); show(); }} style={[styles.playButton, { width: ui.play + 16, height: ui.play + 16 }]}>{status === 'loading' ? <ActivityIndicator color="white" size="large" /> : <MaterialIcons name={playing ? 'pause' : 'play-arrow'} color="white" size={ui.play} />}</MotionPressable>
+          <MotionPressable pressedScale={0.88} accessibilityLabel={playing ? 'Pause' : 'Lire'} onPress={() => { playing ? player.pause() : player.play(); show(); }} style={[styles.playButton, { width: ui.play + 16, height: ui.play + 16 }]}>{status === 'loading' || (playing && !frame) ? <ActivityIndicator color="white" size="large" /> : <MaterialIcons name={playing ? 'pause' : 'play-arrow'} color="white" size={ui.play} />}</MotionPressable>
           {control('forward-10', 'Avancer de 10 secondes', () => seek(time + 10), ui.skip)}
         </View>
-        <View pointerEvents="box-none" style={styles.top}>
-          {!fullscreen && <TouchableOpacity accessibilityLabel="Retour" onPress={() => navigation.goBack()} hitSlop={8} style={[styles.control, { marginLeft: -8 }]}><Ionicons name="chevron-down" color="white" size={ui.icon} /></TouchableOpacity>}
-          <View pointerEvents="none" style={styles.titles}><Text numberOfLines={1} style={[styles.overlayTitle, { fontSize: ui.title }]}>{seriesTitle}</Text>{!!episodeTitle && <Text numberOfLines={1} style={[styles.overlaySubtitle, { fontSize: ui.subtitle }]}>{episodeTitle}</Text>}</View>
-          <View style={[styles.actions, { gap: fullscreen ? 28 : 6 }]}>
-            {next && control('skip-next', 'Épisode suivant', () => navigateEpisode(next))}
-            {control('settings', 'Paramètres du lecteur', () => { setSettingsPage('main'); setSettings(true); })}
-            <TouchableOpacity accessibilityLabel={fullscreen ? 'Quitter le plein écran' : 'Plein écran'} onPress={() => void toggleFullscreen()} hitSlop={8} style={styles.control}><MaterialCommunityIcons name={fullscreen ? 'arrow-collapse' : 'arrow-expand'} color="white" size={ui.icon} /></TouchableOpacity>
-          </View>
-        </View>
+        {topBar}
         <View pointerEvents="box-none">
           <View pointerEvents="none" style={styles.timeRow}><Text style={[styles.time, fullscreen && { fontSize: 14 }]}>{clock(drag ?? time)}</Text>{isOfflineMode && <Text style={styles.offline}>Hors ligne</Text>}<Text style={[styles.time, fullscreen && { fontSize: 14 }]}>{clock(duration)}</Text></View>
           <View style={styles.seek} accessibilityRole="adjustable" accessibilityLabel="Progression de lecture" accessibilityValue={{ min: 0, max: Math.round(duration), now: Math.round(time), text: clock(time) }} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={event => seek(time + (event.nativeEvent.actionName === 'increment' ? 10 : -10))} ref={seekBar} onLayout={measureSeekBar} onStartShouldSetResponder={() => duration > 0} onMoveShouldSetResponder={() => duration > 0} onResponderTerminationRequest={() => false} onResponderGrant={event => { const { pageX } = event.nativeEvent; measureSeekBar(); updateDrag(pageX); show(); }} onResponderMove={event => updateDrag(event.nativeEvent.pageX)} onResponderRelease={event => { updateDrag(event.nativeEvent.pageX); endDrag(true); }} onResponderTerminate={() => endDrag(false)}><View pointerEvents="none" style={styles.trackWrap}><Animated.View style={[styles.track, { transform: [{ scaleY: dragProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 2] }) }] }]}><View style={[styles.fill, { width: `${fraction * 100}%` }]} /></Animated.View><Animated.View style={[styles.thumb, { left: `${fraction * 100}%`, transform: [{ scale: dragProgress.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) }] }]} /></View></View>
         </View>
       </Animated.View>}
+      {stutter.stuttering && !embed && source && !loading && <View style={[styles.stutter, fullscreen && { bottom: 72, maxWidth: 420 }]}><Ionicons name="swap-horizontal" color={colors.primary} size={18} /><Text style={styles.stutterText}>La lecture saccade ? Essayez un autre lecteur</Text><TouchableOpacity onPress={() => { stutter.dismiss(); openServers(); }} hitSlop={6}><Text style={styles.noticeAction}>Changer de lecteur</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Ignorer" onPress={() => { stutter.dismiss(); setStutterOff(true); }} hitSlop={6}><Text style={styles.stutterIgnore}>Ignorer</Text></TouchableOpacity></View>}
     </View>
     {!fullscreen && <ScrollView style={{ flex: 1 }} pointerEvents={settings || touchLock ? 'none' : 'auto'}>{!!(notice || (error && (source || embed))) && <TouchableOpacity accessibilityRole="button" onPress={openServers} style={styles.notice}><Ionicons name="swap-horizontal" color={colors.primary} size={18} /><Text style={[styles.error, { flex: 1 }]}>{error && (source || embed) ? error : notice}</Text><Text style={styles.noticeAction}>Lecteurs</Text></TouchableOpacity>}{episode && <PlayerDetails anime={anime} episode={episode} episodes={episodes} onEpisode={navigateEpisode} onAnime={() => navigation.navigate('AnimeDetail', { animeId })} />}</ScrollView>}
     <PlayerSettingsSheet visible={settings} onClose={closeSettings} reduced={reduced} nativePlayback={!!source && !embed}
@@ -365,4 +409,4 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       servers={isOfflineMode ? undefined : choices} currentServer={active} onServer={choice => void selectServer(choice)} startPage={settingsPage} />
   </View>;
 }
-const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: '#000' }, video: { width: '100%', backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }, icon: { padding: 10 }, overlay: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' }, scrim: { backgroundColor: 'rgba(0,0,0,0.25)' }, scrimTop: { position: 'absolute', top: 0, left: 0, right: 0, height: '40%' }, scrimBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%' }, top: { flexDirection: 'row', alignItems: 'flex-start' }, titles: { flex: 1, paddingTop: 6, paddingRight: 12 }, overlayTitle: { color: 'white', fontWeight: '500' }, overlaySubtitle: { color: 'rgba(255,255,255,0.65)', marginTop: 4 }, actions: { flexDirection: 'row', alignItems: 'center', opacity: 0.9 }, control: { padding: 6, alignItems: 'center', justifyContent: 'center' }, center: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }, playButton: { alignItems: 'center', justifyContent: 'center' }, seekHint: { position: 'absolute', top: 0, bottom: 0, width: '35%', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.08)' }, seekHintText: { color: 'white', fontSize: 14, fontWeight: '600', marginTop: 4 }, seek: { height: 44, justifyContent: 'center' }, trackWrap: { height: 4 }, track: { height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.24)' }, fill: { height: 4, backgroundColor: colors.primary }, thumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'white', position: 'absolute', marginLeft: -10, top: -8 }, timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, time: { color: 'white', fontSize: 12, fontVariant: ['tabular-nums'] }, offline: { color: colors.primary, fontSize: 11 }, embedToolbar: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center' }, empty: { alignItems: 'center', gap: 14, padding: 20 }, emptyActions: { flexDirection: 'row', gap: 10 }, notice: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: radii.control, backgroundColor: colors.surface }, noticeAction: { color: colors.primary, fontWeight: '600', fontSize: 13 }, error: { color: colors.textSecondary, fontSize: 13, lineHeight: 21 }, retry: { paddingHorizontal: 18, paddingVertical: 10, backgroundColor: colors.buttonBg, borderRadius: radii.pill } });
+const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: '#000' }, video: { width: '100%', backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }, overlay: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' }, scrim: { backgroundColor: 'rgba(0,0,0,0.25)' }, scrimTop: { position: 'absolute', top: 0, left: 0, right: 0, height: '40%' }, scrimBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%' }, top: { flexDirection: 'row', alignItems: 'flex-start' }, titles: { flex: 1, paddingTop: 6, paddingRight: 12 }, overlayTitle: { color: 'white', fontWeight: '500' }, overlaySubtitle: { color: 'rgba(255,255,255,0.65)', marginTop: 4 }, actions: { flexDirection: 'row', alignItems: 'center', opacity: 0.9 }, control: { padding: 6, alignItems: 'center', justifyContent: 'center' }, center: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }, playButton: { alignItems: 'center', justifyContent: 'center' }, seekHint: { position: 'absolute', top: 0, bottom: 0, width: '35%', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.08)' }, seekHintText: { color: 'white', fontSize: 14, fontWeight: '600', marginTop: 4 }, seek: { height: 44, justifyContent: 'center' }, trackWrap: { height: 4 }, track: { height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.24)' }, fill: { height: 4, backgroundColor: colors.primary }, thumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'white', position: 'absolute', marginLeft: -10, top: -8 }, timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, time: { color: 'white', fontSize: 12, fontVariant: ['tabular-nums'] }, offline: { color: colors.primary, fontSize: 11 }, staticBar: { position: 'absolute', top: 0, left: 0, right: 0, paddingBottom: 16 }, empty: { alignItems: 'center', gap: 14, padding: 20 }, cover: { backgroundColor: '#000', justifyContent: 'center' }, emptyActions: { flexDirection: 'row', gap: 10 }, notice: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: radii.control, backgroundColor: colors.surface }, noticeAction: { color: colors.primary, fontWeight: '600', fontSize: 13 }, stutter: { position: 'absolute', left: 12, right: 12, bottom: 56, alignSelf: 'center', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: 10, borderRadius: radii.control, backgroundColor: 'rgba(28,30,39,0.94)' }, stutterText: { color: 'white', fontSize: 13, flexShrink: 1, flexGrow: 1 }, stutterIgnore: { color: colors.textSecondary, fontWeight: '600', fontSize: 13 }, error: { color: colors.textSecondary, fontSize: 13, lineHeight: 21 }, retry: { paddingHorizontal: 18, paddingVertical: 10, backgroundColor: colors.buttonBg, borderRadius: radii.pill } });

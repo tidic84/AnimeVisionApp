@@ -12,6 +12,7 @@ export type RootStackParamList = {
     autoPlay?: boolean;
     localFilePath?: string; // Chemin du fichier téléchargé localement
     isOfflineMode?: boolean; // Indique si c'est un fichier local (hors ligne)
+    startFullscreen?: boolean; // Ouvre directement en plein écran paysage (épisode suivant)
   };
   Search: { query?: string };
 };
