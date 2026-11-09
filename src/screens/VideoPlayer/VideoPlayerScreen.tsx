@@ -28,6 +28,8 @@ import { palette } from '../../theme/palette';
 import PlayerDetails from './PlayerDetails';
 import PlayerSettingsSheet, { Page, ServerChoice } from './PlayerSettingsSheet';
 import useStutterDetector from './useStutterDetector';
+import SeekPreview from './SeekPreview';
+import { loadStoryboard, Storyboard } from '../../services/seekPreview';
 import { pickSkips, SkipResult } from '../../utils/skipTimes';
 
 const colors = palette.dark;
@@ -73,6 +75,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const [stutterOff, setStutterOff] = useState(false);
   const [background, setBackground] = useState(false);
   const [skipTimes, setSkipTimes] = useState<SkipResult[]>([]);
+  const [storyboard, setStoryboard] = useState<Storyboard | null>(null);
   const [durationWidth, setDurationWidth] = useState(32);
   const [stutterHeight, setStutterHeight] = useState(44);
   const skipIn = useRef(new Animated.Value(0)).current;
@@ -150,7 +153,10 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       // Qualités lues dans le manifeste HLS ; un flux sans variantes n'affiche que sa résolution si elle est connue.
       setSources(result.qualities.length ? result.qualities : result.height ? [{ label: `${result.height}p`, url: result.url }] : []);
       setSource({ uri: result.url, headers: result.headers });
-    } else { player.pause(); setSource(null); setSources([]); setEmbed(server.url); }
+      const id = pick.current;
+      setStoryboard(null);
+      if (result.thumbnails) void loadStoryboard(result.thumbnails, result.headers).then(value => { if (pick.current === id) setStoryboard(value); });
+    } else { player.pause(); setSource(null); setSources([]); setEmbed(server.url); setStoryboard(null); }
   };
   // Lecteurs testés dans l'ordre des favoris : le premier dont le flux s'extrait passe en lecture native, sinon le premier lecteur web plausible.
   // null : la recherche a été remplacée par un choix plus récent, qui gère lui-même le chargement.
@@ -434,7 +440,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
         {topBar}
         <View pointerEvents="box-none">
           <View pointerEvents="none" style={styles.timeRow}><Text style={[styles.time, fullscreen && { fontSize: 14 }]}>{clock(drag ?? time)}</Text>{isOfflineMode && <Text style={styles.offline}>Hors ligne</Text>}<Text onLayout={event => setDurationWidth(event.nativeEvent.layout.width)} style={[styles.time, fullscreen && { fontSize: 14 }]}>{clock(duration)}</Text></View>
-          <View style={styles.seek} accessibilityRole="adjustable" accessibilityLabel="Progression de lecture" accessibilityValue={{ min: 0, max: Math.round(duration), now: Math.round(time), text: clock(time) }} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={event => seek(time + (event.nativeEvent.actionName === 'increment' ? 10 : -10))} ref={seekBar} onLayout={measureSeekBar} onStartShouldSetResponder={() => duration > 0} onMoveShouldSetResponder={() => duration > 0} onResponderTerminationRequest={() => false} onResponderGrant={event => { const { pageX } = event.nativeEvent; measureSeekBar(); updateDrag(pageX); show(); }} onResponderMove={event => updateDrag(event.nativeEvent.pageX)} onResponderRelease={event => { updateDrag(event.nativeEvent.pageX); endDrag(true); }} onResponderTerminate={() => endDrag(false)}><View pointerEvents="none" style={styles.trackWrap}><Animated.View style={[styles.track, { transform: [{ scaleY: dragProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 2] }) }] }]}><View style={[styles.fill, { width: `${fraction * 100}%` }]} /></Animated.View><Animated.View style={[styles.thumb, { left: `${fraction * 100}%`, transform: [{ scale: dragProgress.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) }] }]} /></View></View>
+          <View style={styles.seek} accessibilityRole="adjustable" accessibilityLabel="Progression de lecture" accessibilityValue={{ min: 0, max: Math.round(duration), now: Math.round(time), text: clock(time) }} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={event => seek(time + (event.nativeEvent.actionName === 'increment' ? 10 : -10))} ref={seekBar} onLayout={measureSeekBar} onStartShouldSetResponder={() => duration > 0} onMoveShouldSetResponder={() => duration > 0} onResponderTerminationRequest={() => false} onResponderGrant={event => { const { pageX } = event.nativeEvent; measureSeekBar(); updateDrag(pageX); show(); }} onResponderMove={event => updateDrag(event.nativeEvent.pageX)} onResponderRelease={event => { updateDrag(event.nativeEvent.pageX); endDrag(true); }} onResponderTerminate={() => endDrag(false)}><View pointerEvents="none" style={styles.trackWrap}><Animated.View style={[styles.track, { transform: [{ scaleY: dragProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 2] }) }] }]}><View style={[styles.fill, { width: `${fraction * 100}%` }]} /></Animated.View><Animated.View style={[styles.thumb, { left: `${fraction * 100}%`, transform: [{ scale: dragProgress.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) }] }]} /></View>{drag !== null && <SeekPreview time={drag} label={clock(drag)} x={fraction * trackWidth.current} barWidth={trackWidth.current} storyboard={storyboard} headers={streamHeaders.current} large={fullscreen} />}</View>
         </View>
       </Animated.View>}
       {stutterShown && <View onLayout={event => setStutterHeight(event.nativeEvent.layout.height)} style={[styles.stutter, fullscreen && { bottom: 72, maxWidth: 420 }]}><Ionicons name="swap-horizontal" color={colors.primary} size={18} /><Text style={styles.stutterText}>La lecture saccade ? Essayez un autre lecteur</Text><TouchableOpacity onPress={() => { stutter.dismiss(); openServers(); }} hitSlop={6}><Text style={styles.noticeAction}>Changer de lecteur</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Ignorer" onPress={() => { stutter.dismiss(); setStutterOff(true); }} hitSlop={6}><Text style={styles.stutterIgnore}>Ignorer</Text></TouchableOpacity></View>}

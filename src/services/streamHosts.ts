@@ -57,7 +57,7 @@ export function isBrokenEmbed(url: string): boolean {
 
 export type StreamQuality = { label: string; url: string; height?: number };
 export type StreamProbe =
-  | { status: 'ok'; url: string; headers: Record<string, string>; qualities: StreamQuality[]; height?: number }
+  | { status: 'ok'; url: string; headers: Record<string, string>; qualities: StreamQuality[]; height?: number; thumbnails?: string }
   | { status: 'dead'; reason: string }
   /** Flux non extractible mais lien a priori valide : seul le lecteur web peut l'ouvrir. */
   | { status: 'embed'; reason: string };
@@ -91,7 +91,7 @@ export function unpack(html: string): string {
 }
 
 /** Voe : la configuration du lecteur est un JSON chiffré (ROT13, séparateurs parasites, base64, décalage de 3, inversion, base64). */
-export function decodeVoe(html: string): { source?: string; fallback?: { file: string; label?: string }[] } | null {
+export function decodeVoe(html: string): { source?: string; fallback?: { file: string; label?: string }[]; file_code?: string } | null {
   const encoded = html.match(/<script type="application\/json">\s*\["([^"]+)"\]/)?.[1];
   if (!encoded) return null;
   try {
@@ -138,6 +138,15 @@ function candidates(host: string, html: string, pageUrl: string): { url: string;
     .map(url => ({ url, height: /\.mp4/i.test(url) && label ? Number(label) : undefined }));
 }
 
+/** Planche de vignettes (WebVTT + sprite) du lecteur JW Player de l'hébergeur, pour l'aperçu pendant le glisser de la barre. */
+function thumbnailTrack(host: string, html: string, pageUrl: string): string | undefined {
+  // Voe ne l'écrit pas dans la page : son lecteur la demande à /engine/storyboard/<code>.
+  if (host === 'voe') { const code = decodeVoe(html)?.file_code; return code ? `${new URL(pageUrl).origin}/engine/storyboard/${code}?t=0` : undefined; }
+  const text = `${unpack(html)}\n${html}`;
+  const file = text.match(/file:\s*["']([^"']+)["']\s*,\s*kind:\s*["']thumbnails["']/)?.[1] ?? text.match(/kind:\s*["']thumbnails["']\s*,\s*file:\s*["']([^"']+)["']/)?.[1];
+  return file ? resolveUrl(file.replace(/\\\//g, '/'), pageUrl) : undefined;
+}
+
 /** Lit le manifeste HLS principal : une entrée par résolution annoncée (RESOLUTION=…x720). */
 async function hlsVariants(url: string, headers: Record<string, string>): Promise<StreamQuality[] | null> {
   const response = await get(url, headers, 10000);
@@ -170,14 +179,15 @@ export async function probeServer(server: StreamingServer): Promise<StreamProbe>
     if (DEAD_TEXT.test(page.text.slice(0, 200000))) return { status: 'dead', reason: 'Vidéo supprimée ou privée' };
     const origin = new URL(page.url).origin;
     const headers = { 'User-Agent': STREAM_USER_AGENT, Referer: `${origin}/` };
+    const thumbnails = thumbnailTrack(host, page.text, page.url);
     for (const candidate of candidates(host, page.text, page.url)) {
       if (/\.m3u8/i.test(candidate.url)) {
         const variants = await hlsVariants(candidate.url, headers).catch(() => null);
         if (!variants) continue;
         const qualities = variants.length > 1 ? [{ label: 'Auto', url: candidate.url }, ...variants] : [];
-        return { status: 'ok', url: candidate.url, headers, qualities, height: variants[0]?.height };
+        return { status: 'ok', url: candidate.url, headers, qualities, height: variants[0]?.height, thumbnails };
       }
-      return { status: 'ok', url: candidate.url, headers, qualities: [], height: candidate.height };
+      return { status: 'ok', url: candidate.url, headers, qualities: [], height: candidate.height, thumbnails };
     }
     return { status: 'embed', reason: 'Flux non extractible' };
   } catch (error) {
