@@ -47,6 +47,8 @@ interface AppSettings {
   /** Hébergeurs vidéo préférés, du plus au moins prioritaire. */
   favoriteHosts: string[];
   autoplay: boolean;
+  /** Laisse la vidéo tourner quand l'app passe en arrière-plan (PiP pour le lecteur natif). */
+  backgroundPlayback: boolean;
   skipIntro: boolean;
   skipOutro: boolean;
   subtitlesEnabled: boolean;
@@ -100,6 +102,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     preferredLanguage: 'vostfr',
     favoriteHosts: [],
     autoplay: true,
+    backgroundPlayback: false,
     skipIntro: false,
     skipOutro: false,
     subtitlesEnabled: true,
@@ -521,6 +524,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               undefined,
               settings.autoplay,
               (value) => saveSettings({ autoplay: value })
+            )}
+            {renderSettingRow(
+              'tv',
+              'Lecture en arrière-plan / Picture-in-Picture',
+              'Continuer la lecture hors de l’app, en mini-lecteur (PiP) pour le lecteur natif. Les lecteurs web continuent seulement le son, sans PiP.',
+              undefined,
+              undefined,
+              settings.backgroundPlayback,
+              (value) => saveSettings({ backgroundPlayback: value })
             )}
             {renderSettingRow(
               'play-skip-forward',
