@@ -61,7 +61,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const dragProgress = useRef(new Animated.Value(0)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trackWidth = useRef(1);
-  const seekBar = useRef<View>(null);
+  const seekBar = useRef<React.ComponentRef<typeof View>>(null);
   const seekBarX = useRef(0);
   const dragValue = useRef<number | null>(null);
   // Après un seek, le lecteur renvoie encore quelques timeUpdate avec l'ancienne position : on les ignore pour que le curseur ne saute pas en arrière.
