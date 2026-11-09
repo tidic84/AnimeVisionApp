@@ -48,7 +48,9 @@
           }
         }
       ],
-      "./plugins/withReleaseSigning"
+      "./plugins/withReleaseSigning",
+      "expo-font",
+      "expo-status-bar"
     ]
   }
 }

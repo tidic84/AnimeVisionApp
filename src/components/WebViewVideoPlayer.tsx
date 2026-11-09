@@ -1,7 +1,12 @@
 import React, { useRef, useState } from 'react';
 import { View, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, Text } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { WebView as RNWebView } from 'react-native-webview';
+import type { AndroidWebViewProps, IOSWebViewProps } from 'react-native-webview/lib/WebViewTypes';
 import { Ionicons } from '@expo/vector-icons';
+
+// react-native-webview 14 type WebViewProps comme l'intersection iOS & Android & Windows, qui se réduit à never.
+type WebView = RNWebView;
+const WebView = RNWebView as unknown as React.ComponentType<AndroidWebViewProps & IOSWebViewProps & React.RefAttributes<RNWebView>>;
 
 interface WebViewVideoPlayerProps {
   embedUrl: string;
