@@ -53,18 +53,6 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
 
   const sizeStyles = getSizeStyles();
 
-  const getWatchStatusIcon = () => {
-    if (episode.isWatched) return 'checkmark-circle';
-    if (episode.watchProgress > 0) return 'play-circle';
-    return 'ellipse-outline';
-  };
-
-  const getWatchStatusColor = () => {
-    if (episode.isWatched) return colors.success;
-    if (episode.watchProgress > 0) return colors.warning;
-    return colors.textSecondary;
-  };
-
   const formatDuration = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
@@ -113,17 +101,6 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
             {episode.duration > 0 ? formatDuration(episode.duration) : 'Épisode'}
           </Text>
         </View>
-
-        {/* Statut de visionnage */}
-        {showProgress && (
-          <View style={styles.statusBadge}>
-            <Ionicons
-              name={getWatchStatusIcon()}
-              size={16}
-              color={getWatchStatusColor()}
-            />
-          </View>
-        )}
       </View>
 
       <View style={styles.info}>
@@ -198,14 +175,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 11,
     fontWeight: '600',
-  },
-  statusBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    padding: 4,
-    borderRadius: 12,
   },
   info: {
     paddingTop: 10, paddingHorizontal: 0,
