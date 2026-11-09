@@ -15,6 +15,8 @@ import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
 import * as malSync from '../../services/mal/malSync';
 import { getFavoriteHosts } from '../../services/preferences';
+import { getBackgroundPlayback } from '../../services/preferences';
+import { AppState } from 'react-native';
 import { hostOf, orderServers, probeServer, StreamProbe } from '../../services/streamHosts';
 import WebViewVideoPlayer from '../../components/WebViewVideoPlayer';
 import useReducedMotion from '../../hooks/useReducedMotion';
@@ -62,6 +64,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const [probes, setProbes] = useState<Record<string, StreamProbe | 'checking'>>({});
   const [active, setActive] = useState('');
   const [notice, setNotice] = useState('');
+  const [background, setBackground] = useState(false);
   const probeCache = useRef<Record<string, Promise<StreamProbe>>>({});
   const order = useRef<StreamingServer[]>([]);
   const activeRef = useRef('');
@@ -274,6 +277,14 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   useEffect(() => { player.playbackRate = speed; }, [player, speed]);
   // Changer de page laisse cet écran monté dans la pile : sans pause, le son continue en arrière-plan.
   useEffect(() => { if (!focused) { player.pause(); saveProgress(); } }, [focused, player, saveProgress]);
+  // Option relue au retour sur l'écran (elle a pu changer dans les Paramètres).
+  useEffect(() => { if (focused) void getBackgroundPlayback().then(setBackground); }, [focused]);
+  useEffect(() => { player.staysActiveInBackground = background; player.showNowPlayingNotification = background; }, [player, background]);
+  // Hors de l'app (écran verrouillé, autre app), la vidéo se met en pause sauf si la lecture en arrière-plan est autorisée.
+  useEffect(() => {
+    const listener = AppState.addEventListener('change', state => { if (state !== 'active' && !background) { player.pause(); saveProgress(); } });
+    return () => listener.remove();
+  }, [player, background, saveProgress]);
   useEffect(() => () => { if (tapTimer.current) clearTimeout(tapTimer.current); if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
   useEffect(() => {
     const listeners = [
@@ -332,7 +343,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   return <View style={[styles.root, { paddingTop: fullscreen ? 0 : insets.top }]}><StatusBar style="light" hidden={fullscreen} />
     {/* Plein écran : flex 1 plutôt qu'une hauteur calculée depuis les dimensions, qui restent celles du portrait le temps de la rotation et poussaient la vidéo en bas de l'écran. */}
     <View style={[styles.video, fullscreen ? { flex: 1 } : { aspectRatio: 16 / 9 }]}>
-      {loading ? <View style={styles.empty}><ActivityIndicator size="large" color={colors.primary} />{!!ordered.length && <Text style={styles.error}>{active ? `Ouverture de ${labelOf(active)}…` : 'Recherche d’un lecteur disponible…'}</Text>}</View> : embed ? (focused ? <WebViewVideoPlayer key={embed} embedUrl={embed} onDead={reason => failRef.current(reason)} /> : null) : source ? <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} fullscreenOptions={{ enable: false }} contentFit="contain" /> : <View style={styles.empty}><Ionicons name="videocam-off-outline" color={colors.textSecondary} size={36} /><Text style={[styles.error, { textAlign: 'center' }]}>{error || 'Aucun lecteur disponible.'}</Text><View style={styles.emptyActions}>{choices.length > 1 && <TouchableOpacity onPress={openServers} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Changer de lecteur</Text></TouchableOpacity>}<TouchableOpacity onPress={() => setAttempt(value => value + 1)} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Réessayer</Text></TouchableOpacity></View></View>}
+      {loading ? <View style={styles.empty}><ActivityIndicator size="large" color={colors.primary} />{!!ordered.length && <Text style={styles.error}>{active ? `Ouverture de ${labelOf(active)}…` : 'Recherche d’un lecteur disponible…'}</Text>}</View> : embed ? (focused ? <WebViewVideoPlayer key={embed} embedUrl={embed} background={background} onDead={reason => failRef.current(reason)} /> : null) : source ? <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} fullscreenOptions={{ enable: false }} contentFit="contain" allowsPictureInPicture={background} startsPictureInPictureAutomatically={background} /> : <View style={styles.empty}><Ionicons name="videocam-off-outline" color={colors.textSecondary} size={36} /><Text style={[styles.error, { textAlign: 'center' }]}>{error || 'Aucun lecteur disponible.'}</Text><View style={styles.emptyActions}>{choices.length > 1 && <TouchableOpacity onPress={openServers} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Changer de lecteur</Text></TouchableOpacity>}<TouchableOpacity onPress={() => setAttempt(value => value + 1)} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Réessayer</Text></TouchableOpacity></View></View>}
       {!embed && source && !loading && <View accessible accessibilityLabel={controls ? 'Masquer les commandes' : 'Afficher les commandes'} accessibilityRole="button" onAccessibilityTap={() => controls ? hide() : show()} style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={event => handleTap(event.nativeEvent.locationX, trackArea.current)} onLayout={event => { trackArea.current = event.nativeEvent.layout.width; }} />}
       {seekHint && <View pointerEvents="none" style={[styles.seekHint, seekHint.side === 'left' ? { left: 0 } : { right: 0 }]}><MaterialIcons name={seekHint.side === 'left' ? 'fast-rewind' : 'fast-forward'} color="white" size={32} /><Text style={styles.seekHintText}>{seekHint.side === 'left' ? '-' : '+'}{seekHint.amount} s</Text></View>}
       {(embed || loading || !source) ? <View style={[styles.embedToolbar, fullscreen && { paddingLeft: insets.left, paddingRight: insets.right }]}>{icon('chevron-back', 'Retour', () => fullscreen ? void toggleFullscreen() : navigation.goBack())}<View style={{ flex: 1 }} />{icon('settings-outline', 'Paramètres du lecteur', () => { setSettingsPage('main'); setSettings(true); })}{icon(fullscreen ? 'contract-outline' : 'expand-outline', 'Plein écran', () => void toggleFullscreen())}</View> : <Animated.View pointerEvents={controls ? 'box-none' : 'none'} style={[styles.overlay, { opacity, paddingLeft: ui.side + (fullscreen ? insets.left : 0), paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6, paddingBottom: fullscreen ? Math.max(8, insets.bottom) : 0 }]}>
