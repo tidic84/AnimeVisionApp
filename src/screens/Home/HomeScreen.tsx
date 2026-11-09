@@ -1,11 +1,13 @@
 import { radii } from '../../theme/shape';
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, FlatList, ImageBackground, RefreshControl, ActivityIndicator, useWindowDimensions } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Animated, FlatList, RefreshControl, Platform, useWindowDimensions } from 'react-native';
+import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
+import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppColorScheme } from '../../contexts/ThemeContext';
+import HeroCarousel from './HeroCarousel';
 import { palette } from '../../theme/palette';
 import { FadeIn, MotionPressable, LoadingSwap } from '../../components/Motion';
 import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/SkeletonCard';
@@ -24,7 +26,9 @@ export default function HomeScreen() {
 }
 function HomeContent() {
   const navigation = useNavigation<any>();
-  const colors = palette[useAppColorScheme()];
+  const scheme = useAppColorScheme();
+  const colors = palette[scheme];
+  const focused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const [featured, setFeatured] = useState<Anime[]>([]);
@@ -36,7 +40,8 @@ function HomeContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [slide, setSlide] = useState(0);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const [headerSolid, setHeaderSolid] = useState(false);
   const openAnime = (id: string) => navigation.navigate('AnimeDetail', { animeId: id });
   const openEpisode = (episode: Episode) => navigation.navigate('VideoPlayer', { episodeId: episode.id, animeId: episode.animeId, autoPlay: true });
 
@@ -102,31 +107,29 @@ function HomeContent() {
     </FadeIn>
   );
   const heroHeight = Math.min(660, Math.max(470, height * .69));
+  const barHeight = insets.top + 56;
+  // The top bar is only a scrim over the hero; it turns opaque once the hero scrolls away.
+  const solidFrom = Math.max(1, heroHeight - barHeight - 80);
+  const solidTo = Math.max(solidFrom + 1, heroHeight - barHeight);
+  const barOpacity = scrollY.interpolate({ inputRange: [solidFrom, solidTo], outputRange: [0, 1], extrapolate: 'clamp' });
+  const barFade = barOpacity.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  const hasHero = featured.length > 0 || loading;
+  useEffect(() => {
+    const id = scrollY.addListener(({ value }) => setHeaderSolid(value >= solidTo));
+    return () => scrollY.removeListener(id);
+  }, [scrollY, solidTo]);
+  const isSaved = (anime: Anime) => watchlist.some(item => item.id === anime.id);
   return <View style={[styles.container, { backgroundColor: colors.background }]}>
-    <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} />} contentContainerStyle={{ paddingBottom: 28 }}>
-      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
-        <View style={styles.brand}><Ionicons name="play-circle" size={30} color={colors.primary} /><Text style={[styles.brandText, { color: colors.text }]}>animevision</Text></View>
-        <MotionPressable accessibilityLabel="Rechercher un anime" onPress={() => navigation.navigate('Catalog')} style={styles.search}><Ionicons name="search-outline" size={27} color={colors.text} /></MotionPressable>
-      </View>
+    {focused && <StatusBar style={headerSolid && scheme === 'light' ? 'dark' : 'light'} />}
+    <Animated.ScrollView
+      onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: Platform.OS !== 'web' })}
+      scrollEventThrottle={16}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} progressViewOffset={barHeight} />}
+      contentContainerStyle={{ paddingBottom: 28, paddingTop: hasHero ? 0 : barHeight }}>
       {error ? <View style={styles.error}><Text style={{ color: colors.textSecondary, textAlign: 'center' }}>{error}</Text><MotionPressable onPress={() => load()} style={[styles.retry, { borderColor: colors.primary }]}><Text style={{ color: colors.primary }}>Réessayer</Text></MotionPressable></View> : null}
       <LoadingSwap loading={loading && !featured.length} skeleton={<SkeletonGroup><View style={{ height: heroHeight + 32, paddingHorizontal: 18 }}><SkeletonBlock height={heroHeight * .6} style={{ marginHorizontal: -18 }} /><View style={{ paddingTop: 22, gap: 12 }}><SkeletonBlock width="75%" height={37} /><SkeletonBlock width="55%" height={14} /><SkeletonBlock height={20} /><SkeletonBlock width="85%" height={20} /><SkeletonBlock width={220} height={46} /></View></View></SkeletonGroup>}>
       {featured.length > 0 && <View style={styles.hero}>
-        <FlatList horizontal pagingEnabled data={featured} keyExtractor={a => a.id} showsHorizontalScrollIndicator={false} onMomentumScrollEnd={e => setSlide(Math.round(e.nativeEvent.contentOffset.x / width))} renderItem={({ item: anime }) => (
-          <ImageBackground source={{ uri: anime.banner || anime.thumbnail }} style={{ width, height: heroHeight }} resizeMode="cover" fadeDuration={280}>
-            <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,.18)', palette.dark.background]} locations={[0, .35, .79]} style={styles.heroGradient}>
-              <FadeIn style={styles.heroContent}>
-                <Text style={styles.heroTitle} numberOfLines={2}>{anime.title}</Text>
-                <Text style={styles.heroMetadata}>{[anime.year > 1900 ? String(anime.year) : '', ...anime.genres.slice(0, 3)].filter(Boolean).join(' · ')}</Text>
-                <Text style={styles.heroDescription} numberOfLines={3}>{anime.synopsis.replace(/<[^>]*>/g, '').trim()}</Text>
-                <View style={styles.actions}>
-                  <MotionPressable onPress={() => openAnime(anime.id)} accessibilityLabel={`Découvrir ${anime.title}`} style={[styles.heroButton, { backgroundColor: colors.buttonBg }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={[styles.heroButtonText, { color: colors.buttonText }]}>Découvrir l’anime</Text></MotionPressable>
-                  <MotionPressable disabled={!watchlistId} onPress={() => toggleWatchlist(anime)} accessibilityLabel={`${watchlist.some(item => item.id === anime.id) ? "Retirer" : "Ajouter"} ${anime.title} ${watchlist.some(item => item.id === anime.id) ? "de" : "à"} la Watchlist`} style={[styles.heroInfo, { borderColor: colors.primary }]}><Ionicons name={watchlist.some(item => item.id === anime.id) ? "bookmark" : "bookmark-outline"} size={24} color={colors.primary} /></MotionPressable>
-                </View>
-              </FadeIn>
-            </LinearGradient>
-          </ImageBackground>
-        )} />
-        <View style={styles.dots}>{featured.map((a, index) => <View key={a.id} style={{ width: index === slide ? 30 : 18, height: 4, backgroundColor: index === slide ? colors.primary : '#646467', borderRadius: 2 }} />)}</View>
+        <HeroCarousel items={featured} width={width} height={heroHeight} colors={colors} isInWatchlist={isSaved} watchlistEnabled={!!watchlistId} onOpen={openAnime} onToggleWatchlist={toggleWatchlist} />
       </View>}
       </LoadingSwap>
       {episodes('Reprendre', resume)}
@@ -135,26 +138,27 @@ function HomeContent() {
       {shelf('Votre Watchlist', watchlist)}
       {shelves.slice(1).map(s => shelf(s.title, s.items, s.subtitle))}
       <MotionPressable onPress={() => navigation.navigate('Catalog')} style={[styles.browse, { borderColor: colors.primary }]}><Text style={{ color: colors.primary, fontWeight: '700' }}>EXPLORER TOUS LES ANIME</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} /></MotionPressable>
-    </ScrollView>
+    </Animated.ScrollView>
+    <View pointerEvents="box-none" style={[styles.topBar, { height: barHeight + 40 }]}>
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: barFade }]}><LinearGradient colors={['rgba(0,0,0,.6)', 'rgba(0,0,0,0)']} style={StyleSheet.absoluteFill} /></Animated.View>
+      <Animated.View pointerEvents="none" style={[styles.topBarFill, { height: barHeight, backgroundColor: colors.background, opacity: barOpacity }]} />
+      <View pointerEvents="box-none" style={[styles.topBarRow, { paddingTop: insets.top, height: barHeight }]}>
+        <MotionPressable accessibilityLabel="Rechercher un anime" onPress={() => navigation.navigate('Catalog')} style={styles.search}>
+          <Ionicons name="search-outline" size={27} color="#FFF" />
+          <Animated.View pointerEvents="none" style={[styles.searchSolid, { opacity: barOpacity }]}><Ionicons name="search-outline" size={27} color={colors.text} /></Animated.View>
+        </MotionPressable>
+      </View>
+    </View>
   </View>;
 }
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: 18, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  brandText: { fontSize: 21, fontWeight: '700', letterSpacing: -.8 },
+  topBar: { position: 'absolute', top: 0, left: 0, right: 0 },
+  topBarFill: { position: 'absolute', top: 0, left: 0, right: 0 },
+  topBarRow: { paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   search: { borderRadius: radii.pill, padding: 8 },
+  searchSolid: { position: 'absolute', top: 8, left: 8 },
   hero: { marginBottom: 28 },
-  heroGradient: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 34 },
-  heroContent: { gap: 12, maxWidth: 700 },
-  heroTitle: { color: '#FFF', fontSize: 32, fontWeight: '800', lineHeight: 37, textShadowColor: '#000', textShadowRadius: 6 },
-  heroMetadata: { color: '#AAA', fontSize: 12 },
-  heroDescription: { color: '#DDD', fontSize: 14, lineHeight: 21 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  heroButton: { flexDirection: 'row', gap: 9, alignItems: 'center', paddingHorizontal: 17, height: 46, borderRadius: radii.pill },
-  heroButtonText: { color: '#000', fontSize: 14, fontWeight: '700' },
-  heroInfo: { height: 46, width: 46, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: radii.pill },
-  dots: { flexDirection: 'row', gap: 6, paddingHorizontal: 18 },
   section: { marginBottom: 30 },
   sectionHeading: { paddingHorizontal: 18, marginBottom: 14 },
   sectionTitle: { fontSize: 21, fontWeight: '700' },
