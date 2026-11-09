@@ -1,6 +1,7 @@
 import loadScheduler, { LoadGroup } from './loadScheduler';
 import { Episode, Anime, AnimeStatus, VideoQuality, Season, StreamingServer, ApiResponse, ApiError, SimulcastSeason, PlanningDay } from '../types/anime';
 import { API_ADDRESS } from '@env';
+import { SkipResult } from '../utils/skipTimes';
 
 class ApiService {
   private baseUrl: string;
@@ -269,6 +270,12 @@ class ApiService {
     }
 
     return this.mapApiEpisodeToEpisode(response.data, animeId);
+  }
+
+  /** Opening / ending connus pour cet épisode (vide si aucune donnée). */
+  async getSkipTimes(episodeId: string): Promise<SkipResult[]> {
+    const response = await this.fetchWithErrorHandling<ApiResponse<{ results?: SkipResult[] } | null>>(`/api/episode/${episodeId}/skip-times`);
+    return response.data?.results ?? [];
   }
 
   async getLatestEpisodes(limit: number = 50, langue?: string): Promise<Episode[]> {
