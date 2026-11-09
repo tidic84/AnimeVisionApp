@@ -1,7 +1,7 @@
 import apiService from './apiService';
 import databaseService from './databaseService';
 import { Episode, Season, WatchHistory } from '../types/anime';
-import { episodeLanguage, isFinished } from '../utils/watchProgress';
+import { effectiveProgress, episodeLanguage, isFinished } from '../utils/watchProgress';
 
 export type ContinueItem = { episode: Episode; kind: 'resume' | 'next'; sortAt: number };
 
@@ -23,48 +23,73 @@ const animeSeasons = (animeId: string) => cached<Season[]>(`seasons:${animeId}`,
 const latestFeed = () => cached<Episode[]>('latest', () => apiService.getLatestEpisodes(100));
 const time = (value?: string) => { const parsed = value ? Date.parse(value) : NaN; return Number.isFinite(parsed) ? parsed : 0; };
 
-const findEpisode = async (episodeId: string, local: Episode[]) =>
-  local.find(episode => episode.id === episodeId) || await apiService.getEpisodeById(episodeId).catch(() => null);
+// La base locale ne garde pas la saison : l'API complète l'épisode quand il le faut.
+const findEpisode = async (episodeId: string, local: Episode[]) => {
+  const saved = local.find(episode => episode.id === episodeId);
+  if (saved?.saison_id) return saved;
+  const remote = await cached<Episode | null>(`episode:${episodeId}`, () => apiService.getEpisodeById(episodeId)).catch(() => null);
+  return remote ? { ...saved, ...remote } : saved || null;
+};
 
-// Premier épisode non fini après `current`, même langue : suite de la saison, puis saisons suivantes.
-const nextEpisode = async (animeId: string, current: Episode, progress: Map<string, number>): Promise<Episode | null> => {
+// Épisode qui suit `current`, vu ou non (revisionnage), même langue : suite de la saison, puis saisons suivantes.
+const nextEpisode = async (animeId: string, current: Episode): Promise<Episode | null> => {
   const language = episodeLanguage(current);
   const pick = (list: Episode[], after: number) => list
     .filter(episode => episode.number > after && (!language || episodeLanguage(episode) === language))
-    .sort((a, b) => a.number - b.number);
-  const firstUnwatched = (list: Episode[]) => list.find(episode => !isFinished(progress.get(episode.id)));
+    .sort((a, b) => a.number - b.number)[0];
   if (!current.saison_id) return null;
-  const sameSeason = pick(await seasonEpisodes(current.saison_id, animeId), current.number);
-  const found = firstUnwatched(sameSeason);
+  const found = pick(await seasonEpisodes(current.saison_id, animeId), current.number);
   if (found) return found;
   const seasons = await animeSeasons(animeId);
   const index = seasons.findIndex(season => season.id === current.saison_id);
   if (index < 0) return null;
   for (const season of seasons.slice(index + 1)) {
-    const candidates = pick(await seasonEpisodes(season.id, animeId), -Infinity);
-    if (!candidates.length) continue;
-    const next = firstUnwatched(candidates);
+    const next = pick(await seasonEpisodes(season.id, animeId), -Infinity);
     if (next) return next;
   }
   return null;
+};
+
+/** `a` vient avant `b` dans l'ordre saison → épisode (inconnu : non). */
+export const isEpisodeBefore = async (animeId: string, a: Episode, b: Episode): Promise<boolean> => {
+  if (!a.saison_id || !b.saison_id) return false;
+  if (a.saison_id === b.saison_id) return a.number < b.number;
+  const seasons = await animeSeasons(animeId).catch(() => [] as Season[]);
+  const first = seasons.findIndex(season => season.id === a.saison_id), second = seasons.findIndex(season => season.id === b.saison_id);
+  return first >= 0 && second >= 0 && first < second;
+};
+
+/** Dernier épisode ouvert ou terminé ; « Marquer la saison comme vue » écrit tout d'un coup : l'épisode le plus avancé fait foi. */
+const latestEntry = (entries: WatchHistory[], local: Episode[]) => {
+  const numbers = new Map(local.map(episode => [episode.id, episode.number]));
+  const latestAt = entries[0].lastWatchedAt.getTime();
+  return entries.filter(entry => latestAt - entry.lastWatchedAt.getTime() <= 5000)
+    .reduce<WatchHistory>((best, entry) => (numbers.get(entry.episodeId) ?? -1) > (numbers.get(best.episodeId) ?? -1) ? entry : best, entries[0]);
+};
+
+/** Dernier épisode ouvert de l'animé (historique du plus récent au plus ancien). */
+export const lastOpenedEpisode = async (animeId: string, entries: WatchHistory[]): Promise<Episode | null> => {
+  if (!entries.length) return null;
+  const local = await databaseService.getAnimeEpisodes(animeId).catch(() => [] as Episode[]);
+  return findEpisode(latestEntry(entries, local).episodeId, local);
 };
 
 /** Historique d'un seul animé, du plus récent au plus ancien. */
 export const resolveContinue = async (animeId: string, entries: WatchHistory[]): Promise<ContinueItem | null> => {
   if (!entries.length) return null;
   const local = await databaseService.getAnimeEpisodes(animeId).catch(() => [] as Episode[]);
-  const numbers = new Map(local.map(episode => [episode.id, episode.number]));
-  // « Marquer la saison comme vue » écrit tout d'un coup : parmi ces entrées, l'épisode le plus avancé fait foi.
+  const latest = latestEntry(entries, local);
   const latestAt = entries[0].lastWatchedAt.getTime();
-  const latest = entries.filter(entry => latestAt - entry.lastWatchedAt.getTime() <= 5000)
-    .reduce<WatchHistory>((best, entry) => (numbers.get(entry.episodeId) ?? -1) > (numbers.get(best.episodeId) ?? -1) ? entry : best, entries[0]);
   const current = await findEpisode(latest.episodeId, local);
   if (!current) return null;
-  if (!isFinished(latest.progress)) return { episode: { ...current, animeId, watchProgress: latest.progress }, kind: 'resume', sortAt: latestAt };
-  const progress = new Map(entries.map(entry => [entry.episodeId, entry.progress]));
-  const next = await nextEpisode(animeId, current, progress).catch(() => null);
+  const position = effectiveProgress(latest);
+  if (!isFinished(position)) return { episode: { ...current, animeId, watchProgress: position }, kind: 'resume', sortAt: latestAt };
+  const next = await nextEpisode(animeId, current).catch(() => null);
   if (!next) return null;
-  return { episode: { ...next, animeId, animeTitle: next.animeTitle || current.animeTitle, watchProgress: progress.get(next.id) ?? 0 }, kind: 'next', sortAt: latestAt };
+  const saved = entries.find(entry => entry.episodeId === next.id);
+  const nextPosition = saved ? effectiveProgress(saved) : 0;
+  // Un épisode déjà vu proposé en revisionnage repart du début.
+  return { episode: { ...next, animeId, animeTitle: next.animeTitle || current.animeTitle, watchProgress: isFinished(nextPosition) ? 0 : nextPosition }, kind: 'next', sortAt: latestAt };
 };
 
 const RECENT_ANIMES = 15;
@@ -81,7 +106,7 @@ export const getContinueWatching = async (history: WatchHistory[], limit = 12): 
   const feed = await latestFeed().catch(() => [] as Episode[]);
   const released = new Set(feed.map(episode => episode.animeId));
   const releasedAt = new Map(feed.map(episode => [episode.id, time(episode.date_ajout) || time(episode.date_sortie)]));
-  const candidates = animeIds.filter((id, index) => index < RECENT_ANIMES || (released.has(id) && isFinished(byAnime.get(id)![0].progress)));
+  const candidates = animeIds.filter((id, index) => index < RECENT_ANIMES || (released.has(id) && isFinished(effectiveProgress(byAnime.get(id)![0]))));
   const items = await Promise.all(candidates.map(id => resolveContinue(id, byAnime.get(id)!).catch(() => null)));
   return items.filter((item): item is ContinueItem => !!item)
     // Un épisode tout juste sorti remonte à sa date de sortie.

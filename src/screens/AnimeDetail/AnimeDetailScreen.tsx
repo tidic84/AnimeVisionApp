@@ -17,7 +17,7 @@ import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/Skel
 import { LoadingSwap } from '../../components/Motion';
 import { getPreferredLanguage } from '../../services/preferences';
 import * as malSync from '../../services/mal/malSync';
-import { ContinueItem, resolveContinue } from '../../services/continueWatching';
+import { ContinueItem, isEpisodeBefore, lastOpenedEpisode, resolveContinue } from '../../services/continueWatching';
 import { WATCHED_PROGRESS, episodeLanguage } from '../../utils/watchProgress';
 import { dialog } from '../../components/Dialog';
 
@@ -180,8 +180,11 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
     try {
       const cached = new Map((await databaseService.getAnimeEpisodes(animeId)).map(episode => [episode.id, episode]));
       const progress = watched ? 100 : 0;
+      // Marquer n'est pas ouvrir : un épisode antérieur au dernier ouvert ne devient pas le point de reprise.
+      const opened = watched ? await databaseService.getWatchHistory(1000).then(history => lastOpenedEpisode(animeId, history.filter(entry => entry.animeId === animeId))).catch(() => null) : null;
       for (const episode of targets) {
-        if (watched) await databaseService.updateWatchHistory(animeId, episode.id, progress);
+        if (watched && opened && (episode.id === opened.id || await isEpisodeBefore(animeId, episode, opened))) await databaseService.markWatchedEarlier(animeId, episode.id);
+        else if (watched) await databaseService.updateWatchHistory(animeId, episode.id, progress);
         else await databaseService.removeWatchHistory(animeId, episode.id);
         await databaseService.saveEpisode({ ...mergeLocal(episode, cached.get(episode.id)), watchProgress: progress, isWatched: watched });
       }
