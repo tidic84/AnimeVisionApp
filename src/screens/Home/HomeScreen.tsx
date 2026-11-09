@@ -18,7 +18,8 @@ import hybridScrapingService from '../../services/hybridScrapingService';
 import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
 import * as malSync from '../../services/mal/malSync';
-import { Anime, Episode } from '../../types/anime';
+import { Anime, Episode, ScraperStatus } from '../../types/anime';
+import { elapsedSince } from '../../utils/relativeTime';
 
 type Shelf = { title: string; subtitle?: string; items: Anime[] };
 export default function HomeScreen() {
@@ -40,6 +41,7 @@ function HomeContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [scraper, setScraper] = useState<ScraperStatus | null>(null);
   const scrollY = useRef(new Animated.Value(0)).current;
   const [headerSolid, setHeaderSolid] = useState(false);
   const openAnime = (id: string) => navigation.navigate('AnimeDetail', { animeId: id });
@@ -74,6 +76,7 @@ function HomeContent() {
   const load = useCallback(async (refresh = false) => {
     setError('');
     if (refresh) setRefreshing(true); else setLoading(true);
+    void apiService.getScraperStatus().then(setScraper);
     try {
       const home = await (refresh ? hybridScrapingService.forceRefresh() : hybridScrapingService.getMobileHome());
       setFeatured(home.popularAnimes.slice(0, 5));
@@ -134,6 +137,14 @@ function HomeContent() {
       </LoadingSwap>
       {episodes('Reprendre', resume)}
       {shelves[0] && shelf(shelves[0].title, shelves[0].items)}
+      {scraper?.stale && scraper.latest && <View style={[styles.staleBanner, { borderColor: colors.warning }]}>
+        <Ionicons name="time-outline" size={18} color={colors.warning} />
+        <Text style={[styles.staleText, { color: colors.textSecondary }]}>
+          {scraper.latest.last_success_at
+            ? `Les nouveaux épisodes ne sont plus mis à jour depuis ${elapsedSince(scraper.latest.last_success_at)}.`
+            : 'Les nouveaux épisodes ne sont plus mis à jour pour le moment.'}
+        </Text>
+      </View>}
       {episodes('Nouveaux épisodes', latest)}
       {shelf('Votre Watchlist', watchlist)}
       {shelves.slice(1).map(s => shelf(s.title, s.items, s.subtitle))}
@@ -164,6 +175,8 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 21, fontWeight: '700' },
   sectionSubtitle: { paddingHorizontal: 18, marginBottom: 14, fontSize: 14 },
   row: { paddingHorizontal: 18 },
+  staleBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 18, marginBottom: 16, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radii.card, borderWidth: 1 },
+  staleText: { flex: 1, fontSize: 13 },
   error: { padding: 28, alignItems: 'center', gap: 16 },
   retry: { borderRadius: radii.pill, borderWidth: 1, padding: 12 },
   browse: { borderRadius: radii.pill, borderWidth: 1, padding: 18, marginHorizontal: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12 },
