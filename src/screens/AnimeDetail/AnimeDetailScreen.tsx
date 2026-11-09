@@ -17,13 +17,12 @@ import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/Skel
 import { LoadingSwap } from '../../components/Motion';
 import { getPreferredLanguage } from '../../services/preferences';
 import * as malSync from '../../services/mal/malSync';
+import { ContinueItem, resolveContinue } from '../../services/continueWatching';
+import { WATCHED_PROGRESS, episodeLanguage } from '../../utils/watchProgress';
 
 const seasonTitle = (season: Season) => season.titre_saison?.trim() || (season.num_saison > 0 && season.num_saison < 100 ? `Saison ${season.num_saison}` : season.type || 'Épisodes');
-const episodeLanguage = (episode: Episode) => episode.langue?.toUpperCase() || [...new Set((episode.streaming_servers || []).map(server => server.langue?.toUpperCase()).filter(Boolean))].join(' / ');
 const mergeLocal = (episode: Episode, cached?: Episode): Episode => ({ ...episode, watchProgress: cached?.watchProgress ?? episode.watchProgress, isWatched: cached?.isWatched ?? episode.isWatched, downloadStatus: cached?.downloadStatus ?? episode.downloadStatus });
 
-// Même seuil que « Continuer à regarder » et la synchro MAL.
-const WATCHED_PROGRESS = 90;
 const progressByEpisode = (history: WatchHistory[], animeId: string) => Object.fromEntries(history.filter(entry => entry.animeId === animeId).map(entry => [entry.episodeId, entry.progress]));
 
 export default function AnimeDetailScreen({ navigation, route }: RootStackScreenProps<'AnimeDetail'>) {
@@ -50,7 +49,9 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   const [language, setLanguage] = useState(''); // '' = choix automatique
   const [preferredLanguage, setPreferredLanguage] = useState('VOSTFR');
   const [episodeLimit, setEpisodeLimit] = useState(24);
-  const [resumeId, setResumeId] = useState('');
+  // Même règle que « Reprendre » sur l'accueil : dernier épisode consulté, ou le suivant s'il est fini.
+  const [continueItem, setContinueItem] = useState<ContinueItem | null>(null);
+  const resumeId = continueItem?.episode.id || '';
   const [historyProgress, setHistoryProgress] = useState<Record<string, number>>({});
   const [batchBusy, setBatchBusy] = useState(false);
   const [malActive, setMalActive] = useState(false);
@@ -69,7 +70,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
     setEpisodes([]);
     setSeasons([]);
     setSeasonId('');
-    setResumeId('');
+    setContinueItem(null);
     setSimilar([]);
     setEpisodesLoading(true);
     setLanguage('');
@@ -89,16 +90,11 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       setSeasons(availableSeasons);
       if (listsResult.status === 'fulfilled') setInWatchlist(Boolean(listsResult.value.find(list => list.isDefault)?.animeIds.includes(animeId)));
       if (historyResult.status === 'fulfilled') setHistoryProgress(progressByEpisode(historyResult.value, animeId));
-      const lastWatched = historyResult.status === 'fulfilled' ? historyResult.value.find(entry => entry.animeId === animeId && entry.progress > 0 && entry.progress < 95) : undefined;
       let preferredSeason = availableSeasons[0]?.id || '';
-      if (lastWatched) {
-        setResumeId(lastWatched.episodeId);
-        try {
-          const episode = await apiService.getEpisodeById(lastWatched.episodeId);
-          if (token !== detailEpoch.current) return;
-          if (availableSeasons.some(season => season.id === episode.saison_id)) preferredSeason = episode.saison_id!;
-        } catch { /* Cached history still allows the player to resume directly. */ }
-      }
+      const target = historyResult.status === 'fulfilled' ? await resolveContinue(animeId, historyResult.value.filter(entry => entry.animeId === animeId)).catch(() => null) : null;
+      if (token !== detailEpoch.current) return;
+      setContinueItem(target);
+      if (target && availableSeasons.some(season => season.id === target.episode.saison_id)) preferredSeason = target.episode.saison_id!;
       if (token !== detailEpoch.current) return;
       if (preferredSeason) setSeasonId(preferredSeason);
       else {
@@ -155,8 +151,8 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       if (!active) return;
       const map = new Map(cached.map(episode => [episode.id, episode]));
       setEpisodes(previous => previous.map(episode => mergeLocal(episode, map.get(episode.id))));
-      setResumeId(history.find(entry => entry.animeId === animeId && entry.progress > 0 && entry.progress < 95)?.episodeId || '');
       setHistoryProgress(progressByEpisode(history, animeId));
+      return resolveContinue(animeId, history.filter(entry => entry.animeId === animeId)).then(item => { if (active) setContinueItem(item); });
     }).catch(() => {});
     return () => { active = false; };
   }, [animeId]));
@@ -190,7 +186,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       const ids = new Set(targets.map(episode => episode.id));
       setEpisodes(previous => previous.map(episode => ids.has(episode.id) ? { ...episode, watchProgress: progress, isWatched: watched } : episode));
       setHistoryProgress(previous => { const next = { ...previous }; ids.forEach(id => { if (watched) next[id] = progress; else delete next[id]; }); return next; });
-      if (ids.has(resumeId)) setResumeId('');
+      void databaseService.getWatchHistory(1000).then(history => resolveContinue(animeId, history.filter(entry => entry.animeId === animeId))).then(setContinueItem).catch(() => {});
       // La synchro MAL ne fait qu'avancer : le dernier épisode marqué suffit, rien n'est retiré quand on démarque.
       if (watched && syncMal) void malSync.episodeWatched(animeId, targets.reduce((last, episode) => episode.number > last.number ? episode : last));
       return true;
@@ -268,12 +264,13 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   // Une seule version à la fois : choix manuel, sinon celle de l'épisode en cours, sinon la préférence.
   const languageRank = (value: string) => { const rank = ['VOSTFR', 'VF'].indexOf(value); return rank < 0 ? 99 : rank; };
   const availableLanguages = [...new Set(episodes.map(episodeLanguage).filter(Boolean))].sort((a, b) => languageRank(a) - languageRank(b));
-  const resumeEpisode = episodes.find(episode => episode.id === resumeId);
+  const resumeEpisode = continueItem?.episode;
   const activeLanguage = [language, resumeEpisode ? episodeLanguage(resumeEpisode) : '', preferredLanguage].find(value => value && availableLanguages.includes(value)) || availableLanguages[0] || '';
   const visibleEpisodes = episodes.filter(episode => !activeLanguage || !episodeLanguage(episode) || episodeLanguage(episode) === activeLanguage).sort((a, b) => descending ? b.number - a.number : a.number - b.number);
   const selectedSeason = seasons.find(season => season.id === seasonId);
   const inOrder = [...visibleEpisodes].sort((a, b) => a.number - b.number);
   const primaryEpisode = resumeId || inOrder.find(episode => !isWatched(episode))?.id || inOrder[0]?.id;
+  const primaryLabel = continueItem?.kind === 'resume' ? 'Reprendre la lecture' : continueItem ? `Regarder l’épisode ${continueItem.episode.number}` : primaryEpisode ? 'Commencer à regarder' : 'Aucun épisode disponible';
   const batchDownload = () => {
     const candidates = visibleEpisodes.filter(episode => ![DownloadStatus.DOWNLOADED, DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(episode.downloadStatus) && (episode.streamingUrls.length || episode.streaming_servers?.length));
     if (!candidates.length) { Alert.alert('Téléchargements', 'Aucun nouvel épisode disponible au téléchargement.'); return; }
@@ -319,7 +316,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       </ScrollView> : <View style={styles.error}><Text style={{ color: colors.text, fontSize: 20 }}>Fiche indisponible</Text><Text style={{ color: colors.textSecondary, lineHeight: 23, marginTop: 12 }}>{error}</Text><TouchableOpacity onPress={loadDetails} style={[styles.retry, { backgroundColor: colors.buttonBg }]}><Text style={{ color: colors.buttonText }}>Réessayer</Text></TouchableOpacity></View>}
     </LoadingSwap>
     <TouchableOpacity accessibilityLabel="Retour" onPress={() => navigation.goBack()} style={[styles.back, { top: insets.top + 12 }]}><Ionicons name="chevron-back" color="#fff" size={29} /></TouchableOpacity>
-    {!loading && anime && <View style={[styles.bottomBar, { paddingBottom: Math.max(12, insets.bottom), backgroundColor: colors.background, borderTopColor: colors.border }]}><TouchableOpacity disabled={!primaryEpisode} accessibilityLabel={resumeId ? 'Reprendre la lecture' : 'Commencer la lecture'} onPress={() => primaryEpisode && play(primaryEpisode)} style={[styles.primaryButton, { backgroundColor: colors.buttonBg, opacity: primaryEpisode ? 1 : 0.45 }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={{ color: colors.buttonText, fontWeight: '700', fontSize: 15 }}>{resumeId ? 'REPRENDRE LA LECTURE' : primaryEpisode ? 'COMMENCER À REGARDER' : 'AUCUN ÉPISODE DISPONIBLE'}</Text></TouchableOpacity></View>}
+    {!loading && anime && <View style={[styles.bottomBar, { paddingBottom: Math.max(12, insets.bottom), backgroundColor: colors.background, borderTopColor: colors.border }]}><TouchableOpacity disabled={!primaryEpisode} accessibilityLabel={primaryLabel} onPress={() => primaryEpisode && play(primaryEpisode)} style={[styles.primaryButton, { backgroundColor: colors.buttonBg, opacity: primaryEpisode ? 1 : 0.45 }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={{ color: colors.buttonText, fontWeight: '700', fontSize: 15 }}>{primaryLabel.toUpperCase()}</Text></TouchableOpacity></View>}
     <CustomModal visible={showSeasons} onRequestClose={() => setShowSeasons(false)} alignment="bottom"><View style={{ paddingBottom: Math.max(insets.bottom, 16) }}><View style={styles.seasonsHeader}><Text style={{ color: colors.text, fontSize: 21, fontWeight: '700' }}>Saisons</Text><TouchableOpacity accessibilityLabel="Fermer les saisons" onPress={() => setShowSeasons(false)} style={styles.iconButton}><Ionicons name="close" color={colors.text} size={25} /></TouchableOpacity></View><ScrollView style={{ maxHeight: 420 }}>{seasons.map(season => <TouchableOpacity key={season.id} accessibilityState={{ selected: season.id === seasonId }} onPress={() => { setSeasonId(season.id); setShowSeasons(false); }} style={[styles.seasonOption, { borderBottomColor: colors.border }]}><View style={{ flex: 1 }}><Text style={{ color: season.id === seasonId ? colors.primary : colors.text, fontSize: 16 }}>{seasonTitle(season)}</Text><Text style={{ color: colors.textSecondary, marginTop: 6, fontSize: 12 }}>{[season.annee_sortie || '', `${season.nb_episodes} épisodes`, season.type || ''].filter(Boolean).join(' · ')}</Text></View>{season.id === seasonId && <Ionicons name="checkmark" color={colors.primary} size={22} />}</TouchableOpacity>)}</ScrollView></View></CustomModal>
   </View>;
 }

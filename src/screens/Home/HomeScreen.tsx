@@ -18,6 +18,7 @@ import hybridScrapingService from '../../services/hybridScrapingService';
 import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
 import * as malSync from '../../services/mal/malSync';
+import { clearContinueCache, getContinueWatching } from '../../services/continueWatching';
 import { Anime, Episode } from '../../types/anime';
 
 type Shelf = { title: string; subtitle?: string; items: Anime[] };
@@ -47,13 +48,9 @@ function HomeContent() {
 
   const loadPersonal = useCallback(async () => {
     try {
-      // Large : marquer une saison comme vue ajoute beaucoup d'entrées récentes à 100 %.
-      const history = await databaseService.getWatchHistory(300);
-      const episodes = await Promise.all(history.filter(h => h.progress > 0 && h.progress < 90).slice(0, 8).map(async h => {
-        const stored = (await databaseService.getAnimeEpisodes(h.animeId)).find(e => e.id === h.episodeId);
-        const episode = stored || await apiService.getEpisodeById(h.episodeId);
-        return { ...episode, watchProgress: h.progress };
-      }));
+      // Tout l'historique : un animé fini doit revenir dès la sortie de l'épisode suivant, même ancien.
+      const history = await databaseService.getWatchHistory(5000);
+      const episodes = (await getContinueWatching(history)).map(item => item.episode);
       setResume(episodes);
       const lists = await databaseService.getAnimeLists();
       const defaultList = lists.find(l => l.isDefault);
@@ -74,7 +71,7 @@ function HomeContent() {
 
   const load = useCallback(async (refresh = false) => {
     setError('');
-    if (refresh) setRefreshing(true); else setLoading(true);
+    if (refresh) { setRefreshing(true); clearContinueCache(); } else setLoading(true);
     try {
       const home = await (refresh ? hybridScrapingService.forceRefresh() : hybridScrapingService.getMobileHome());
       setFeatured(home.popularAnimes.slice(0, 5));
