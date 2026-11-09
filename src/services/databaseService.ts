@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { Anime, Episode, AnimeList, WatchHistory, UserAnimeStatus, WatchStatus, DownloadStatus } from '../types/anime';
+import { WATCHED_PROGRESS } from '../utils/watchProgress';
 
 class DatabaseService {
   private db: SQLite.SQLiteDatabase | null = null;
@@ -117,6 +118,9 @@ class DatabaseService {
     for (const query of queries) {
       await this.db.execAsync(query);
     }
+    // Revisionnage d'un épisode déjà vu : position à part, `progress` garde l'état « vu ».
+    const columns = await this.db.getAllAsync('PRAGMA table_info(watchHistory)') as { name: string }[];
+    if (!columns.some(column => column.name === 'rewatchProgress')) await this.db.execAsync('ALTER TABLE watchHistory ADD COLUMN rewatchProgress REAL');
   }
 
   private async createDefaultList(): Promise<void> {
@@ -336,6 +340,35 @@ class DatabaseService {
     );
   }
 
+  /** Revisionnage : date et position mises à jour, l'épisode reste vu. */
+  async updateRewatch(animeId: string, episodeId: string, progress: number): Promise<void> {
+    await this.initializeDatabase();
+    if (!this.db) throw new Error('Base de données non initialisée');
+    const result = await this.db.runAsync('UPDATE watchHistory SET rewatchProgress = ?, lastWatchedAt = CURRENT_TIMESTAMP WHERE animeId = ? AND episodeId = ?', [progress, animeId, episodeId]);
+    if (!result.changes) await this.db.runAsync('INSERT INTO watchHistory (animeId, episodeId, progress, rewatchProgress, lastWatchedAt) VALUES (?, ?, 100, ?, CURRENT_TIMESTAMP)', [animeId, episodeId, progress]);
+  }
+
+  /** « Marquer comme vu » d'un épisode antérieur au dernier ouvert : sa date ne le fait pas passer devant. */
+  async markWatchedEarlier(animeId: string, episodeId: string): Promise<void> {
+    await this.initializeDatabase();
+    if (!this.db) throw new Error('Base de données non initialisée');
+    const result = await this.db.runAsync('UPDATE watchHistory SET progress = 100 WHERE animeId = ? AND episodeId = ?', [animeId, episodeId]);
+    if (!result.changes) await this.db.runAsync(
+      `INSERT INTO watchHistory (animeId, episodeId, progress, lastWatchedAt)
+       VALUES (?, ?, 100, COALESCE((SELECT datetime(MIN(lastWatchedAt), '-1 minute') FROM watchHistory WHERE animeId = ?), CURRENT_TIMESTAMP))`,
+      [animeId, episodeId, animeId]
+    );
+  }
+
+  /** Vu localement : fin de lecture dans l'historique ou « Marquer comme vu ». */
+  async isEpisodeWatched(animeId: string, episodeId: string): Promise<boolean> {
+    await this.initializeDatabase();
+    if (!this.db) throw new Error('Base de données non initialisée');
+    const history = await this.db.getFirstAsync('SELECT 1 FROM watchHistory WHERE animeId = ? AND episodeId = ? AND progress >= ?', [animeId, episodeId, WATCHED_PROGRESS]);
+    if (history) return true;
+    return Boolean(await this.db.getFirstAsync('SELECT 1 FROM episodes WHERE id = ? AND isWatched = 1', [episodeId]));
+  }
+
   async removeWatchHistory(animeId: string, episodeId: string): Promise<void> {
     await this.initializeDatabase();
     if (!this.db) throw new Error('Base de données non initialisée');
@@ -357,6 +390,7 @@ class DatabaseService {
       // CURRENT_TIMESTAMP de SQLite : « AAAA-MM-JJ HH:MM:SS » en UTC.
       lastWatchedAt: new Date(String(result.lastWatchedAt).replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/, '$1T$2Z')),
       progress: result.progress,
+      rewatchProgress: result.rewatchProgress ?? undefined,
     }));
   }
 

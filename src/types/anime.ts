@@ -96,6 +96,8 @@ export interface WatchHistory {
   episodeId: string;
   lastWatchedAt: Date;
   progress: number;
+  /** Position du revisionnage en cours d'un épisode déjà vu. */
+  rewatchProgress?: number;
 }
 
 export enum AnimeStatus {
