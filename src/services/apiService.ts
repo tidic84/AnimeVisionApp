@@ -273,10 +273,10 @@ class ApiService {
     return this.mapApiEpisodeToEpisode(response.data, animeId);
   }
 
-  /** Opening / ending connus pour cet épisode (vide si aucune donnée). */
-  async getSkipTimes(episodeId: string): Promise<SkipResult[]> {
-    const response = await this.fetchWithErrorHandling<ApiResponse<{ results?: SkipResult[] } | null>>(`/api/episode/${episodeId}/skip-times`);
-    return response.data?.results ?? [];
+  /** Opening / ending connus pour cet épisode (vide si aucune donnée) ; retryAfter (s) si l'API n'a pas pu les obtenir pour l'instant. */
+  async getSkipTimes(episodeId: string): Promise<{ results: SkipResult[]; retryAfter?: number }> {
+    const response = await this.fetchWithErrorHandling<ApiResponse<{ results?: SkipResult[]; retry_after?: number } | null>>(`/api/episode/${episodeId}/skip-times`);
+    return { results: response.data?.results ?? [], retryAfter: response.data?.retry_after };
   }
 
   async getLatestEpisodes(limit: number = 50, langue?: string): Promise<Episode[]> {

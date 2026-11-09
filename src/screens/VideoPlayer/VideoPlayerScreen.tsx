@@ -290,11 +290,19 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     return () => { active = false; };
   }, [episodeId, animeId, attempt, isOfflineMode, localFilePath, player]);
   const loadedEpisode = episode?.id;
+  // Chargés une fois par épisode, sans attendre la durée : pickSkips les filtre quand elle est connue.
   useEffect(() => {
     let active = true;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     setSkipTimes([]);
-    if (loadedEpisode && !isOfflineMode) void apiService.getSkipTimes(loadedEpisode).then(values => { if (active) setSkipTimes(values); }).catch(() => {});
-    return () => { active = false; };
+    const load = (again: boolean) => apiService.getSkipTimes(loadedEpisode!).then(({ results, retryAfter }) => {
+      if (!active) return;
+      setSkipTimes(results);
+      // AniList / AniSkip saturés côté API : une seule nouvelle tentative, assez tôt pour un opening en début d'épisode.
+      if (retryAfter && again) retry = setTimeout(() => void load(false), Math.min(retryAfter, 30) * 1000);
+    }).catch(() => { if (active && again) retry = setTimeout(() => void load(false), 15000); });
+    if (loadedEpisode && !isOfflineMode) void load(true);
+    return () => { active = false; if (retry) clearTimeout(retry); };
   }, [loadedEpisode, isOfflineMode]);
   useEffect(() => {
     let active = true;
