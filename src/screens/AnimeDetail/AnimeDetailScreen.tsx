@@ -53,6 +53,8 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   const [resumeId, setResumeId] = useState('');
   const [historyProgress, setHistoryProgress] = useState<Record<string, number>>({});
   const [batchBusy, setBatchBusy] = useState(false);
+  const [malActive, setMalActive] = useState(false);
+  const [malBusy, setMalBusy] = useState(false);
   const detailEpoch = useRef(0);
   const seasonEpoch = useRef(0);
   const persistenceEpoch = useRef(0);
@@ -148,6 +150,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   useFocusEffect(useCallback(() => {
     let active = true;
     getPreferredLanguage().then(value => { if (active) setPreferredLanguage(value.toUpperCase()); });
+    malSync.isActive().then(value => { if (active) setMalActive(value); });
     Promise.all([databaseService.getAnimeEpisodes(animeId), databaseService.getWatchHistory(1000)]).then(([cached, history]) => {
       if (!active) return;
       const map = new Map(cached.map(episode => [episode.id, episode]));
@@ -174,8 +177,8 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   };
   const isWatched = (episode: Episode) => episode.isWatched || (historyProgress[episode.id] ?? episode.watchProgress ?? 0) >= WATCHED_PROGRESS;
   // Même forme que la fin de lecture (100 % dans l'historique) ; « non vu » efface la progression.
-  const setWatched = async (targets: Episode[], watched: boolean) => {
-    if (!targets.length) return;
+  const setWatched = async (targets: Episode[], watched: boolean, syncMal = true): Promise<boolean> => {
+    if (!targets.length) return true;
     try {
       const cached = new Map((await databaseService.getAnimeEpisodes(animeId)).map(episode => [episode.id, episode]));
       const progress = watched ? 100 : 0;
@@ -189,8 +192,25 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       setHistoryProgress(previous => { const next = { ...previous }; ids.forEach(id => { if (watched) next[id] = progress; else delete next[id]; }); return next; });
       if (ids.has(resumeId)) setResumeId('');
       // La synchro MAL ne fait qu'avancer : le dernier épisode marqué suffit, rien n'est retiré quand on démarque.
-      if (watched) void malSync.episodeWatched(animeId, targets.reduce((last, episode) => episode.number > last.number ? episode : last));
-    } catch { Alert.alert('Progression', 'Impossible de mettre à jour la progression. Réessayez.'); }
+      if (watched && syncMal) void malSync.episodeWatched(animeId, targets.reduce((last, episode) => episode.number > last.number ? episode : last));
+      return true;
+    } catch { Alert.alert('Progression', 'Impossible de mettre à jour la progression. Réessayez.'); return false; }
+  };
+  // MAL → app : ne fait que marquer comme vus (rien n'est démarqué, rien n'est renvoyé à MAL).
+  const syncFromMal = async () => {
+    if (malBusy) return;
+    setMalBusy(true);
+    try {
+      await malSync.flushPending().catch(() => {});
+      const { episodes: seen, entries } = await malSync.watchedOnMal(animeId);
+      const cached = new Map((await databaseService.getAnimeEpisodes(animeId)).map(episode => [episode.id, episode]));
+      const missing = seen.filter(episode => !isWatched(mergeLocal(episode, cached.get(episode.id)))).map(episode => ({ ...episode, animeTitle: anime?.title || episode.animeTitle }));
+      const count = new Set(missing.map(episode => `${episode.saison_id}:${episode.number}`)).size;
+      if (!entries) Alert.alert('MyAnimeList', 'Aucun épisode de cet animé n’est marqué comme vu sur votre liste MyAnimeList.');
+      else if (!missing.length) Alert.alert('MyAnimeList', 'Votre progression est déjà à jour.');
+      else if (await setWatched(missing, true, false)) Alert.alert('MyAnimeList', `${count} épisode(s) marqué(s) comme vu(s).`);
+    } catch (cause) { Alert.alert('MyAnimeList', cause instanceof Error ? cause.message : 'Synchronisation impossible. Réessayez.'); }
+    finally { setMalBusy(false); }
   };
   const episodeMenu = (episode: Episode) => {
     const watched = isWatched(episode);
@@ -278,7 +298,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
         </View>
         <View style={{ paddingHorizontal: 16 }}>
           {anime.rating > 0 && <View style={styles.rating}><Ionicons name="star" size={17} color={colors.primary} /><Text style={{ color: colors.text, fontWeight: '600' }}>{anime.rating.toFixed(1)} / 10</Text><Text style={{ color: colors.textSecondary }}>Note moyenne</Text></View>}
-          <View style={styles.actions}><TouchableOpacity accessibilityLabel={inWatchlist ? 'Retirer de la watchlist' : 'Ajouter à la watchlist'} disabled={watchlistBusy} onPress={toggleWatchlist} style={styles.action}><Ionicons name={inWatchlist ? 'bookmark' : 'bookmark-outline'} size={25} color={inWatchlist ? colors.primary : colors.text} /><Text style={{ color: inWatchlist ? colors.primary : colors.text, fontSize: 12, marginTop: 7 }}>Watchlist</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Partager cet anime" onPress={() => Share.share({ message: `${anime.title}${anime.url_anime_sama ? `\n${anime.url_anime_sama}` : ''}` }).catch(() => Alert.alert('Partage', 'Le partage est indisponible.'))} style={styles.action}><Ionicons name="share-social-outline" size={25} color={colors.text} /><Text style={{ color: colors.text, fontSize: 12, marginTop: 7 }}>Partager</Text></TouchableOpacity></View>
+          <View style={styles.actions}><TouchableOpacity accessibilityLabel={inWatchlist ? 'Retirer de la watchlist' : 'Ajouter à la watchlist'} disabled={watchlistBusy} onPress={toggleWatchlist} style={styles.action}><Ionicons name={inWatchlist ? 'bookmark' : 'bookmark-outline'} size={25} color={inWatchlist ? colors.primary : colors.text} /><Text style={{ color: inWatchlist ? colors.primary : colors.text, fontSize: 12, marginTop: 7 }}>Watchlist</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Partager cet anime" onPress={() => Share.share({ message: `${anime.title}${anime.url_anime_sama ? `\n${anime.url_anime_sama}` : ''}` }).catch(() => Alert.alert('Partage', 'Le partage est indisponible.'))} style={styles.action}><Ionicons name="share-social-outline" size={25} color={colors.text} /><Text style={{ color: colors.text, fontSize: 12, marginTop: 7 }}>Partager</Text></TouchableOpacity>{malActive && <TouchableOpacity accessibilityLabel="Synchroniser avec MyAnimeList" disabled={malBusy} onPress={() => void syncFromMal()} style={styles.action}><Ionicons name="sync-outline" size={25} color={malBusy ? colors.textSecondary : colors.text} /><Text style={{ color: malBusy ? colors.textSecondary : colors.text, fontSize: 12, marginTop: 7 }}>{malBusy ? 'Synchro…' : 'Synchro MAL'}</Text></TouchableOpacity>}</View>
           {anime.synopsis ? <TouchableOpacity accessibilityLabel={expanded ? 'Réduire le synopsis' : 'Afficher le synopsis complet'} onPress={() => setExpanded(value => !value)}><Text style={{ color: colors.text, fontSize: 14, lineHeight: 23 }} numberOfLines={expanded ? undefined : 3}>{anime.synopsis.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').trim()}</Text><View style={styles.synopsisToggle}><Text style={{ color: colors.textSecondary, fontSize: 12 }}>{expanded ? 'Réduire' : 'En savoir plus'}</Text><Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} color={colors.textSecondary} size={17} /></View></TouchableOpacity> : <Text style={{ color: colors.textSecondary }}>Synopsis non renseigné.</Text>}
         </View>
         <View style={[styles.tabs, { borderBottomColor: colors.border }]}>{([{ key: 'episodes', label: 'Épisodes' }, { key: 'similar', label: 'Similaires' }] as const).map(option => <TouchableOpacity key={option.key} accessibilityRole="tab" accessibilityState={{ selected: tab === option.key }} onPress={() => setTab(option.key)} style={[styles.tab, { borderBottomColor: tab === option.key ? colors.primary : 'transparent' }]}><Text style={{ color: tab === option.key ? colors.text : colors.textSecondary, fontWeight: '700', fontSize: 15 }}>{option.label}</Text></TouchableOpacity>)}</View>
