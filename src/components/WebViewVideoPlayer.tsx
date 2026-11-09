@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { AppState, StyleSheet } from 'react-native';
 import { WebView as RNWebView, WebViewMessageEvent } from 'react-native-webview';
 import type { AndroidWebViewProps, IOSWebViewProps } from 'react-native-webview/lib/WebViewTypes';
 import { STREAM_USER_AGENT } from '../services/streamHosts';
@@ -11,6 +11,8 @@ interface WebViewVideoPlayerProps {
   embedUrl: string;
   /** Appelé quand la page indique que la vidéo est introuvable ou que son lecteur échoue. */
   onDead: (reason: string) => void;
+  /** Lecture autorisée hors de l'app ; sinon la vidéo de la page est mise en pause en arrière-plan. */
+  background?: boolean;
 }
 
 // Les pages d'embed ouvrent des publicités au premier appui : window.open les chargeait à la place du lecteur (écran noir).
@@ -29,6 +31,13 @@ const WATCH = `(function () {
   true;
 })();`;
 
+// Met en pause les vidéos de la page et de ses iframes accessibles (celles d'un autre domaine restent hors de portée).
+const PAUSE = `(function () {
+  function pause(doc) { try { doc.querySelectorAll('video, audio').forEach(function (media) { media.pause(); }); doc.querySelectorAll('iframe').forEach(function (frame) { try { pause(frame.contentDocument); } catch (e) {} }); } catch (e) {} }
+  pause(document);
+  true;
+})();`;
+
 const sameVideo = (url: string, embedUrl: string) => {
   try {
     const target = new URL(url);
@@ -39,12 +48,17 @@ const sameVideo = (url: string, embedUrl: string) => {
 };
 
 /** Lecteur web de l'hébergeur, utilisé quand le flux ne peut pas être extrait pour le lecteur natif. */
-export default function WebViewVideoPlayer({ embedUrl, onDead }: WebViewVideoPlayerProps) {
+export default function WebViewVideoPlayer({ embedUrl, onDead, background = false }: WebViewVideoPlayerProps) {
+  const webView = useRef<RNWebView>(null);
+  useEffect(() => {
+    const listener = AppState.addEventListener('change', state => { if (state !== 'active' && !background) webView.current?.injectJavaScript(PAUSE); });
+    return () => listener.remove();
+  }, [background]);
   const onMessage = (event: WebViewMessageEvent) => {
     const data = event.nativeEvent.data;
     if (data.startsWith('dead:')) onDead(data.slice(5));
   };
-  return <WebView source={{ uri: embedUrl }} style={StyleSheet.absoluteFill} userAgent={STREAM_USER_AGENT}
+  return <WebView ref={webView} source={{ uri: embedUrl }} style={StyleSheet.absoluteFill} userAgent={STREAM_USER_AGENT}
     allowsFullscreenVideo allowsInlineMediaPlayback mediaPlaybackRequiresUserAction={false} setSupportMultipleWindows={false}
     injectedJavaScriptBeforeContentLoaded={BEFORE_LOAD} injectedJavaScript={WATCH} onMessage={onMessage}
     // Les redirections du même hébergeur (Voe change de domaine en gardant le code de la vidéo) passent, les publicités non.

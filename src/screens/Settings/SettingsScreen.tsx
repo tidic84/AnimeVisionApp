@@ -20,7 +20,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
-  Alert,
   Modal,
   TextInput,
   Linking,
@@ -30,6 +29,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MainTabScreenProps } from '../../types/navigation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { dialog } from '../../components/Dialog';
 
 type SettingsScreenProps = MainTabScreenProps<'Settings'>;
 
@@ -47,6 +47,8 @@ interface AppSettings {
   /** Hébergeurs vidéo préférés, du plus au moins prioritaire. */
   favoriteHosts: string[];
   autoplay: boolean;
+  /** Laisse la vidéo tourner quand l'app passe en arrière-plan (PiP pour le lecteur natif). */
+  backgroundPlayback: boolean;
   skipIntro: boolean;
   skipOutro: boolean;
   subtitlesEnabled: boolean;
@@ -100,6 +102,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     preferredLanguage: 'vostfr',
     favoriteHosts: [],
     autoplay: true,
+    backgroundPlayback: false,
     skipIntro: false,
     skipOutro: false,
     subtitlesEnabled: true,
@@ -131,7 +134,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
 
   const connectMal = async () => {
     if (!mal.isConfigured()) {
-      Alert.alert('MyAnimeList', `Ajoutez le Client ID de votre application MAL dans le fichier .env de l’app (MAL_CLIENT_ID), puis relancez Expo.\n\nURL de redirection à déclarer sur myanimelist.net/apiconfig :\n${mal.redirectUri()}`);
+      dialog.alert('MyAnimeList', `Ajoutez le Client ID de votre application MAL dans le fichier .env de l’app (MAL_CLIENT_ID), puis relancez Expo.\n\nURL de redirection à déclarer sur myanimelist.net/apiconfig :\n${mal.redirectUri()}`);
       return;
     }
     setMalBusy('Connexion…');
@@ -139,12 +142,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
       const name = await mal.connect();
       setMalUser(name);
       await saveSettings({ malEnabled: true, malUsername: name });
-      Alert.alert('MyAnimeList', `Connecté en tant que ${name}. Voulez-vous importer votre liste maintenant ?`, [
+      dialog.alert('MyAnimeList', `Connecté en tant que ${name}. Voulez-vous importer votre liste maintenant ?`, [
         { text: 'Plus tard', style: 'cancel' },
         { text: 'Importer', onPress: () => void importMal() },
       ]);
     } catch (error) {
-      if (!(error instanceof Error && error.message === 'Connexion annulée')) Alert.alert('MyAnimeList', error instanceof Error ? error.message : 'Connexion impossible.');
+      if (!(error instanceof Error && error.message === 'Connexion annulée')) dialog.alert('MyAnimeList', error instanceof Error ? error.message : 'Connexion impossible.');
     } finally { setMalBusy(''); }
   };
 
@@ -153,13 +156,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     try {
       const result = await malSync.importList(text => setMalBusy(text));
       const missing = result.notFound.length ? `\n\n${result.notFound.length} absent(s) du catalogue : ${result.notFound.slice(0, 8).join(', ')}${result.notFound.length > 8 ? '…' : ''}` : '';
-      Alert.alert('Import MyAnimeList', `${result.matched} anime retrouvés sur ${result.total} entrées, ${result.addedToWatchlist} ajoutés à la Watchlist.${missing}`);
+      dialog.alert('Import MyAnimeList', `${result.matched} anime retrouvés sur ${result.total} entrées, ${result.addedToWatchlist} ajoutés à la Watchlist.${missing}`);
     } catch (error) {
-      Alert.alert('Import MyAnimeList', error instanceof Error ? error.message : 'Import impossible.');
+      dialog.alert('Import MyAnimeList', error instanceof Error ? error.message : 'Import impossible.');
     } finally { setMalBusy(''); }
   };
 
-  const disconnectMal = () => Alert.alert('MyAnimeList', 'Se déconnecter ? Votre liste MAL n’est pas modifiée.', [
+  const disconnectMal = () => dialog.alert('MyAnimeList', 'Se déconnecter ? Votre liste MAL n’est pas modifiée.', [
     { text: 'Annuler', style: 'cancel' },
     { text: 'Se déconnecter', style: 'destructive', onPress: async () => { await mal.disconnect(); setMalUser(null); await saveSettings({ malEnabled: false, malUsername: '' }); } },
   ]);
@@ -190,7 +193,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
       await AsyncStorage.setItem('appSettings', JSON.stringify(updatedSettings));
     } catch (error) {
       console.error('[Settings] Erreur lors de la sauvegarde des paramètres:', error);
-      Alert.alert('Erreur', 'Impossible de sauvegarder les paramètres');
+      dialog.alert('Erreur', 'Impossible de sauvegarder les paramètres');
     }
   };
 
@@ -218,7 +221,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
       await AsyncStorage.setItem('localProfileName', name);
       setProfileName(name);
       setShowProfileModal(false);
-    } catch { Alert.alert('Erreur', 'Impossible de sauvegarder le profil'); }
+    } catch { dialog.alert('Erreur', 'Impossible de sauvegarder le profil'); }
   };
 
   const checkUpdate = async () => {
@@ -226,14 +229,14 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     setUpdateStatus('Recherche…');
     try {
       const update = await updates.checkForUpdate();
-      if (!update) Alert.alert('Mise à jour', `AnimeVision ${updates.currentVersion()} est la dernière version.`);
+      if (!update) dialog.alert('Mise à jour', `AnimeVision ${updates.currentVersion()} est la dernière version.`);
       else if (updates.canSelfUpdate()) updates.promptUpdate(update);
-      else Alert.alert('Mise à jour', `La version ${update.version} est disponible. Elle s’installe depuis l’APK Android ; Expo Go se met à jour en relançant le serveur.`, [
+      else dialog.alert('Mise à jour', `La version ${update.version} est disponible. Elle s’installe depuis l’APK Android ; Expo Go se met à jour en relançant le serveur.`, [
         { text: 'Fermer', style: 'cancel' },
         { text: 'Voir sur GitHub', onPress: () => void Linking.openURL(update.pageUrl) },
       ]);
     } catch (error) {
-      Alert.alert('Mise à jour', error instanceof Error ? error.message : 'Vérification impossible.');
+      dialog.alert('Mise à jour', error instanceof Error ? error.message : 'Vérification impossible.');
     } finally { setUpdateStatus(''); }
   };
 
@@ -523,6 +526,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               (value) => saveSettings({ autoplay: value })
             )}
             {renderSettingRow(
+              'tv',
+              'Lecture en arrière-plan / Picture-in-Picture',
+              'Continuer la lecture hors de l’app, en mini-lecteur (PiP) pour le lecteur natif. Les lecteurs web continuent seulement le son, sans PiP.',
+              undefined,
+              undefined,
+              settings.backgroundPlayback,
+              (value) => saveSettings({ backgroundPlayback: value })
+            )}
+            {renderSettingRow(
               'play-skip-forward',
               'Skip intro automatique',
               'Ignorer automatiquement les génériques d\'ouverture',
@@ -667,7 +679,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               'Langue',
               'Langue de l\'interface',
               'Français',
-              () => Alert.alert('Info', 'Autres langues à venir')
+              () => dialog.alert('Info', 'Autres langues à venir')
             )}
           </>
         ))}

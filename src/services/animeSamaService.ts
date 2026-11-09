@@ -2,6 +2,7 @@ import axios from 'axios';
 import { Anime, Episode, AnimeStatus, VideoQuality } from '../types/anime';
 import animeSamaScrapingService from './animeSamaScrapingService';
 import databaseService from './databaseService';
+import { isFinished } from '../utils/watchProgress';
 import apiService from './apiService';
 
 interface StreamingUrl {
@@ -403,7 +404,7 @@ class AnimeSamaService {
         
         return {
           ...episode,
-          isWatched: history ? history.progress >= 90 : false,
+          isWatched: history ? isFinished(history.progress) : false,
           watchProgress: history ? history.progress : 0,
         };
       });

@@ -354,7 +354,8 @@ class DatabaseService {
     return results.map(result => ({
       animeId: result.animeId,
       episodeId: result.episodeId,
-      lastWatchedAt: new Date(result.lastWatchedAt),
+      // CURRENT_TIMESTAMP de SQLite : « AAAA-MM-JJ HH:MM:SS » en UTC.
+      lastWatchedAt: new Date(String(result.lastWatchedAt).replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/, '$1T$2Z')),
       progress: result.progress,
     }));
   }

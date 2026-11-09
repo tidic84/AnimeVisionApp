@@ -28,7 +28,13 @@
     },
     "plugins": [
       "expo-sqlite",
-      "expo-video",
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true,
+          "supportsPictureInPicture": true
+        }
+      ],
       "expo-asset",
       [
         "expo-splash-screen",

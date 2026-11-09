@@ -1,12 +1,12 @@
 import { radii } from '../../theme/shape';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Image, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Image, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RootStackScreenProps } from '../../types/navigation';
-import { Anime, DownloadStatus, Episode, Season, VideoQuality } from '../../types/anime';
+import { Anime, DownloadStatus, Episode, Season, VideoQuality, WatchHistory } from '../../types/anime';
 import { palette } from '../../theme/palette';
 import { useAppColorScheme } from '../../contexts/ThemeContext';
 import apiService from '../../services/apiService';
@@ -17,10 +17,14 @@ import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/Skel
 import { LoadingSwap } from '../../components/Motion';
 import { getPreferredLanguage } from '../../services/preferences';
 import * as malSync from '../../services/mal/malSync';
+import { ContinueItem, resolveContinue } from '../../services/continueWatching';
+import { WATCHED_PROGRESS, episodeLanguage } from '../../utils/watchProgress';
+import { dialog } from '../../components/Dialog';
 
 const seasonTitle = (season: Season) => season.titre_saison?.trim() || (season.num_saison > 0 && season.num_saison < 100 ? `Saison ${season.num_saison}` : season.type || 'Épisodes');
-const episodeLanguage = (episode: Episode) => episode.langue?.toUpperCase() || [...new Set((episode.streaming_servers || []).map(server => server.langue?.toUpperCase()).filter(Boolean))].join(' / ');
 const mergeLocal = (episode: Episode, cached?: Episode): Episode => ({ ...episode, watchProgress: cached?.watchProgress ?? episode.watchProgress, isWatched: cached?.isWatched ?? episode.isWatched, downloadStatus: cached?.downloadStatus ?? episode.downloadStatus });
+
+const progressByEpisode = (history: WatchHistory[], animeId: string) => Object.fromEntries(history.filter(entry => entry.animeId === animeId).map(entry => [entry.episodeId, entry.progress]));
 
 export default function AnimeDetailScreen({ navigation, route }: RootStackScreenProps<'AnimeDetail'>) {
   const { animeId } = route.params;
@@ -46,8 +50,13 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   const [language, setLanguage] = useState(''); // '' = choix automatique
   const [preferredLanguage, setPreferredLanguage] = useState('VOSTFR');
   const [episodeLimit, setEpisodeLimit] = useState(24);
-  const [resumeId, setResumeId] = useState('');
+  // Même règle que « Reprendre » sur l'accueil : dernier épisode consulté, ou le suivant s'il est fini.
+  const [continueItem, setContinueItem] = useState<ContinueItem | null>(null);
+  const resumeId = continueItem?.episode.id || '';
+  const [historyProgress, setHistoryProgress] = useState<Record<string, number>>({});
   const [batchBusy, setBatchBusy] = useState(false);
+  const [malActive, setMalActive] = useState(false);
+  const [malBusy, setMalBusy] = useState(false);
   const detailEpoch = useRef(0);
   const seasonEpoch = useRef(0);
   const persistenceEpoch = useRef(0);
@@ -62,7 +71,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
     setEpisodes([]);
     setSeasons([]);
     setSeasonId('');
-    setResumeId('');
+    setContinueItem(null);
     setSimilar([]);
     setEpisodesLoading(true);
     setLanguage('');
@@ -81,16 +90,12 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       const availableSeasons = seasonsResult.status === 'fulfilled' ? seasonsResult.value : [];
       setSeasons(availableSeasons);
       if (listsResult.status === 'fulfilled') setInWatchlist(Boolean(listsResult.value.find(list => list.isDefault)?.animeIds.includes(animeId)));
-      const lastWatched = historyResult.status === 'fulfilled' ? historyResult.value.find(entry => entry.animeId === animeId && entry.progress > 0 && entry.progress < 95) : undefined;
+      if (historyResult.status === 'fulfilled') setHistoryProgress(progressByEpisode(historyResult.value, animeId));
       let preferredSeason = availableSeasons[0]?.id || '';
-      if (lastWatched) {
-        setResumeId(lastWatched.episodeId);
-        try {
-          const episode = await apiService.getEpisodeById(lastWatched.episodeId);
-          if (token !== detailEpoch.current) return;
-          if (availableSeasons.some(season => season.id === episode.saison_id)) preferredSeason = episode.saison_id!;
-        } catch { /* Cached history still allows the player to resume directly. */ }
-      }
+      const target = historyResult.status === 'fulfilled' ? await resolveContinue(animeId, historyResult.value.filter(entry => entry.animeId === animeId)).catch(() => null) : null;
+      if (token !== detailEpoch.current) return;
+      setContinueItem(target);
+      if (target && availableSeasons.some(season => season.id === target.episode.saison_id)) preferredSeason = target.episode.saison_id!;
       if (token !== detailEpoch.current) return;
       if (preferredSeason) setSeasonId(preferredSeason);
       else {
@@ -142,11 +147,13 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   useFocusEffect(useCallback(() => {
     let active = true;
     getPreferredLanguage().then(value => { if (active) setPreferredLanguage(value.toUpperCase()); });
+    malSync.isActive().then(value => { if (active) setMalActive(value); });
     Promise.all([databaseService.getAnimeEpisodes(animeId), databaseService.getWatchHistory(1000)]).then(([cached, history]) => {
       if (!active) return;
       const map = new Map(cached.map(episode => [episode.id, episode]));
       setEpisodes(previous => previous.map(episode => mergeLocal(episode, map.get(episode.id))));
-      setResumeId(history.find(entry => entry.animeId === animeId && entry.progress > 0 && entry.progress < 95)?.episodeId || '');
+      setHistoryProgress(progressByEpisode(history, animeId));
+      return resolveContinue(animeId, history.filter(entry => entry.animeId === animeId)).then(item => { if (active) setContinueItem(item); });
     }).catch(() => {});
     return () => { active = false; };
   }, [animeId]));
@@ -162,8 +169,63 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       if (inWatchlist) await databaseService.removeAnimeFromList(defaultList.id, animeId);
       else { await databaseService.addAnimeToList(defaultList.id, animeId); void malSync.watchlistAdded(anime); }
       setInWatchlist(value => !value);
-    } catch { Alert.alert('Watchlist', 'Impossible de modifier votre liste. Réessayez.'); }
+    } catch { dialog.alert('Watchlist', 'Impossible de modifier votre liste. Réessayez.'); }
     finally { setWatchlistBusy(false); }
+  };
+  const isWatched = (episode: Episode) => episode.isWatched || (historyProgress[episode.id] ?? episode.watchProgress ?? 0) >= WATCHED_PROGRESS;
+  // Même forme que la fin de lecture (100 % dans l'historique) ; « non vu » efface la progression.
+  const setWatched = async (targets: Episode[], watched: boolean, syncMal = true): Promise<boolean> => {
+    if (!targets.length) return true;
+    try {
+      const cached = new Map((await databaseService.getAnimeEpisodes(animeId)).map(episode => [episode.id, episode]));
+      const progress = watched ? 100 : 0;
+      for (const episode of targets) {
+        if (watched) await databaseService.updateWatchHistory(animeId, episode.id, progress);
+        else await databaseService.removeWatchHistory(animeId, episode.id);
+        await databaseService.saveEpisode({ ...mergeLocal(episode, cached.get(episode.id)), watchProgress: progress, isWatched: watched });
+      }
+      const ids = new Set(targets.map(episode => episode.id));
+      setEpisodes(previous => previous.map(episode => ids.has(episode.id) ? { ...episode, watchProgress: progress, isWatched: watched } : episode));
+      setHistoryProgress(previous => { const next = { ...previous }; ids.forEach(id => { if (watched) next[id] = progress; else delete next[id]; }); return next; });
+      void databaseService.getWatchHistory(1000).then(history => resolveContinue(animeId, history.filter(entry => entry.animeId === animeId))).then(setContinueItem).catch(() => {});
+      // La synchro MAL ne fait qu'avancer : le dernier épisode marqué suffit, rien n'est retiré quand on démarque.
+      if (watched && syncMal) void malSync.episodeWatched(animeId, targets.reduce((last, episode) => episode.number > last.number ? episode : last));
+      return true;
+    } catch { dialog.alert('Progression', 'Impossible de mettre à jour la progression. Réessayez.'); return false; }
+  };
+  // MAL → app : ne fait que marquer comme vus (rien n'est démarqué, rien n'est renvoyé à MAL).
+  const syncFromMal = async () => {
+    if (malBusy) return;
+    setMalBusy(true);
+    try {
+      await malSync.flushPending().catch(() => {});
+      const { episodes: seen, entries } = await malSync.watchedOnMal(animeId);
+      const cached = new Map((await databaseService.getAnimeEpisodes(animeId)).map(episode => [episode.id, episode]));
+      const missing = seen.filter(episode => !isWatched(mergeLocal(episode, cached.get(episode.id)))).map(episode => ({ ...episode, animeTitle: anime?.title || episode.animeTitle }));
+      const count = new Set(missing.map(episode => `${episode.saison_id}:${episode.number}`)).size;
+      if (!entries) dialog.alert('MyAnimeList', 'Aucun épisode de cet animé n’est marqué comme vu sur votre liste MyAnimeList.');
+      else if (!missing.length) dialog.alert('MyAnimeList', 'Votre progression est déjà à jour.');
+      else if (await setWatched(missing, true, false)) dialog.alert('MyAnimeList', `${count} épisode(s) marqué(s) comme vu(s).`);
+    } catch (cause) { dialog.alert('MyAnimeList', cause instanceof Error ? cause.message : 'Synchronisation impossible. Réessayez.'); }
+    finally { setMalBusy(false); }
+  };
+  const episodeMenu = async (episode: Episode) => {
+    const watched = isWatched(episode);
+    const choice = await dialog.actions({ title: `E${episode.number} · ${episode.title}`, actions: [{ label: watched ? 'Marquer comme non vu' : 'Marquer comme vu', icon: watched ? 'eye-off-outline' : 'eye-outline', value: 'toggle' }] });
+    if (choice === 'toggle') void setWatched([episode], !watched);
+  };
+  const seasonMenu = async () => {
+    const name = selectedSeason ? seasonTitle(selectedSeason) : 'cette saison';
+    const anyWatched = episodes.some(isWatched);
+    const allWatched = episodes.every(isWatched);
+    // Toutes les versions (VF, VOSTFR…) sont marquées, mais on compte les épisodes une seule fois.
+    const count = new Set(episodes.map(episode => episode.number)).size;
+    const choice = await dialog.actions({ title: name, subtitle: `${count} épisode(s)`, actions: [
+      ...(anyWatched ? [{ label: 'Marquer comme non vue', icon: 'eye-off-outline' as const, style: 'destructive' as const, value: 'unwatched' }] : []),
+      ...(!allWatched ? [{ label: 'Marquer comme vue', icon: 'checkmark-done-outline' as const, value: 'watched' }] : []),
+    ] });
+    if (choice === 'unwatched' && await dialog.confirm({ title: 'Marquer comme non vue', message: `Effacer la progression des ${count} épisodes de ${name} ?`, buttons: [{ text: 'Annuler', style: 'cancel' }, { text: 'Effacer', style: 'destructive' }] })) void setWatched(episodes, false);
+    if (choice === 'watched' && await dialog.confirm({ title: 'Marquer comme vue', message: `Marquer les ${count} épisodes de ${name} comme vus ?`, buttons: [{ text: 'Annuler', style: 'cancel' }, { text: 'Marquer' }] })) void setWatched(episodes, true);
   };
   const play = async (episodeId: string) => {
     try {
@@ -172,7 +234,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       const selected = episodes.find(episode => episode.id === episodeId) || cached || await apiService.getEpisodeById(episodeId);
       await databaseService.saveEpisode(mergeLocal(selected, cached));
       navigation.navigate('VideoPlayer', { episodeId, animeId, autoPlay: true });
-    } catch { Alert.alert('Lecture', 'Impossible de préparer cet épisode. Réessayez.'); }
+    } catch { dialog.alert('Lecture', 'Impossible de préparer cet épisode. Réessayez.'); }
   };
   const enqueueDownload = async (episode: Episode) => {
     if (!episode.streamingUrls.length && !(episode.streaming_servers || []).length) throw new Error('Aucun serveur disponible pour cet épisode.');
@@ -200,26 +262,27 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
         return;
       }
       await enqueueDownload(episode);
-    } catch (cause) { Alert.alert('Téléchargement', cause instanceof Error ? cause.message : 'Impossible de télécharger cet épisode.'); }
+    } catch (cause) { dialog.alert('Téléchargement', cause instanceof Error ? cause.message : 'Impossible de télécharger cet épisode.'); }
   };
   // Une seule version à la fois : choix manuel, sinon celle de l'épisode en cours, sinon la préférence.
   const languageRank = (value: string) => { const rank = ['VOSTFR', 'VF'].indexOf(value); return rank < 0 ? 99 : rank; };
   const availableLanguages = [...new Set(episodes.map(episodeLanguage).filter(Boolean))].sort((a, b) => languageRank(a) - languageRank(b));
-  const resumeEpisode = episodes.find(episode => episode.id === resumeId);
+  const resumeEpisode = continueItem?.episode;
   const activeLanguage = [language, resumeEpisode ? episodeLanguage(resumeEpisode) : '', preferredLanguage].find(value => value && availableLanguages.includes(value)) || availableLanguages[0] || '';
   const visibleEpisodes = episodes.filter(episode => !activeLanguage || !episodeLanguage(episode) || episodeLanguage(episode) === activeLanguage).sort((a, b) => descending ? b.number - a.number : a.number - b.number);
   const selectedSeason = seasons.find(season => season.id === seasonId);
   const inOrder = [...visibleEpisodes].sort((a, b) => a.number - b.number);
-  const primaryEpisode = resumeId || inOrder.find(episode => !episode.isWatched)?.id || inOrder[0]?.id;
+  const primaryEpisode = resumeId || inOrder.find(episode => !isWatched(episode))?.id || inOrder[0]?.id;
+  const primaryLabel = continueItem?.kind === 'resume' ? 'Reprendre la lecture' : continueItem ? `Regarder l’épisode ${continueItem.episode.number}` : primaryEpisode ? 'Commencer à regarder' : 'Aucun épisode disponible';
   const batchDownload = () => {
     const candidates = visibleEpisodes.filter(episode => ![DownloadStatus.DOWNLOADED, DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(episode.downloadStatus) && (episode.streamingUrls.length || episode.streaming_servers?.length));
-    if (!candidates.length) { Alert.alert('Téléchargements', 'Aucun nouvel épisode disponible au téléchargement.'); return; }
-    Alert.alert('Télécharger la sélection', `Ajouter ${candidates.length} épisodes à la file de téléchargement ?`, [{ text: 'Annuler', style: 'cancel' }, { text: 'Télécharger', onPress: async () => {
+    if (!candidates.length) { dialog.alert('Téléchargements', 'Aucun nouvel épisode disponible au téléchargement.'); return; }
+    dialog.alert('Télécharger la sélection', `Ajouter ${candidates.length} épisodes à la file de téléchargement ?`, [{ text: 'Annuler', style: 'cancel' }, { text: 'Télécharger', onPress: async () => {
       setBatchBusy(true);
       let failures = 0;
       for (const episode of candidates) { try { await enqueueDownload(episode); } catch { failures += 1; } }
       setBatchBusy(false);
-      if (failures) Alert.alert('Téléchargements', `${failures} épisode(s) n’ont pas pu être ajoutés.`);
+      if (failures) dialog.alert('Téléchargements', `${failures} épisode(s) n’ont pas pu être ajoutés.`);
     } }]);
   };
 
@@ -235,18 +298,20 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
         </View>
         <View style={{ paddingHorizontal: 16 }}>
           {anime.rating > 0 && <View style={styles.rating}><Ionicons name="star" size={17} color={colors.primary} /><Text style={{ color: colors.text, fontWeight: '600' }}>{anime.rating.toFixed(1)} / 10</Text><Text style={{ color: colors.textSecondary }}>Note moyenne</Text></View>}
-          <View style={styles.actions}><TouchableOpacity accessibilityLabel={inWatchlist ? 'Retirer de la watchlist' : 'Ajouter à la watchlist'} disabled={watchlistBusy} onPress={toggleWatchlist} style={styles.action}><Ionicons name={inWatchlist ? 'bookmark' : 'bookmark-outline'} size={25} color={inWatchlist ? colors.primary : colors.text} /><Text style={{ color: inWatchlist ? colors.primary : colors.text, fontSize: 12, marginTop: 7 }}>Watchlist</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Partager cet anime" onPress={() => Share.share({ message: `${anime.title}${anime.url_anime_sama ? `\n${anime.url_anime_sama}` : ''}` }).catch(() => Alert.alert('Partage', 'Le partage est indisponible.'))} style={styles.action}><Ionicons name="share-social-outline" size={25} color={colors.text} /><Text style={{ color: colors.text, fontSize: 12, marginTop: 7 }}>Partager</Text></TouchableOpacity></View>
+          <View style={styles.actions}><TouchableOpacity accessibilityLabel={inWatchlist ? 'Retirer de la watchlist' : 'Ajouter à la watchlist'} disabled={watchlistBusy} onPress={toggleWatchlist} style={styles.action}><Ionicons name={inWatchlist ? 'bookmark' : 'bookmark-outline'} size={25} color={inWatchlist ? colors.primary : colors.text} /><Text style={{ color: inWatchlist ? colors.primary : colors.text, fontSize: 12, marginTop: 7 }}>Watchlist</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Partager cet anime" onPress={() => Share.share({ message: `${anime.title}${anime.url_anime_sama ? `\n${anime.url_anime_sama}` : ''}` }).catch(() => dialog.alert('Partage', 'Le partage est indisponible.'))} style={styles.action}><Ionicons name="share-social-outline" size={25} color={colors.text} /><Text style={{ color: colors.text, fontSize: 12, marginTop: 7 }}>Partager</Text></TouchableOpacity>{malActive && <TouchableOpacity accessibilityLabel="Synchroniser avec MyAnimeList" disabled={malBusy} onPress={() => void syncFromMal()} style={styles.action}><Ionicons name="sync-outline" size={25} color={malBusy ? colors.textSecondary : colors.text} /><Text style={{ color: malBusy ? colors.textSecondary : colors.text, fontSize: 12, marginTop: 7 }}>{malBusy ? 'Synchro…' : 'Synchro MAL'}</Text></TouchableOpacity>}</View>
           {anime.synopsis ? <TouchableOpacity accessibilityLabel={expanded ? 'Réduire le synopsis' : 'Afficher le synopsis complet'} onPress={() => setExpanded(value => !value)}><Text style={{ color: colors.text, fontSize: 14, lineHeight: 23 }} numberOfLines={expanded ? undefined : 3}>{anime.synopsis.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').trim()}</Text><View style={styles.synopsisToggle}><Text style={{ color: colors.textSecondary, fontSize: 12 }}>{expanded ? 'Réduire' : 'En savoir plus'}</Text><Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} color={colors.textSecondary} size={17} /></View></TouchableOpacity> : <Text style={{ color: colors.textSecondary }}>Synopsis non renseigné.</Text>}
         </View>
         <View style={[styles.tabs, { borderBottomColor: colors.border }]}>{([{ key: 'episodes', label: 'Épisodes' }, { key: 'similar', label: 'Similaires' }] as const).map(option => <TouchableOpacity key={option.key} accessibilityRole="tab" accessibilityState={{ selected: tab === option.key }} onPress={() => setTab(option.key)} style={[styles.tab, { borderBottomColor: tab === option.key ? colors.primary : 'transparent' }]}><Text style={{ color: tab === option.key ? colors.text : colors.textSecondary, fontWeight: '700', fontSize: 15 }}>{option.label}</Text></TouchableOpacity>)}</View>
         {tab === 'episodes' ? <View style={{ paddingHorizontal: 16 }}>
-          <View style={styles.episodeToolbar}><TouchableOpacity accessibilityLabel="Choisir une saison" disabled={!seasons.length} onPress={() => setShowSeasons(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={{ flexShrink: 1, color: colors.text, fontSize: 17, fontWeight: '600' }}>{selectedSeason ? seasonTitle(selectedSeason) : 'Épisodes'}</Text>{seasons.length > 0 && <Ionicons name="chevron-down" color={colors.text} size={20} />}</TouchableOpacity><TouchableOpacity accessibilityLabel={descending ? 'Trier les épisodes du premier au dernier' : 'Trier les épisodes du dernier au premier'} onPress={() => setDescending(value => !value)} style={styles.iconButton}><Ionicons name={descending ? 'arrow-up' : 'arrow-down'} size={22} color={colors.text} /></TouchableOpacity>{Platform.OS !== 'web' && <TouchableOpacity accessibilityLabel="Télécharger les épisodes affichés" disabled={batchBusy || episodesLoading} onPress={batchDownload} style={styles.iconButton}><Ionicons name="download-outline" size={23} color={batchBusy ? colors.textSecondary : colors.text} /></TouchableOpacity>}</View>
+          <View style={styles.episodeToolbar}><TouchableOpacity accessibilityLabel="Choisir une saison" disabled={!seasons.length} onPress={() => setShowSeasons(true)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}><Text style={{ flexShrink: 1, color: colors.text, fontSize: 17, fontWeight: '600' }}>{selectedSeason ? seasonTitle(selectedSeason) : 'Épisodes'}</Text>{seasons.length > 0 && <Ionicons name="chevron-down" color={colors.text} size={20} />}</TouchableOpacity><TouchableOpacity accessibilityLabel={descending ? 'Trier les épisodes du premier au dernier' : 'Trier les épisodes du dernier au premier'} onPress={() => setDescending(value => !value)} style={styles.iconButton}><Ionicons name={descending ? 'arrow-up' : 'arrow-down'} size={22} color={colors.text} /></TouchableOpacity>{episodes.length > 0 && !episodesLoading && <TouchableOpacity accessibilityLabel="Marquer la saison comme vue ou non vue" onPress={seasonMenu} style={styles.iconButton}><Ionicons name={episodes.every(isWatched) ? 'checkmark-done-circle' : 'checkmark-done-circle-outline'} size={23} color={colors.text} /></TouchableOpacity>}{Platform.OS !== 'web' && <TouchableOpacity accessibilityLabel="Télécharger les épisodes affichés" disabled={batchBusy || episodesLoading} onPress={batchDownload} style={styles.iconButton}><Ionicons name="download-outline" size={23} color={batchBusy ? colors.textSecondary : colors.text} /></TouchableOpacity>}</View>
           {availableLanguages.length > 1 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 16 }}>{availableLanguages.map(value => <TouchableOpacity key={value} accessibilityRole="button" accessibilityState={{ selected: activeLanguage === value }} accessibilityLabel={`Afficher la version ${value}`} onPress={() => setLanguage(value)} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: radii.pill, backgroundColor: activeLanguage === value ? colors.buttonBg : colors.surface }}><Text style={{ color: activeLanguage === value ? colors.buttonText : colors.text }}>{value}</Text></TouchableOpacity>)}</ScrollView>}
           {!!episodeError && visibleEpisodes.length > 0 &&<Text style={{ color: colors.warning, marginBottom: 16 }}>{episodeError}</Text>}<LoadingSwap loading={episodesLoading} skeleton={<SkeletonGroup>{episodeSkeleton}</SkeletonGroup>}>
             {episodeError && !visibleEpisodes.length ? <TouchableOpacity onPress={() => seasonId ? loadSeason(seasonId) : loadDetails()}><Text style={{ color: colors.error, paddingVertical: 24 }}>{episodeError}</Text></TouchableOpacity> : visibleEpisodes.length ? visibleEpisodes.slice(0, episodeLimit).map(episode => {
               const image = episode.thumbnail && !episode.thumbnail.includes('placeholder') ? episode.thumbnail : anime.banner || anime.thumbnail;
               const downloading = [DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(episode.downloadStatus);
-              return <View key={episode.id} style={styles.episodeRow}><TouchableOpacity onPress={() => play(episode.id)} accessibilityLabel={`Lire l’épisode ${episode.number} : ${episode.title}`} style={{ width: 138, height: 78, borderRadius: radii.card, overflow: 'hidden', backgroundColor: colors.surface }}>{image ? <Image source={{ uri: image }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}<View style={styles.playOverlay}><Ionicons name={episode.isWatched ? 'refresh' : 'play'} size={26} color="#fff" /></View>{episode.watchProgress > 0 && <View style={[styles.progressTrack, { backgroundColor: colors.border }]}><View style={{ height: 3, width: `${Math.min(100, episode.watchProgress)}%`, backgroundColor: colors.primary }} /></View>}</TouchableOpacity><TouchableOpacity onPress={() => play(episode.id)} style={{ flex: 1 }}><Text numberOfLines={2} style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>{`E${episode.number} · ${episode.title}`}</Text><Text numberOfLines={1} style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8 }}>{[episodeLanguage(episode), episode.duration > 0 ? `${Math.round(episode.duration / 60)} min` : '', episode.isWatched ? 'Regardé' : ''].filter(Boolean).join(' · ')}</Text></TouchableOpacity>{Platform.OS !== 'web' && <TouchableOpacity disabled={episode.downloadStatus === DownloadStatus.DOWNLOADING} accessibilityLabel={episode.downloadStatus === DownloadStatus.DOWNLOADING ? 'Téléchargement en cours' : downloading ? 'Annuler le téléchargement' : episode.downloadStatus === DownloadStatus.DOWNLOADED ? 'Lire l’épisode téléchargé' : 'Télécharger cet épisode'} onPress={() => download(episode)} style={styles.downloadButton}><Ionicons name={episode.downloadStatus === DownloadStatus.DOWNLOADED ? 'checkmark-circle' : downloading ? 'close-circle-outline' : 'download-outline'} size={23} color={downloading || episode.downloadStatus === DownloadStatus.DOWNLOADED ? colors.primary : colors.textSecondary} /></TouchableOpacity>}</View>;
+              const progress = historyProgress[episode.id] ?? episode.watchProgress ?? 0;
+              const watched = isWatched(episode);
+              return <View key={episode.id} style={styles.episodeRow}><TouchableOpacity onPress={() => play(episode.id)} onLongPress={() => episodeMenu(episode)} accessibilityHint="Appui long pour marquer comme vu ou non vu" accessibilityLabel={`Lire l’épisode ${episode.number} : ${episode.title}`} style={{ width: 138, height: 78, borderRadius: radii.card, overflow: 'hidden', backgroundColor: colors.surface }}>{image ? <Image source={{ uri: image }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}<View style={[styles.playOverlay, watched && { backgroundColor: colors.overlay }]}><Ionicons name={watched ? 'refresh' : 'play'} size={26} color="#fff" /></View>{!watched && progress > 0 && <View style={styles.progressOverlay}><View style={[styles.progressTrack, { backgroundColor: colors.border }]}><View style={[styles.progressFill, { backgroundColor: colors.buttonBg, width: `${Math.min(100, Math.max(0, progress))}%` }]} /></View></View>}</TouchableOpacity><TouchableOpacity onPress={() => play(episode.id)} onLongPress={() => episodeMenu(episode)} style={{ flex: 1 }}><Text numberOfLines={2} style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>{`E${episode.number} · ${episode.title}`}</Text><Text numberOfLines={1} style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8 }}>{[episodeLanguage(episode), episode.duration > 0 ? `${Math.round(episode.duration / 60)} min` : '', watched ? 'Regardé' : ''].filter(Boolean).join(' · ')}</Text></TouchableOpacity>{Platform.OS !== 'web' && <TouchableOpacity disabled={episode.downloadStatus === DownloadStatus.DOWNLOADING} accessibilityLabel={episode.downloadStatus === DownloadStatus.DOWNLOADING ? 'Téléchargement en cours' : downloading ? 'Annuler le téléchargement' : episode.downloadStatus === DownloadStatus.DOWNLOADED ? 'Lire l’épisode téléchargé' : 'Télécharger cet épisode'} onPress={() => download(episode)} style={styles.downloadButton}><Ionicons name={episode.downloadStatus === DownloadStatus.DOWNLOADED ? 'checkmark-circle' : downloading ? 'close-circle-outline' : 'download-outline'} size={23} color={downloading || episode.downloadStatus === DownloadStatus.DOWNLOADED ? colors.primary : colors.textSecondary} /></TouchableOpacity>}</View>;
             }) : <Text style={{ color: colors.textSecondary, paddingVertical: 32 }}>Aucun épisode disponible pour cette sélection.</Text>}
             {!episodesLoading && visibleEpisodes.length > episodeLimit && <TouchableOpacity accessibilityLabel="Afficher 24 épisodes supplémentaires" onPress={() => setEpisodeLimit(limit => limit + 24)} style={{ paddingVertical: 16, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border }}><Text style={{ color: colors.primary, fontWeight: '600' }}>Afficher plus d’épisodes</Text><Text style={{ color: colors.textSecondary, marginTop: 6, fontSize: 12 }}>{Math.min(episodeLimit, visibleEpisodes.length)} / {visibleEpisodes.length} épisodes</Text></TouchableOpacity>}
           </LoadingSwap>
@@ -254,7 +319,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       </ScrollView> : <View style={styles.error}><Text style={{ color: colors.text, fontSize: 20 }}>Fiche indisponible</Text><Text style={{ color: colors.textSecondary, lineHeight: 23, marginTop: 12 }}>{error}</Text><TouchableOpacity onPress={loadDetails} style={[styles.retry, { backgroundColor: colors.buttonBg }]}><Text style={{ color: colors.buttonText }}>Réessayer</Text></TouchableOpacity></View>}
     </LoadingSwap>
     <TouchableOpacity accessibilityLabel="Retour" onPress={() => navigation.goBack()} style={[styles.back, { top: insets.top + 12 }]}><Ionicons name="chevron-back" color="#fff" size={29} /></TouchableOpacity>
-    {!loading && anime && <View style={[styles.bottomBar, { paddingBottom: Math.max(12, insets.bottom), backgroundColor: colors.background, borderTopColor: colors.border }]}><TouchableOpacity disabled={!primaryEpisode} accessibilityLabel={resumeId ? 'Reprendre la lecture' : 'Commencer la lecture'} onPress={() => primaryEpisode && play(primaryEpisode)} style={[styles.primaryButton, { backgroundColor: colors.buttonBg, opacity: primaryEpisode ? 1 : 0.45 }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={{ color: colors.buttonText, fontWeight: '700', fontSize: 15 }}>{resumeId ? 'REPRENDRE LA LECTURE' : primaryEpisode ? 'COMMENCER À REGARDER' : 'AUCUN ÉPISODE DISPONIBLE'}</Text></TouchableOpacity></View>}
+    {!loading && anime && <View style={[styles.bottomBar, { paddingBottom: Math.max(12, insets.bottom), backgroundColor: colors.background, borderTopColor: colors.border }]}><TouchableOpacity disabled={!primaryEpisode} accessibilityLabel={primaryLabel} onPress={() => primaryEpisode && play(primaryEpisode)} style={[styles.primaryButton, { backgroundColor: colors.buttonBg, opacity: primaryEpisode ? 1 : 0.45 }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={{ color: colors.buttonText, fontWeight: '700', fontSize: 15 }}>{primaryLabel.toUpperCase()}</Text></TouchableOpacity></View>}
     <CustomModal visible={showSeasons} onRequestClose={() => setShowSeasons(false)} alignment="bottom"><View style={{ paddingBottom: Math.max(insets.bottom, 16) }}><View style={styles.seasonsHeader}><Text style={{ color: colors.text, fontSize: 21, fontWeight: '700' }}>Saisons</Text><TouchableOpacity accessibilityLabel="Fermer les saisons" onPress={() => setShowSeasons(false)} style={styles.iconButton}><Ionicons name="close" color={colors.text} size={25} /></TouchableOpacity></View><ScrollView style={{ maxHeight: 420 }}>{seasons.map(season => <TouchableOpacity key={season.id} accessibilityState={{ selected: season.id === seasonId }} onPress={() => { setSeasonId(season.id); setShowSeasons(false); }} style={[styles.seasonOption, { borderBottomColor: colors.border }]}><View style={{ flex: 1 }}><Text style={{ color: season.id === seasonId ? colors.primary : colors.text, fontSize: 16 }}>{seasonTitle(season)}</Text><Text style={{ color: colors.textSecondary, marginTop: 6, fontSize: 12 }}>{[season.annee_sortie || '', `${season.nb_episodes} épisodes`, season.type || ''].filter(Boolean).join(' · ')}</Text></View>{season.id === seasonId && <Ionicons name="checkmark" color={colors.primary} size={22} />}</TouchableOpacity>)}</ScrollView></View></CustomModal>
   </View>;
 }
@@ -263,6 +328,6 @@ const styles = StyleSheet.create({
   heroTitle: { position: 'absolute', bottom: 0, left: 16, right: 16 }, title: { fontSize: 30, lineHeight: 37, fontWeight: '800' }, back: { position: 'absolute', left: 12, backgroundColor: 'rgba(0,0,0,0.5)', width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 22 },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }, actions: { flexDirection: 'row', gap: 30, paddingVertical: 22 }, action: { alignItems: 'center', minWidth: 54 }, synopsisToggle: { flexDirection: 'row', gap: 6, alignItems: 'center', marginTop: 12, marginBottom: 20 },
   tabs: { flexDirection: 'row', borderBottomWidth: 1, paddingHorizontal: 16 }, tab: { flex: 1, alignItems: 'center', paddingVertical: 16, borderBottomWidth: 3 }, episodeToolbar: { flexDirection: 'row', alignItems: 'center', paddingVertical: 17 }, iconButton: { width: 42, height: 42, justifyContent: 'center', alignItems: 'center' },
-  episodeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }, playOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.25)', alignItems: 'center', justifyContent: 'center' }, progressTrack: { height: 3, position: 'absolute', bottom: 0, left: 0, right: 0 }, downloadButton: { width: 30, height: 44, alignItems: 'center', justifyContent: 'center' }, similarGrid: { padding: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  episodeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }, playOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.25)', alignItems: 'center', justifyContent: 'center' }, progressOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 8 }, progressTrack: { height: 3, borderRadius: 1.5, overflow: 'hidden' }, progressFill: { height: '100%', borderRadius: 1.5 }, downloadButton: { width: 30, height: 44, alignItems: 'center', justifyContent: 'center' }, similarGrid: { padding: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   bottomBar: { borderTopWidth: 1, paddingHorizontal: 16, paddingTop: 12 }, primaryButton: { borderRadius: radii.pill, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 48, paddingHorizontal: 12 }, seasonsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 16 }, seasonOption: { padding: 18, borderBottomWidth: 1, flexDirection: 'row', alignItems: 'center' }, error: { flex: 1, justifyContent: 'center', padding: 24 }, retry: { borderRadius: radii.pill, padding: 14, alignSelf: 'flex-start', marginTop: 20 },
 });

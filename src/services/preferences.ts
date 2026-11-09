@@ -24,3 +24,13 @@ export async function getFavoriteHosts(): Promise<string[]> {
     return [];
   }
 }
+
+/** Lecture en arrière-plan / PiP autorisée (désactivée par défaut : la vidéo se met en pause hors de l'app). */
+export async function getBackgroundPlayback(): Promise<boolean> {
+  try {
+    const saved = JSON.parse((await AsyncStorage.getItem('appSettings')) || '{}');
+    return saved.backgroundPlayback === true;
+  } catch {
+    return false;
+  }
+}
