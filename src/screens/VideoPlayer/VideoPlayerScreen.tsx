@@ -28,6 +28,7 @@ import { palette } from '../../theme/palette';
 import PlayerDetails from './PlayerDetails';
 import PlayerSettingsSheet, { Page, ServerChoice } from './PlayerSettingsSheet';
 import useStutterDetector from './useStutterDetector';
+import { pickSkips, SkipResult } from '../../utils/skipTimes';
 
 const colors = palette.dark;
 const clock = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${Math.floor(Math.max(0, seconds) % 60).toString().padStart(2, '0')}`;
@@ -71,6 +72,10 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const [notice, setNotice] = useState('');
   const [stutterOff, setStutterOff] = useState(false);
   const [background, setBackground] = useState(false);
+  const [skipTimes, setSkipTimes] = useState<SkipResult[]>([]);
+  const [durationWidth, setDurationWidth] = useState(32);
+  const [stutterHeight, setStutterHeight] = useState(44);
+  const skipIn = useRef(new Animated.Value(0)).current;
   const probeCache = useRef<Record<string, Promise<StreamProbe>>>({});
   const order = useRef<StreamingServer[]>([]);
   const activeRef = useRef('');
@@ -284,6 +289,21 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     void load();
     return () => { active = false; };
   }, [episodeId, animeId, attempt, isOfflineMode, localFilePath, player]);
+  const loadedEpisode = episode?.id;
+  // Chargés une fois par épisode, sans attendre la durée : pickSkips les filtre quand elle est connue.
+  useEffect(() => {
+    let active = true;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    setSkipTimes([]);
+    const load = (again: boolean) => apiService.getSkipTimes(loadedEpisode!).then(({ results, retryAfter }) => {
+      if (!active) return;
+      setSkipTimes(results);
+      // AniList / AniSkip saturés côté API : une seule nouvelle tentative, assez tôt pour un opening en début d'épisode.
+      if (retryAfter && again) retry = setTimeout(() => void load(false), Math.min(retryAfter, 30) * 1000);
+    }).catch(() => { if (active && again) retry = setTimeout(() => void load(false), 15000); });
+    if (loadedEpisode && !isOfflineMode) void load(true);
+    return () => { active = false; if (retry) clearTimeout(retry); };
+  }, [loadedEpisode, isOfflineMode]);
   useEffect(() => {
     let active = true;
     if (startTimer.current) clearTimeout(startTimer.current);
@@ -333,7 +353,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   }, [playing, frame, controls, settings, drag, opacity, reduced, controlsActivity]);
   const toggleFullscreen = async () => { const target = !fullscreen; setFullscreen(target); show(); try { await ScreenOrientation.lockAsync(target ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch { setError('La rotation automatique n’est pas disponible sur cet appareil.'); } };
   useEffect(() => { const listener = BackHandler.addEventListener('hardwareBackPress', () => { if (!fullscreen) return false; void toggleFullscreen(); return true; }); return () => listener.remove(); }, [fullscreen]);
-  const seek = (position: number) => { if (!duration) return; const target = Math.max(0, Math.min(duration, position)); stutter.markSeek(); pendingSeek.current = { target, until: Date.now() + 2000 }; progressRef.current = { time: target, duration }; player.currentTime = target; setTime(target); show(); };
+  const seek = (position: number, reveal = true) => { if (!duration) return; const target = Math.max(0, Math.min(duration, position)); stutter.markSeek(); pendingSeek.current = { target, until: Date.now() + 2000 }; progressRef.current = { time: target, duration }; player.currentTime = target; setTime(target); if (reveal) show(); };
   // pageX (coordonnées écran) plutôt que locationX, qui est relatif à la vue touchée et donnait des positions fausses.
   const seekPosition = (pageX: number) => Math.max(0, Math.min(1, (pageX - seekBarX.current) / trackWidth.current)) * duration;
   const measureSeekBar = () => seekBar.current?.measure((_x, _y, barWidth, _height, pageX) => { if (barWidth > 0) { trackWidth.current = barWidth; seekBarX.current = pageX; } });
@@ -367,6 +387,23 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const closeSettings = () => { setSettings(false); setTouchLock(true); setTimeout(() => setTouchLock(false), 500); };
   const ui = fullscreen ? { side: 48, title: 20, subtitle: 15, icon: 30, skip: 44, play: 72, gap: 120 } : { side: 12, title: 15, subtitle: 12, icon: 24, skip: 34, play: 52, gap: 44 };
   const control = (name: React.ComponentProps<typeof MaterialIcons>['name'], label: string, action: () => void, size = ui.icon) => <MotionPressable pressedScale={0.88} accessibilityLabel={label} onPress={() => { action(); show(); }} hitSlop={8} style={styles.control}><MaterialIcons name={name} color="white" size={size} /></MotionPressable>;
+  const skips = useMemo(() => pickSkips(skipTimes, duration), [skipTimes, duration]);
+  const skip = !embed && source && !loading && drag === null ? skips.find(item => time >= item.start && time < item.end - 1) : undefined;
+  // Un ending qui va jusqu'au bout de la vidéo mène directement à l'épisode suivant.
+  const skipToNext = skip?.kind === 'outro' && !!next && duration - skip.end < 15;
+  const skipLabel = skipToNext ? 'Épisode suivant' : skip?.kind === 'intro' ? 'Passer l’intro' : skip?.kind === 'recap' ? 'Passer le récap' : 'Passer l’ending';
+  const skipKey = skip ? `${skip.kind}-${skip.start}` : '';
+  useEffect(() => {
+    if (!skipKey) { skipIn.setValue(0); return; }
+    Animated.timing(skipIn, { toValue: 1, duration: reduced ? 0 : motion.duration.short, easing: motion.easing.decelerate, useNativeDriver: true }).start();
+  }, [skipKey, reduced, skipIn]);
+  // Comme Crunchyroll : coin bas droit, visible que les commandes soient affichées ou non. Commandes masquées, il se cale dans le coin ;
+  // affichées, il remonte au-dessus de la barre (plein écran) ou se range à gauche de la durée (portrait, pour ne pas toucher le bouton +10 s).
+  const stutterShown = stutter.stuttering && !embed && !!source && !loading;
+  const skipBase = fullscreen ? Math.max(8, insets.bottom) + 16 : 12;
+  const skipBottom = stutterShown ? (fullscreen ? 72 : 56) + stutterHeight + 8 : skipBase;
+  const skipLift = stutterShown ? 0 : fullscreen ? 56 : 25;
+  const skipShift = stutterShown || fullscreen ? 0 : durationWidth + 12;
   const seriesTitle = anime?.title || episode?.animeTitle || '';
   const episodeTitle = episode ? `E${episode.number} - ${episode.title || episode.titre_episode || `Épisode ${episode.number}`}` : '';
   // Même barre du haut pendant le chargement, une erreur ou un lecteur web que sur le lecteur natif : sinon d'anciennes icônes s'affichaient le temps de l'ouverture.
@@ -396,11 +433,14 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
         </View>
         {topBar}
         <View pointerEvents="box-none">
-          <View pointerEvents="none" style={styles.timeRow}><Text style={[styles.time, fullscreen && { fontSize: 14 }]}>{clock(drag ?? time)}</Text>{isOfflineMode && <Text style={styles.offline}>Hors ligne</Text>}<Text style={[styles.time, fullscreen && { fontSize: 14 }]}>{clock(duration)}</Text></View>
+          <View pointerEvents="none" style={styles.timeRow}><Text style={[styles.time, fullscreen && { fontSize: 14 }]}>{clock(drag ?? time)}</Text>{isOfflineMode && <Text style={styles.offline}>Hors ligne</Text>}<Text onLayout={event => setDurationWidth(event.nativeEvent.layout.width)} style={[styles.time, fullscreen && { fontSize: 14 }]}>{clock(duration)}</Text></View>
           <View style={styles.seek} accessibilityRole="adjustable" accessibilityLabel="Progression de lecture" accessibilityValue={{ min: 0, max: Math.round(duration), now: Math.round(time), text: clock(time) }} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={event => seek(time + (event.nativeEvent.actionName === 'increment' ? 10 : -10))} ref={seekBar} onLayout={measureSeekBar} onStartShouldSetResponder={() => duration > 0} onMoveShouldSetResponder={() => duration > 0} onResponderTerminationRequest={() => false} onResponderGrant={event => { const { pageX } = event.nativeEvent; measureSeekBar(); updateDrag(pageX); show(); }} onResponderMove={event => updateDrag(event.nativeEvent.pageX)} onResponderRelease={event => { updateDrag(event.nativeEvent.pageX); endDrag(true); }} onResponderTerminate={() => endDrag(false)}><View pointerEvents="none" style={styles.trackWrap}><Animated.View style={[styles.track, { transform: [{ scaleY: dragProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 2] }) }] }]}><View style={[styles.fill, { width: `${fraction * 100}%` }]} /></Animated.View><Animated.View style={[styles.thumb, { left: `${fraction * 100}%`, transform: [{ scale: dragProgress.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) }] }]} /></View></View>
         </View>
       </Animated.View>}
-      {stutter.stuttering && !embed && source && !loading && <View style={[styles.stutter, fullscreen && { bottom: 72, maxWidth: 420 }]}><Ionicons name="swap-horizontal" color={colors.primary} size={18} /><Text style={styles.stutterText}>La lecture saccade ? Essayez un autre lecteur</Text><TouchableOpacity onPress={() => { stutter.dismiss(); openServers(); }} hitSlop={6}><Text style={styles.noticeAction}>Changer de lecteur</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Ignorer" onPress={() => { stutter.dismiss(); setStutterOff(true); }} hitSlop={6}><Text style={styles.stutterIgnore}>Ignorer</Text></TouchableOpacity></View>}
+      {stutterShown && <View onLayout={event => setStutterHeight(event.nativeEvent.layout.height)} style={[styles.stutter, fullscreen && { bottom: 72, maxWidth: 420 }]}><Ionicons name="swap-horizontal" color={colors.primary} size={18} /><Text style={styles.stutterText}>La lecture saccade ? Essayez un autre lecteur</Text><TouchableOpacity onPress={() => { stutter.dismiss(); openServers(); }} hitSlop={6}><Text style={styles.noticeAction}>Changer de lecteur</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Ignorer" onPress={() => { stutter.dismiss(); setStutterOff(true); }} hitSlop={6}><Text style={styles.stutterIgnore}>Ignorer</Text></TouchableOpacity></View>}
+      {skip && <Animated.View pointerEvents="box-none" style={[styles.skipWrap, { right: ui.side + (fullscreen ? insets.right : 0), bottom: skipBottom, opacity: skipIn, transform: [{ translateX: Animated.add(skipIn.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }), opacity.interpolate({ inputRange: [0, 1], outputRange: [0, -skipShift] })) }, { translateY: opacity.interpolate({ inputRange: [0, 1], outputRange: [0, -skipLift] }) }] }]}>
+        <MotionPressable pressedScale={0.94} accessibilityRole="button" accessibilityLabel={skipLabel} onPress={() => { if (skipToNext && next) navigateEpisode(next); else seek(skip.end, false); }} hitSlop={8} style={[styles.skip, fullscreen ? { height: 40, paddingHorizontal: 18 } : { height: 30, paddingHorizontal: 12 }]}><Text style={[styles.skipText, fullscreen && { fontSize: 14 }]}>{skipLabel}</Text><MaterialIcons name={skipToNext ? 'skip-next' : 'fast-forward'} color="white" size={fullscreen ? 20 : 16} /></MotionPressable>
+      </Animated.View>}
     </View>
     {!fullscreen && <ScrollView style={{ flex: 1 }} pointerEvents={settings || touchLock ? 'none' : 'auto'}>{!!(notice || (error && (source || embed))) && <TouchableOpacity accessibilityRole="button" onPress={openServers} style={styles.notice}><Ionicons name="swap-horizontal" color={colors.primary} size={18} /><Text style={[styles.error, { flex: 1 }]}>{error && (source || embed) ? error : notice}</Text><Text style={styles.noticeAction}>Lecteurs</Text></TouchableOpacity>}{episode && <PlayerDetails anime={anime} episode={episode} episodes={episodes} onEpisode={navigateEpisode} onAnime={() => navigation.navigate('AnimeDetail', { animeId })} />}</ScrollView>}
     <PlayerSettingsSheet visible={settings} onClose={closeSettings} reduced={reduced} nativePlayback={!!source && !embed}
@@ -409,4 +449,4 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       servers={isOfflineMode ? undefined : choices} currentServer={active} onServer={choice => void selectServer(choice)} startPage={settingsPage} />
   </View>;
 }
-const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: '#000' }, video: { width: '100%', backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }, overlay: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' }, scrim: { backgroundColor: 'rgba(0,0,0,0.25)' }, scrimTop: { position: 'absolute', top: 0, left: 0, right: 0, height: '40%' }, scrimBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%' }, top: { flexDirection: 'row', alignItems: 'flex-start' }, titles: { flex: 1, paddingTop: 6, paddingRight: 12 }, overlayTitle: { color: 'white', fontWeight: '500' }, overlaySubtitle: { color: 'rgba(255,255,255,0.65)', marginTop: 4 }, actions: { flexDirection: 'row', alignItems: 'center', opacity: 0.9 }, control: { padding: 6, alignItems: 'center', justifyContent: 'center' }, center: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }, playButton: { alignItems: 'center', justifyContent: 'center' }, seekHint: { position: 'absolute', top: 0, bottom: 0, width: '35%', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.08)' }, seekHintText: { color: 'white', fontSize: 14, fontWeight: '600', marginTop: 4 }, seek: { height: 44, justifyContent: 'center' }, trackWrap: { height: 4 }, track: { height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.24)' }, fill: { height: 4, backgroundColor: colors.primary }, thumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'white', position: 'absolute', marginLeft: -10, top: -8 }, timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, time: { color: 'white', fontSize: 12, fontVariant: ['tabular-nums'] }, offline: { color: colors.primary, fontSize: 11 }, staticBar: { position: 'absolute', top: 0, left: 0, right: 0, paddingBottom: 16 }, empty: { alignItems: 'center', gap: 14, padding: 20 }, cover: { backgroundColor: '#000', justifyContent: 'center' }, emptyActions: { flexDirection: 'row', gap: 10 }, notice: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: radii.control, backgroundColor: colors.surface }, noticeAction: { color: colors.primary, fontWeight: '600', fontSize: 13 }, stutter: { position: 'absolute', left: 12, right: 12, bottom: 56, alignSelf: 'center', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: 10, borderRadius: radii.control, backgroundColor: 'rgba(28,30,39,0.94)' }, stutterText: { color: 'white', fontSize: 13, flexShrink: 1, flexGrow: 1 }, stutterIgnore: { color: colors.textSecondary, fontWeight: '600', fontSize: 13 }, error: { color: colors.textSecondary, fontSize: 13, lineHeight: 21 }, retry: { paddingHorizontal: 18, paddingVertical: 10, backgroundColor: colors.buttonBg, borderRadius: radii.pill } });
+const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: '#000' }, video: { width: '100%', backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }, overlay: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' }, scrim: { backgroundColor: 'rgba(0,0,0,0.25)' }, scrimTop: { position: 'absolute', top: 0, left: 0, right: 0, height: '40%' }, scrimBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%' }, top: { flexDirection: 'row', alignItems: 'flex-start' }, titles: { flex: 1, paddingTop: 6, paddingRight: 12 }, overlayTitle: { color: 'white', fontWeight: '500' }, overlaySubtitle: { color: 'rgba(255,255,255,0.65)', marginTop: 4 }, actions: { flexDirection: 'row', alignItems: 'center', opacity: 0.9 }, control: { padding: 6, alignItems: 'center', justifyContent: 'center' }, center: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }, playButton: { alignItems: 'center', justifyContent: 'center' }, seekHint: { position: 'absolute', top: 0, bottom: 0, width: '35%', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.08)' }, seekHintText: { color: 'white', fontSize: 14, fontWeight: '600', marginTop: 4 }, seek: { height: 44, justifyContent: 'center' }, trackWrap: { height: 4 }, track: { height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.24)' }, fill: { height: 4, backgroundColor: colors.primary }, thumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'white', position: 'absolute', marginLeft: -10, top: -8 }, timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, time: { color: 'white', fontSize: 12, fontVariant: ['tabular-nums'] }, offline: { color: colors.primary, fontSize: 11 }, staticBar: { position: 'absolute', top: 0, left: 0, right: 0, paddingBottom: 16 }, empty: { alignItems: 'center', gap: 14, padding: 20 }, cover: { backgroundColor: '#000', justifyContent: 'center' }, emptyActions: { flexDirection: 'row', gap: 10 }, notice: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: radii.control, backgroundColor: colors.surface }, noticeAction: { color: colors.primary, fontWeight: '600', fontSize: 13 }, stutter: { position: 'absolute', left: 12, right: 12, bottom: 56, alignSelf: 'center', flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: 10, borderRadius: radii.control, backgroundColor: 'rgba(28,30,39,0.94)' }, stutterText: { color: 'white', fontSize: 13, flexShrink: 1, flexGrow: 1 }, stutterIgnore: { color: colors.textSecondary, fontWeight: '600', fontSize: 13 }, skipWrap: { position: 'absolute' }, skip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 4, backgroundColor: colors.buttonBg, elevation: 4 }, skipText: { color: colors.buttonText, fontWeight: '700', fontSize: 12, letterSpacing: 0.4, textTransform: 'uppercase' }, error: { color: colors.textSecondary, fontSize: 13, lineHeight: 21 }, retry: { paddingHorizontal: 18, paddingVertical: 10, backgroundColor: colors.buttonBg, borderRadius: radii.pill } });
