@@ -35,7 +35,7 @@ type SourceOption = { label: string; url: string };
 // Délai au-delà duquel un flux qui ne démarre pas est considéré comme hors service.
 const START_TIMEOUT = 25000;
 export default function VideoPlayerScreen({ route, navigation }: RootStackScreenProps<'VideoPlayer'>) {
-  const { episodeId, animeId, autoPlay = false, localFilePath, isOfflineMode = false } = route.params;
+  const { episodeId, animeId, autoPlay = false, localFilePath, isOfflineMode = false, startFullscreen = false } = route.params;
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
   const focused = useIsFocused();
@@ -48,7 +48,9 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
-  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(startFullscreen);
+  // Vrai quand on remplace l'écran par l'épisode suivant : il gère lui-même l'orientation.
+  const keepOrientation = useRef(false);
   const [settings, setSettings] = useState(false);
   const [controls, setControls] = useState(true);
   const [controlsActivity, setControlsActivity] = useState(0);
@@ -194,7 +196,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     else start(server, result);
   };
   const openServers = () => { setSettingsPage('server'); setSettings(true); };
-  const navigateEpisode = useCallback((item: Episode) => { player.pause(); navigation.replace('VideoPlayer', { animeId, episodeId: item.id, autoPlay: true }); }, [animeId, navigation, player]);
+  const navigateEpisode = useCallback((item: Episode) => { player.pause(); keepOrientation.current = true; navigation.replace('VideoPlayer', { animeId, episodeId: item.id, autoPlay: true, startFullscreen: fullscreen }); }, [animeId, navigation, player, fullscreen]);
   const show = useCallback(() => { opacity.stopAnimation(); setControls(true); setControlsActivity(value => value + 1); Animated.timing(opacity, { toValue: 1, duration: reduced ? 0 : 160, useNativeDriver: true }).start(); }, [opacity, reduced]);
   const saveProgress = useCallback(() => {
     const value = progressRef.current;
@@ -206,8 +208,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     if (progress >= 90) void malSync.episodeWatched(animeId, episode);
   }, [animeId, episodeId, episode]);
   useEffect(() => {
-    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-    return () => { void ScreenOrientation.unlockAsync().catch(() => {}); opacity.stopAnimation(); if (hideTimer.current) clearTimeout(hideTimer.current); };
+    void ScreenOrientation.lockAsync(startFullscreen ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    return () => { if (!keepOrientation.current) void ScreenOrientation.unlockAsync().catch(() => {}); opacity.stopAnimation(); if (hideTimer.current) clearTimeout(hideTimer.current); };
   }, [opacity]);
   useEffect(() => {
     let active = true;
