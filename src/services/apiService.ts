@@ -23,6 +23,7 @@ class ApiService {
 
   private groupFor(endpoint: string): LoadGroup {
     if (endpoint === '/health') return 'system';
+    if (/^\/api\/anime\/\d+\/similar/.test(endpoint)) return 'background';
     if (/^\/api\/episode\/\d+(?:[/?]|$)/.test(endpoint)) return 'player';
     if (/^\/api\/(?:anime|episode|saison)\/\d+(?:[/?]|$)/.test(endpoint)) return 'detail';
     if (/^\/api\/(?:anime\/(?:latest|popular)|episodes\/latest|discover\/trending)/.test(endpoint)) return 'home';
@@ -288,6 +289,12 @@ class ApiService {
 
   async getAnimesByGenre(genre: string, limit: number = 20, page: number = 1): Promise<Anime[]> {
     const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/discover/by-genre/${encodeURIComponent(genre)}?limit=${limit}&page=${page}`);
+    return response.data.map(anime => this.mapApiAnimeToAnime(anime));
+  }
+
+  /** Recommandations des utilisateurs MAL reliées au catalogue (absent des API non mises à jour). */
+  async getSimilarAnimes(animeId: string, limit: number = 12): Promise<Anime[]> {
+    const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/anime/${animeId}/similar?limit=${limit}`);
     return response.data.map(anime => this.mapApiAnimeToAnime(anime));
   }
 
