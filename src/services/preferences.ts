@@ -14,3 +14,13 @@ export async function getPreferredLanguage(): Promise<string> {
     return 'vostfr';
   }
 }
+
+/** Hébergeurs favoris dans l'ordre de préférence (identifiants de `STREAM_HOSTS`), enregistrés dans `appSettings`. */
+export async function getFavoriteHosts(): Promise<string[]> {
+  try {
+    const saved = JSON.parse((await AsyncStorage.getItem('appSettings')) || '{}');
+    return Array.isArray(saved.favoriteHosts) ? saved.favoriteHosts.filter((value: unknown) => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+}

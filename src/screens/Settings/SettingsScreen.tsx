@@ -2,6 +2,7 @@ import { radii } from '../../theme/shape';
 import downloadService from '../../services/downloadService';
 import apiService from '../../services/apiService';
 import { LANGUAGE_OPTIONS } from '../../services/preferences';
+import { STREAM_HOSTS } from '../../services/streamHosts';
 import * as mal from '../../services/mal/malService';
 import * as malSync from '../../services/mal/malSync';
 import * as updates from '../../services/updateService';
@@ -43,6 +44,8 @@ interface AppSettings {
   // Lecture
   defaultQuality: string;
   preferredLanguage: string;
+  /** Hébergeurs vidéo préférés, du plus au moins prioritaire. */
+  favoriteHosts: string[];
   autoplay: boolean;
   skipIntro: boolean;
   skipOutro: boolean;
@@ -95,6 +98,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     malToken: '',
     defaultQuality: '720p',
     preferredLanguage: 'vostfr',
+    favoriteHosts: [],
     autoplay: true,
     skipIntro: false,
     skipOutro: false,
@@ -112,6 +116,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
 
   const [showQualityModal, setShowQualityModal] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [showFavoritesModal, setShowFavoritesModal] = useState(false);
   const [showDownloadQualityModal, setShowDownloadQualityModal] = useState(false);
   const [showStorageModal, setShowStorageModal] = useState(false);
   const [profileName, setProfileName] = useState('Mon profil');
@@ -349,6 +354,59 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     </Modal>
   );
 
+  const hostLabel = (id: string) => STREAM_HOSTS.find(host => host.id === id)?.label ?? id;
+  // Liste ordonnée : la flèche remonte un favori d'un rang, le + ajoute un lecteur en fin de liste.
+  const moveFavorite = (id: string, delta: number) => {
+    const list = [...settings.favoriteHosts];
+    const index = list.indexOf(id);
+    if (index < 0) list.push(id);
+    else if (delta === 0) list.splice(index, 1);
+    else {
+      const target = index + delta;
+      if (target < 0 || target >= list.length) return;
+      [list[index], list[target]] = [list[target], list[index]];
+    }
+    void saveSettings({ favoriteHosts: list });
+  };
+
+  const renderFavoritesModal = () => {
+    const others = STREAM_HOSTS.filter(host => !settings.favoriteHosts.includes(host.id));
+    const iconButton = (name: React.ComponentProps<typeof Ionicons>['name'], label: string, action: () => void, disabled = false) => (
+      <TouchableOpacity accessibilityLabel={label} onPress={action} disabled={disabled} hitSlop={6} style={[styles.favoriteButton, disabled && { opacity: 0.25 }]}>
+        <Ionicons name={name} size={20} color={colors.text} />
+      </TouchableOpacity>
+    );
+    return (
+      <Modal visible={showFavoritesModal} animationType={reducedMotion ? 'none' : 'slide'} transparent onRequestClose={() => setShowFavoritesModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: '85%' }]}>
+            <Text style={[styles.modalTitle, { color: colors.textSecondary }]}>Lecteurs favoris</Text>
+            <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>À l’ouverture d’un épisode, le premier lecteur disponible de cette liste est choisi. Les autres suivent dans l’ordre de l’épisode.</Text>
+            <ScrollView style={{ flexShrink: 1 }}>
+              {settings.favoriteHosts.map((id, index) => (
+                <View key={id} style={[styles.optionRow, { borderBottomColor: colors.border, backgroundColor: colors.primary + '20' }]}>
+                  <Text style={[styles.optionText, { color: colors.primary, flex: 1 }]}>{index + 1}. {hostLabel(id)}</Text>
+                  {iconButton('arrow-up', `Monter ${hostLabel(id)}`, () => moveFavorite(id, -1), index === 0)}
+                  {iconButton('arrow-down', `Descendre ${hostLabel(id)}`, () => moveFavorite(id, 1), index === settings.favoriteHosts.length - 1)}
+                  {iconButton('close', `Retirer ${hostLabel(id)} des favoris`, () => moveFavorite(id, 0))}
+                </View>
+              ))}
+              {others.map(host => (
+                <TouchableOpacity key={host.id} accessibilityLabel={`Ajouter ${host.label} aux favoris`} onPress={() => moveFavorite(host.id, 1)} style={[styles.optionRow, { borderBottomColor: colors.border }]}>
+                  <Text style={[styles.optionText, { color: colors.text, flex: 1 }]}>{host.label}</Text>
+                  <Ionicons name="add" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={[styles.modalButton, { backgroundColor: colors.border, marginTop: 16, flex: 0 }]} onPress={() => setShowFavoritesModal(false)}>
+              <Text style={[styles.modalButtonText, { color: colors.text }]}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   const renderStorageModal = () => (
     <Modal
       visible={showStorageModal}
@@ -447,6 +505,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               'Langue affichée par défaut sur les fiches',
               LANGUAGE_OPTIONS.find(option => option.value === settings.preferredLanguage)?.label,
               () => setShowLanguageModal(true)
+            )}
+            {renderSettingRow(
+              'server',
+              'Lecteurs favoris',
+              'Utiliser en priorité le premier lecteur disponible de la liste',
+              settings.favoriteHosts.length ? settings.favoriteHosts.map(id => hostLabel(id)).join(', ') : 'Aucun',
+              () => setShowFavoritesModal(true)
             )}
             {renderSettingRow(
               'play-circle',
@@ -660,6 +725,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
         'Qualité de téléchargement'
       )}
 
+      {renderFavoritesModal()}
       {renderStorageModal()}
       {renderProfileModal()}
     </View>
@@ -776,6 +842,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
+  },
+  favoriteButton: {
+    padding: 6,
+    marginLeft: 4,
   },
   optionText: {
     fontSize: 16,
