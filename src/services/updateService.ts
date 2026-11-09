@@ -1,8 +1,9 @@
-import { Alert, Linking, Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { dialog } from '../components/Dialog';
 
 /** Mises à jour de l'APK Android depuis les releases GitHub du dépôt de l'app. */
 const RELEASES_URL = 'https://api.github.com/repos/tidic84/AnimeVisionApp/releases/latest';
@@ -72,13 +73,13 @@ export function promptUpdate(update: AppUpdate, options: { allowSkip?: boolean }
     installing = true;
     try { await installUpdate(update); }
     catch (error) {
-      Alert.alert('Mise à jour', `${error instanceof Error ? error.message : 'Installation impossible'}.\n\nVous pouvez télécharger l'APK depuis GitHub.`, [
+      dialog.alert('Mise à jour', `${error instanceof Error ? error.message : 'Installation impossible'}.\n\nVous pouvez télécharger l'APK depuis GitHub.`, [
         { text: 'Fermer', style: 'cancel' },
         { text: 'Ouvrir GitHub', onPress: () => void Linking.openURL(update.pageUrl) },
       ]);
     } finally { installing = false; }
   };
-  Alert.alert(`Version ${update.version} disponible`, `Vous utilisez la version ${currentVersion()}${size}.${notes}`, [
+  dialog.alert(`Version ${update.version} disponible`, `Vous utilisez la version ${currentVersion()}${size}.${notes}`, [
     options.allowSkip
       ? { text: 'Ignorer cette version', style: 'cancel', onPress: () => void AsyncStorage.setItem(SKIPPED_KEY, update.version).catch(() => {}) }
       : { text: 'Plus tard', style: 'cancel' },

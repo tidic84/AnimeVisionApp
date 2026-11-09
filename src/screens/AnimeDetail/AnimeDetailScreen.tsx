@@ -1,6 +1,6 @@
 import { radii } from '../../theme/shape';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Image, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Image, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
@@ -19,6 +19,7 @@ import { getPreferredLanguage } from '../../services/preferences';
 import * as malSync from '../../services/mal/malSync';
 import { ContinueItem, resolveContinue } from '../../services/continueWatching';
 import { WATCHED_PROGRESS, episodeLanguage } from '../../utils/watchProgress';
+import { dialog } from '../../components/Dialog';
 
 const seasonTitle = (season: Season) => season.titre_saison?.trim() || (season.num_saison > 0 && season.num_saison < 100 ? `Saison ${season.num_saison}` : season.type || 'Épisodes');
 const mergeLocal = (episode: Episode, cached?: Episode): Episode => ({ ...episode, watchProgress: cached?.watchProgress ?? episode.watchProgress, isWatched: cached?.isWatched ?? episode.isWatched, downloadStatus: cached?.downloadStatus ?? episode.downloadStatus });
@@ -168,7 +169,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       if (inWatchlist) await databaseService.removeAnimeFromList(defaultList.id, animeId);
       else { await databaseService.addAnimeToList(defaultList.id, animeId); void malSync.watchlistAdded(anime); }
       setInWatchlist(value => !value);
-    } catch { Alert.alert('Watchlist', 'Impossible de modifier votre liste. Réessayez.'); }
+    } catch { dialog.alert('Watchlist', 'Impossible de modifier votre liste. Réessayez.'); }
     finally { setWatchlistBusy(false); }
   };
   const isWatched = (episode: Episode) => episode.isWatched || (historyProgress[episode.id] ?? episode.watchProgress ?? 0) >= WATCHED_PROGRESS;
@@ -190,7 +191,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       // La synchro MAL ne fait qu'avancer : le dernier épisode marqué suffit, rien n'est retiré quand on démarque.
       if (watched && syncMal) void malSync.episodeWatched(animeId, targets.reduce((last, episode) => episode.number > last.number ? episode : last));
       return true;
-    } catch { Alert.alert('Progression', 'Impossible de mettre à jour la progression. Réessayez.'); return false; }
+    } catch { dialog.alert('Progression', 'Impossible de mettre à jour la progression. Réessayez.'); return false; }
   };
   // MAL → app : ne fait que marquer comme vus (rien n'est démarqué, rien n'est renvoyé à MAL).
   const syncFromMal = async () => {
@@ -202,27 +203,29 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       const cached = new Map((await databaseService.getAnimeEpisodes(animeId)).map(episode => [episode.id, episode]));
       const missing = seen.filter(episode => !isWatched(mergeLocal(episode, cached.get(episode.id)))).map(episode => ({ ...episode, animeTitle: anime?.title || episode.animeTitle }));
       const count = new Set(missing.map(episode => `${episode.saison_id}:${episode.number}`)).size;
-      if (!entries) Alert.alert('MyAnimeList', 'Aucun épisode de cet animé n’est marqué comme vu sur votre liste MyAnimeList.');
-      else if (!missing.length) Alert.alert('MyAnimeList', 'Votre progression est déjà à jour.');
-      else if (await setWatched(missing, true, false)) Alert.alert('MyAnimeList', `${count} épisode(s) marqué(s) comme vu(s).`);
-    } catch (cause) { Alert.alert('MyAnimeList', cause instanceof Error ? cause.message : 'Synchronisation impossible. Réessayez.'); }
+      if (!entries) dialog.alert('MyAnimeList', 'Aucun épisode de cet animé n’est marqué comme vu sur votre liste MyAnimeList.');
+      else if (!missing.length) dialog.alert('MyAnimeList', 'Votre progression est déjà à jour.');
+      else if (await setWatched(missing, true, false)) dialog.alert('MyAnimeList', `${count} épisode(s) marqué(s) comme vu(s).`);
+    } catch (cause) { dialog.alert('MyAnimeList', cause instanceof Error ? cause.message : 'Synchronisation impossible. Réessayez.'); }
     finally { setMalBusy(false); }
   };
-  const episodeMenu = (episode: Episode) => {
+  const episodeMenu = async (episode: Episode) => {
     const watched = isWatched(episode);
-    Alert.alert(`E${episode.number} · ${episode.title}`, undefined, [{ text: 'Annuler', style: 'cancel' }, { text: watched ? 'Marquer comme non vu' : 'Marquer comme vu', onPress: () => void setWatched([episode], !watched) }]);
+    const choice = await dialog.actions({ title: `E${episode.number} · ${episode.title}`, actions: [{ label: watched ? 'Marquer comme non vu' : 'Marquer comme vu', icon: watched ? 'eye-off-outline' : 'eye-outline', value: 'toggle' }] });
+    if (choice === 'toggle') void setWatched([episode], !watched);
   };
-  const seasonMenu = () => {
+  const seasonMenu = async () => {
     const name = selectedSeason ? seasonTitle(selectedSeason) : 'cette saison';
     const anyWatched = episodes.some(isWatched);
     const allWatched = episodes.every(isWatched);
     // Toutes les versions (VF, VOSTFR…) sont marquées, mais on compte les épisodes une seule fois.
     const count = new Set(episodes.map(episode => episode.number)).size;
-    Alert.alert(name, `${count} épisode(s)`, [
-      { text: 'Annuler', style: 'cancel' },
-      ...(anyWatched ? [{ text: 'Marquer comme non vue', style: 'destructive' as const, onPress: () => Alert.alert('Marquer comme non vue', `Effacer la progression des ${count} épisodes de ${name} ?`, [{ text: 'Annuler', style: 'cancel' }, { text: 'Effacer', style: 'destructive', onPress: () => void setWatched(episodes, false) }]) }] : []),
-      ...(!allWatched ? [{ text: 'Marquer comme vue', onPress: () => Alert.alert('Marquer comme vue', `Marquer les ${count} épisodes de ${name} comme vus ?`, [{ text: 'Annuler', style: 'cancel' }, { text: 'Marquer', onPress: () => void setWatched(episodes, true) }]) }] : []),
-    ]);
+    const choice = await dialog.actions({ title: name, subtitle: `${count} épisode(s)`, actions: [
+      ...(anyWatched ? [{ label: 'Marquer comme non vue', icon: 'eye-off-outline' as const, style: 'destructive' as const, value: 'unwatched' }] : []),
+      ...(!allWatched ? [{ label: 'Marquer comme vue', icon: 'checkmark-done-outline' as const, value: 'watched' }] : []),
+    ] });
+    if (choice === 'unwatched' && await dialog.confirm({ title: 'Marquer comme non vue', message: `Effacer la progression des ${count} épisodes de ${name} ?`, buttons: [{ text: 'Annuler', style: 'cancel' }, { text: 'Effacer', style: 'destructive' }] })) void setWatched(episodes, false);
+    if (choice === 'watched' && await dialog.confirm({ title: 'Marquer comme vue', message: `Marquer les ${count} épisodes de ${name} comme vus ?`, buttons: [{ text: 'Annuler', style: 'cancel' }, { text: 'Marquer' }] })) void setWatched(episodes, true);
   };
   const play = async (episodeId: string) => {
     try {
@@ -231,7 +234,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       const selected = episodes.find(episode => episode.id === episodeId) || cached || await apiService.getEpisodeById(episodeId);
       await databaseService.saveEpisode(mergeLocal(selected, cached));
       navigation.navigate('VideoPlayer', { episodeId, animeId, autoPlay: true });
-    } catch { Alert.alert('Lecture', 'Impossible de préparer cet épisode. Réessayez.'); }
+    } catch { dialog.alert('Lecture', 'Impossible de préparer cet épisode. Réessayez.'); }
   };
   const enqueueDownload = async (episode: Episode) => {
     if (!episode.streamingUrls.length && !(episode.streaming_servers || []).length) throw new Error('Aucun serveur disponible pour cet épisode.');
@@ -259,7 +262,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
         return;
       }
       await enqueueDownload(episode);
-    } catch (cause) { Alert.alert('Téléchargement', cause instanceof Error ? cause.message : 'Impossible de télécharger cet épisode.'); }
+    } catch (cause) { dialog.alert('Téléchargement', cause instanceof Error ? cause.message : 'Impossible de télécharger cet épisode.'); }
   };
   // Une seule version à la fois : choix manuel, sinon celle de l'épisode en cours, sinon la préférence.
   const languageRank = (value: string) => { const rank = ['VOSTFR', 'VF'].indexOf(value); return rank < 0 ? 99 : rank; };
@@ -273,13 +276,13 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   const primaryLabel = continueItem?.kind === 'resume' ? 'Reprendre la lecture' : continueItem ? `Regarder l’épisode ${continueItem.episode.number}` : primaryEpisode ? 'Commencer à regarder' : 'Aucun épisode disponible';
   const batchDownload = () => {
     const candidates = visibleEpisodes.filter(episode => ![DownloadStatus.DOWNLOADED, DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(episode.downloadStatus) && (episode.streamingUrls.length || episode.streaming_servers?.length));
-    if (!candidates.length) { Alert.alert('Téléchargements', 'Aucun nouvel épisode disponible au téléchargement.'); return; }
-    Alert.alert('Télécharger la sélection', `Ajouter ${candidates.length} épisodes à la file de téléchargement ?`, [{ text: 'Annuler', style: 'cancel' }, { text: 'Télécharger', onPress: async () => {
+    if (!candidates.length) { dialog.alert('Téléchargements', 'Aucun nouvel épisode disponible au téléchargement.'); return; }
+    dialog.alert('Télécharger la sélection', `Ajouter ${candidates.length} épisodes à la file de téléchargement ?`, [{ text: 'Annuler', style: 'cancel' }, { text: 'Télécharger', onPress: async () => {
       setBatchBusy(true);
       let failures = 0;
       for (const episode of candidates) { try { await enqueueDownload(episode); } catch { failures += 1; } }
       setBatchBusy(false);
-      if (failures) Alert.alert('Téléchargements', `${failures} épisode(s) n’ont pas pu être ajoutés.`);
+      if (failures) dialog.alert('Téléchargements', `${failures} épisode(s) n’ont pas pu être ajoutés.`);
     } }]);
   };
 
@@ -295,7 +298,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
         </View>
         <View style={{ paddingHorizontal: 16 }}>
           {anime.rating > 0 && <View style={styles.rating}><Ionicons name="star" size={17} color={colors.primary} /><Text style={{ color: colors.text, fontWeight: '600' }}>{anime.rating.toFixed(1)} / 10</Text><Text style={{ color: colors.textSecondary }}>Note moyenne</Text></View>}
-          <View style={styles.actions}><TouchableOpacity accessibilityLabel={inWatchlist ? 'Retirer de la watchlist' : 'Ajouter à la watchlist'} disabled={watchlistBusy} onPress={toggleWatchlist} style={styles.action}><Ionicons name={inWatchlist ? 'bookmark' : 'bookmark-outline'} size={25} color={inWatchlist ? colors.primary : colors.text} /><Text style={{ color: inWatchlist ? colors.primary : colors.text, fontSize: 12, marginTop: 7 }}>Watchlist</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Partager cet anime" onPress={() => Share.share({ message: `${anime.title}${anime.url_anime_sama ? `\n${anime.url_anime_sama}` : ''}` }).catch(() => Alert.alert('Partage', 'Le partage est indisponible.'))} style={styles.action}><Ionicons name="share-social-outline" size={25} color={colors.text} /><Text style={{ color: colors.text, fontSize: 12, marginTop: 7 }}>Partager</Text></TouchableOpacity>{malActive && <TouchableOpacity accessibilityLabel="Synchroniser avec MyAnimeList" disabled={malBusy} onPress={() => void syncFromMal()} style={styles.action}><Ionicons name="sync-outline" size={25} color={malBusy ? colors.textSecondary : colors.text} /><Text style={{ color: malBusy ? colors.textSecondary : colors.text, fontSize: 12, marginTop: 7 }}>{malBusy ? 'Synchro…' : 'Synchro MAL'}</Text></TouchableOpacity>}</View>
+          <View style={styles.actions}><TouchableOpacity accessibilityLabel={inWatchlist ? 'Retirer de la watchlist' : 'Ajouter à la watchlist'} disabled={watchlistBusy} onPress={toggleWatchlist} style={styles.action}><Ionicons name={inWatchlist ? 'bookmark' : 'bookmark-outline'} size={25} color={inWatchlist ? colors.primary : colors.text} /><Text style={{ color: inWatchlist ? colors.primary : colors.text, fontSize: 12, marginTop: 7 }}>Watchlist</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Partager cet anime" onPress={() => Share.share({ message: `${anime.title}${anime.url_anime_sama ? `\n${anime.url_anime_sama}` : ''}` }).catch(() => dialog.alert('Partage', 'Le partage est indisponible.'))} style={styles.action}><Ionicons name="share-social-outline" size={25} color={colors.text} /><Text style={{ color: colors.text, fontSize: 12, marginTop: 7 }}>Partager</Text></TouchableOpacity>{malActive && <TouchableOpacity accessibilityLabel="Synchroniser avec MyAnimeList" disabled={malBusy} onPress={() => void syncFromMal()} style={styles.action}><Ionicons name="sync-outline" size={25} color={malBusy ? colors.textSecondary : colors.text} /><Text style={{ color: malBusy ? colors.textSecondary : colors.text, fontSize: 12, marginTop: 7 }}>{malBusy ? 'Synchro…' : 'Synchro MAL'}</Text></TouchableOpacity>}</View>
           {anime.synopsis ? <TouchableOpacity accessibilityLabel={expanded ? 'Réduire le synopsis' : 'Afficher le synopsis complet'} onPress={() => setExpanded(value => !value)}><Text style={{ color: colors.text, fontSize: 14, lineHeight: 23 }} numberOfLines={expanded ? undefined : 3}>{anime.synopsis.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').trim()}</Text><View style={styles.synopsisToggle}><Text style={{ color: colors.textSecondary, fontSize: 12 }}>{expanded ? 'Réduire' : 'En savoir plus'}</Text><Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} color={colors.textSecondary} size={17} /></View></TouchableOpacity> : <Text style={{ color: colors.textSecondary }}>Synopsis non renseigné.</Text>}
         </View>
         <View style={[styles.tabs, { borderBottomColor: colors.border }]}>{([{ key: 'episodes', label: 'Épisodes' }, { key: 'similar', label: 'Similaires' }] as const).map(option => <TouchableOpacity key={option.key} accessibilityRole="tab" accessibilityState={{ selected: tab === option.key }} onPress={() => setTab(option.key)} style={[styles.tab, { borderBottomColor: tab === option.key ? colors.primary : 'transparent' }]}><Text style={{ color: tab === option.key ? colors.text : colors.textSecondary, fontWeight: '700', fontSize: 15 }}>{option.label}</Text></TouchableOpacity>)}</View>
