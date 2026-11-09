@@ -30,6 +30,6 @@ fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 run('git add app.json package.json');
 run(`git commit -m "chore: release v${next}"`);
 run(`git tag v${next}`);
-run('git push origin HEAD --follow-tags');
+run(`git push origin HEAD v${next}`);
 if (local) run('node scripts/publish-apk.cjs');
 else console.log(`\nv${next} poussée. Suivi du build : gh run watch -R tidic84/AnimeVisionApp`);
