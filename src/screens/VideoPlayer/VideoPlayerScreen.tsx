@@ -67,6 +67,11 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const activeRef = useRef('');
   const manualChoice = useRef(false);
   const session = useRef(0);
+  // Chaque choix de lecteur (auto ou manuel) prend un nouveau jeton : un résultat d'extraction arrivé après un choix plus récent est ignoré.
+  const pick = useRef(0);
+  const [frame, setFrame] = useState(false);
+  const [viewKey, setViewKey] = useState(0);
+  const remounts = useRef(0);
   const streamHeaders = useRef<Record<string, string>>({});
   const startTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failRef = useRef<(reason: string) => void>(() => {});
@@ -132,12 +137,14 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     } else { player.pause(); setSource(null); setSources([]); setEmbed(server.url); }
   };
   // Lecteurs testés dans l'ordre des favoris : le premier dont le flux s'extrait passe en lecture native, sinon le premier lecteur web plausible.
-  const playFirst = async () => {
-    const id = session.current;
+  // null : la recherche a été remplacée par un choix plus récent, qui gère lui-même le chargement.
+  const playFirst = async (): Promise<boolean | null> => {
+    const id = ++pick.current;
+    const sessionId = session.current;
     let fallback: StreamingServer | undefined;
     for (const server of order.current) {
       const result = await probe(server);
-      if (session.current !== id) return true;
+      if (pick.current !== id || session.current !== sessionId) return null;
       if (result.status === 'ok') { start(server, result); return true; }
       if (result.status === 'embed' && !fallback) fallback = server;
     }
@@ -155,10 +162,9 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     player.pause(); keepPosition(); setSource(null); setEmbed(''); setSources([]);
     // Un lecteur choisi à la main n'est pas remplacé d'office : on explique et on propose d'en changer.
     if (manualChoice.current) { setError(`${label} est hors service (${reason.toLowerCase()}). Choisissez un autre lecteur.`); return; }
-    const id = session.current;
     setLoading(true);
     void playFirst().then(found => {
-      if (session.current !== id) return;
+      if (found === null) return;
       setLoading(false);
       if (found) setNotice(`${label} est hors service (${reason.toLowerCase()}) : lecture sur ${labelOf(activeRef.current)}.`);
       else setError(`${label} est hors service et aucun autre lecteur ne fonctionne pour cet épisode.`);
@@ -168,12 +174,13 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const selectServer = async (choice: ServerChoice) => {
     const server = order.current.find(item => item.url === choice.url);
     if (!server || (choice.url === activeRef.current && !error && (source || embed))) return;
+    const id = ++pick.current;
     manualChoice.current = true;
     keepPosition(); player.pause(); setSource(null); setEmbed(''); setSources([]); setError(''); setNotice('');
     activeRef.current = server.url; setActive(server.url); setLoading(true);
     // Un lecteur déjà validé repart directement ; les autres sont re-testés (il a pu revenir depuis).
     const result = await probe(server, choice.status !== 'ok');
-    if (activeRef.current !== server.url) return;
+    if (pick.current !== id) return;
     setLoading(false);
     if (result.status === 'dead') setError(`${choice.label.split(' • ')[0]} est hors service (${result.reason.toLowerCase()}). Choisissez un autre lecteur.`);
     else start(server, result);
@@ -197,9 +204,10 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   useEffect(() => {
     let active = true;
     setLoading(true); setError(''); setSource(null); setEmbed(''); setSources([]); setEpisode(null); setEpisodes([]); setAnime(null); setTime(0); setDuration(0); player.pause();
-    session.current += 1; probeCache.current = {}; order.current = []; activeRef.current = ''; manualChoice.current = false;
+    session.current += 1; pick.current += 1; probeCache.current = {}; order.current = []; activeRef.current = ''; manualChoice.current = false;
     setProbes({}); setOrdered([]); setActive(''); setNotice('');
     progressRef.current = { time: 0, duration: 0 }; lastSave.current = 0; resumePercent.current = 0;
+    let superseded = false;
     const load = async () => {
       try {
         let item: Episode;
@@ -255,11 +263,12 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
         if (!order.current.length) { setError('Aucun lecteur disponible pour cet épisode.'); return; }
         const found = await playFirst();
         if (!active) return;
-        if (!found) setError('Tous les lecteurs de cet épisode sont hors service. Réessayez plus tard.');
+        if (found === null) superseded = true;
+        else if (!found) setError('Tous les lecteurs de cet épisode sont hors service. Réessayez plus tard.');
         // Les autres lecteurs sont testés en arrière-plan pour afficher leur état et leur qualité dans la liste.
         order.current.forEach(server => { void probe(server); });
       } catch (failure) { if (active) setError(failure instanceof Error ? failure.message : 'Impossible de charger cet épisode.'); }
-      finally { if (active) setLoading(false); }
+      finally { if (active && !superseded) setLoading(false); }
     };
     void load();
     return () => { active = false; };
@@ -267,11 +276,18 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   useEffect(() => {
     let active = true;
     if (startTimer.current) clearTimeout(startTimer.current);
+    setFrame(false); remounts.current = 0; setStatus(source ? 'loading' : 'idle');
     if (source && activeRef.current) startTimer.current = setTimeout(() => { startTimer.current = null; if (active) failRef.current('Délai de lecture dépassé'); }, START_TIMEOUT);
     void player.replaceAsync(source).then(() => { if (active && source) { player.playbackRate = speed; if (autoPlay || manualChoice.current) player.play(); } }).catch(() => { if (!active || !source) return; if (activeRef.current) failRef.current('Source illisible'); else setError('Le lecteur n’a pas pu ouvrir cette source. Essayez un autre serveur.'); });
     return () => { active = false; if (startTimer.current) { clearTimeout(startTimer.current); startTimer.current = null; } };
   }, [source, player]);
   useEffect(() => { player.playbackRate = speed; }, [player, speed]);
+  // Filet de sécurité Android : si la lecture tourne sans première image, la surface est restée masquée sur une ancienne vue ; on remonte la vue une fois.
+  useEffect(() => {
+    if (!source || embed || frame || !playing) return;
+    const timer = setTimeout(() => { if (remounts.current < 1) { remounts.current += 1; setViewKey(value => value + 1); } else setFrame(true); }, 2500);
+    return () => clearTimeout(timer);
+  }, [source, embed, frame, playing, viewKey]);
   // Changer de page laisse cet écran monté dans la pile : sans pause, le son continue en arrière-plan.
   useEffect(() => { if (!focused) { player.pause(); saveProgress(); } }, [focused, player, saveProgress]);
   useEffect(() => () => { if (tapTimer.current) clearTimeout(tapTimer.current); if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
@@ -287,9 +303,9 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   }, [player, saveProgress, show, autoNext, next, navigateEpisode]);
   useEffect(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    if (playing && controls && !settings && drag === null) hideTimer.current = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: reduced ? 0 : 220, useNativeDriver: true }).start(({ finished }) => { if (finished) setControls(false); }), 3500);
+    if (playing && frame && controls && !settings && drag === null) hideTimer.current = setTimeout(() => Animated.timing(opacity, { toValue: 0, duration: reduced ? 0 : 220, useNativeDriver: true }).start(({ finished }) => { if (finished) setControls(false); }), 3500);
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
-  }, [playing, controls, settings, drag, opacity, reduced, controlsActivity]);
+  }, [playing, frame, controls, settings, drag, opacity, reduced, controlsActivity]);
   const toggleFullscreen = async () => { const target = !fullscreen; setFullscreen(target); show(); try { await ScreenOrientation.lockAsync(target ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch { setError('La rotation automatique n’est pas disponible sur cet appareil.'); } };
   useEffect(() => { const listener = BackHandler.addEventListener('hardwareBackPress', () => { if (!fullscreen) return false; void toggleFullscreen(); return true; }); return () => listener.remove(); }, [fullscreen]);
   const seek = (position: number) => { if (!duration) return; const target = Math.max(0, Math.min(duration, position)); pendingSeek.current = { target, until: Date.now() + 2000 }; progressRef.current = { time: target, duration }; player.currentTime = target; setTime(target); show(); };
@@ -332,14 +348,16 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   return <View style={[styles.root, { paddingTop: fullscreen ? 0 : insets.top }]}><StatusBar style="light" hidden={fullscreen} />
     {/* Plein écran : flex 1 plutôt qu'une hauteur calculée depuis les dimensions, qui restent celles du portrait le temps de la rotation et poussaient la vidéo en bas de l'écran. */}
     <View style={[styles.video, fullscreen ? { flex: 1 } : { aspectRatio: 16 / 9 }]}>
-      {loading ? <View style={styles.empty}><ActivityIndicator size="large" color={colors.primary} />{!!ordered.length && <Text style={styles.error}>{active ? `Ouverture de ${labelOf(active)}…` : 'Recherche d’un lecteur disponible…'}</Text>}</View> : embed ? (focused ? <WebViewVideoPlayer key={embed} embedUrl={embed} onDead={reason => failRef.current(reason)} /> : null) : source ? <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls={false} fullscreenOptions={{ enable: false }} contentFit="contain" /> : <View style={styles.empty}><Ionicons name="videocam-off-outline" color={colors.textSecondary} size={36} /><Text style={[styles.error, { textAlign: 'center' }]}>{error || 'Aucun lecteur disponible.'}</Text><View style={styles.emptyActions}>{choices.length > 1 && <TouchableOpacity onPress={openServers} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Changer de lecteur</Text></TouchableOpacity>}<TouchableOpacity onPress={() => setAttempt(value => value + 1)} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Réessayer</Text></TouchableOpacity></View></View>}
+      {/* Une seule VideoView pour toute la séance : la démonter pendant un chargement laissait parfois la surface de la nouvelle vue masquée (écran noir, son présent). */}
+      {!embed && <VideoView key={viewKey} player={player} style={StyleSheet.absoluteFill} nativeControls={false} fullscreenOptions={{ enable: false }} contentFit="contain" onFirstFrameRender={() => setFrame(true)} />}
+      {loading ? <View style={[StyleSheet.absoluteFill, styles.empty, styles.cover]}><ActivityIndicator size="large" color={colors.primary} />{!!ordered.length && <Text style={styles.error}>{active ? `Ouverture de ${labelOf(active)}…` : 'Recherche d’un lecteur disponible…'}</Text>}</View> : embed ? (focused ? <WebViewVideoPlayer key={embed} embedUrl={embed} onDead={reason => failRef.current(reason)} /> : null) : !source && <View style={[StyleSheet.absoluteFill, styles.empty, styles.cover]}><Ionicons name="videocam-off-outline" color={colors.textSecondary} size={36} /><Text style={[styles.error, { textAlign: 'center' }]}>{error || 'Aucun lecteur disponible.'}</Text><View style={styles.emptyActions}>{choices.length > 1 && <TouchableOpacity onPress={openServers} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Changer de lecteur</Text></TouchableOpacity>}<TouchableOpacity onPress={() => setAttempt(value => value + 1)} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Réessayer</Text></TouchableOpacity></View></View>}
       {!embed && source && !loading && <View accessible accessibilityLabel={controls ? 'Masquer les commandes' : 'Afficher les commandes'} accessibilityRole="button" onAccessibilityTap={() => controls ? hide() : show()} style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={event => handleTap(event.nativeEvent.locationX, trackArea.current)} onLayout={event => { trackArea.current = event.nativeEvent.layout.width; }} />}
       {seekHint && <View pointerEvents="none" style={[styles.seekHint, seekHint.side === 'left' ? { left: 0 } : { right: 0 }]}><MaterialIcons name={seekHint.side === 'left' ? 'fast-rewind' : 'fast-forward'} color="white" size={32} /><Text style={styles.seekHintText}>{seekHint.side === 'left' ? '-' : '+'}{seekHint.amount} s</Text></View>}
       {(embed || loading || !source) ? <View style={[styles.embedToolbar, fullscreen && { paddingLeft: insets.left, paddingRight: insets.right }]}>{icon('chevron-back', 'Retour', () => fullscreen ? void toggleFullscreen() : navigation.goBack())}<View style={{ flex: 1 }} />{icon('settings-outline', 'Paramètres du lecteur', () => { setSettingsPage('main'); setSettings(true); })}{icon(fullscreen ? 'contract-outline' : 'expand-outline', 'Plein écran', () => void toggleFullscreen())}</View> : <Animated.View pointerEvents={controls ? 'box-none' : 'none'} style={[styles.overlay, { opacity, paddingLeft: ui.side + (fullscreen ? insets.left : 0), paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6, paddingBottom: fullscreen ? Math.max(8, insets.bottom) : 0 }]}>
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.scrim]} /><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']} style={styles.scrimTop} /><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.75)']} style={styles.scrimBottom} />
         <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, styles.center, { gap: ui.gap }]}>
           {control('replay-10', 'Reculer de 10 secondes', () => seek(time - 10), ui.skip)}
-          <MotionPressable pressedScale={0.88} accessibilityLabel={playing ? 'Pause' : 'Lire'} onPress={() => { playing ? player.pause() : player.play(); show(); }} style={[styles.playButton, { width: ui.play + 16, height: ui.play + 16 }]}>{status === 'loading' ? <ActivityIndicator color="white" size="large" /> : <MaterialIcons name={playing ? 'pause' : 'play-arrow'} color="white" size={ui.play} />}</MotionPressable>
+          <MotionPressable pressedScale={0.88} accessibilityLabel={playing ? 'Pause' : 'Lire'} onPress={() => { playing ? player.pause() : player.play(); show(); }} style={[styles.playButton, { width: ui.play + 16, height: ui.play + 16 }]}>{status === 'loading' || (playing && !frame) ? <ActivityIndicator color="white" size="large" /> : <MaterialIcons name={playing ? 'pause' : 'play-arrow'} color="white" size={ui.play} />}</MotionPressable>
           {control('forward-10', 'Avancer de 10 secondes', () => seek(time + 10), ui.skip)}
         </View>
         <View pointerEvents="box-none" style={styles.top}>
@@ -364,4 +382,4 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       servers={isOfflineMode ? undefined : choices} currentServer={active} onServer={choice => void selectServer(choice)} startPage={settingsPage} />
   </View>;
 }
-const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: '#000' }, video: { width: '100%', backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }, icon: { padding: 10 }, overlay: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' }, scrim: { backgroundColor: 'rgba(0,0,0,0.25)' }, scrimTop: { position: 'absolute', top: 0, left: 0, right: 0, height: '40%' }, scrimBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%' }, top: { flexDirection: 'row', alignItems: 'flex-start' }, titles: { flex: 1, paddingTop: 6, paddingRight: 12 }, overlayTitle: { color: 'white', fontWeight: '500' }, overlaySubtitle: { color: 'rgba(255,255,255,0.65)', marginTop: 4 }, actions: { flexDirection: 'row', alignItems: 'center', opacity: 0.9 }, control: { padding: 6, alignItems: 'center', justifyContent: 'center' }, center: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }, playButton: { alignItems: 'center', justifyContent: 'center' }, seekHint: { position: 'absolute', top: 0, bottom: 0, width: '35%', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.08)' }, seekHintText: { color: 'white', fontSize: 14, fontWeight: '600', marginTop: 4 }, seek: { height: 44, justifyContent: 'center' }, trackWrap: { height: 4 }, track: { height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.24)' }, fill: { height: 4, backgroundColor: colors.primary }, thumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'white', position: 'absolute', marginLeft: -10, top: -8 }, timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, time: { color: 'white', fontSize: 12, fontVariant: ['tabular-nums'] }, offline: { color: colors.primary, fontSize: 11 }, embedToolbar: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center' }, empty: { alignItems: 'center', gap: 14, padding: 20 }, emptyActions: { flexDirection: 'row', gap: 10 }, notice: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: radii.control, backgroundColor: colors.surface }, noticeAction: { color: colors.primary, fontWeight: '600', fontSize: 13 }, error: { color: colors.textSecondary, fontSize: 13, lineHeight: 21 }, retry: { paddingHorizontal: 18, paddingVertical: 10, backgroundColor: colors.buttonBg, borderRadius: radii.pill } });
+const styles = StyleSheet.create({ root: { flex: 1, backgroundColor: '#000' }, video: { width: '100%', backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }, icon: { padding: 10 }, overlay: { ...StyleSheet.absoluteFill, justifyContent: 'space-between' }, scrim: { backgroundColor: 'rgba(0,0,0,0.25)' }, scrimTop: { position: 'absolute', top: 0, left: 0, right: 0, height: '40%' }, scrimBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%' }, top: { flexDirection: 'row', alignItems: 'flex-start' }, titles: { flex: 1, paddingTop: 6, paddingRight: 12 }, overlayTitle: { color: 'white', fontWeight: '500' }, overlaySubtitle: { color: 'rgba(255,255,255,0.65)', marginTop: 4 }, actions: { flexDirection: 'row', alignItems: 'center', opacity: 0.9 }, control: { padding: 6, alignItems: 'center', justifyContent: 'center' }, center: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }, playButton: { alignItems: 'center', justifyContent: 'center' }, seekHint: { position: 'absolute', top: 0, bottom: 0, width: '35%', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.08)' }, seekHintText: { color: 'white', fontSize: 14, fontWeight: '600', marginTop: 4 }, seek: { height: 44, justifyContent: 'center' }, trackWrap: { height: 4 }, track: { height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.24)' }, fill: { height: 4, backgroundColor: colors.primary }, thumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'white', position: 'absolute', marginLeft: -10, top: -8 }, timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, time: { color: 'white', fontSize: 12, fontVariant: ['tabular-nums'] }, offline: { color: colors.primary, fontSize: 11 }, embedToolbar: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center' }, empty: { alignItems: 'center', gap: 14, padding: 20 }, cover: { backgroundColor: '#000', justifyContent: 'center' }, emptyActions: { flexDirection: 'row', gap: 10 }, notice: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: radii.control, backgroundColor: colors.surface }, noticeAction: { color: colors.primary, fontWeight: '600', fontSize: 13 }, error: { color: colors.textSecondary, fontSize: 13, lineHeight: 21 }, retry: { paddingHorizontal: 18, paddingVertical: 10, backgroundColor: colors.buttonBg, borderRadius: radii.pill } });
