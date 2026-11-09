@@ -1,9 +1,10 @@
 import { radii } from '../../theme/shape';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, ActivityIndicator, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, ActivityIndicator, BackHandler, Platform } from 'react-native';
 import { Ionicons, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
+import { NavigationBar } from 'expo-navigation-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView, VideoSource } from 'expo-video';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -274,6 +275,12 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   useEffect(() => { player.playbackRate = speed; }, [player, speed]);
   // Changer de page laisse cet écran monté dans la pile : sans pause, le son continue en arrière-plan.
   useEffect(() => { if (!focused) { player.pause(); saveProgress(); } }, [focused, player, saveProgress]);
+  // Plein écran : barre de navigation (poignée ou boutons) masquée en immersif ; un balayage depuis le bord la fait réapparaître un instant. Seule la visibilité est touchée, pour ne pas imposer de style aux menus.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    NavigationBar.setHidden(fullscreen && focused);
+    return () => NavigationBar.setHidden(false);
+  }, [fullscreen, focused]);
   useEffect(() => () => { if (tapTimer.current) clearTimeout(tapTimer.current); if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
   useEffect(() => {
     const listeners = [

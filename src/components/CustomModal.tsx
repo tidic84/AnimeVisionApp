@@ -26,7 +26,7 @@ export default function CustomModal({ visible, onRequestClose, children, transpa
     animation.start(({ finished }) => { if (finished && token === generation.current && !visible) setMounted(false); });
     return () => { generation.current++; animation.stop(); };
   }, [visible, reduced, progress]);
-  return <Modal visible={mounted} animationType="none" transparent={transparent} onRequestClose={onRequestClose}>
+  return <Modal visible={mounted} animationType="none" transparent={transparent} onRequestClose={onRequestClose} statusBarTranslucent navigationBarTranslucent>
     <View style={[styles.layout, alignment === 'bottom' && { justifyContent: 'flex-end' }]}>
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: progress, backgroundColor: 'rgba(0,0,0,.65)' }]}><Pressable accessibilityRole="button" accessibilityLabel="Fermer la fenêtre" onPress={onRequestClose} style={{ flex: 1 }} /></Animated.View>
       <Animated.View accessibilityViewIsModal style={[styles.content, { backgroundColor: colors.surface, opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [alignment === 'bottom' ? 32 : 8, 0] }) }] }, alignment === 'bottom' && styles.bottom]}>{children}</Animated.View>
