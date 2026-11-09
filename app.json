@@ -7,6 +7,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0F1016",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tidic84.animevision"
@@ -56,7 +57,8 @@
       ],
       "./plugins/withReleaseSigning",
       "expo-font",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-system-ui"
     ]
   }
 }

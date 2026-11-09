@@ -1,4 +1,6 @@
-import { ThemeProvider } from './src/contexts/ThemeContext';
+import { ThemeProvider, useAppColorScheme } from './src/contexts/ThemeContext';
+import * as SystemUI from 'expo-system-ui';
+import { palette } from './src/theme/palette';
 import React, { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -28,6 +30,12 @@ function AppContent() {
   }, []);
   return <AppNavigator />;
 }
+// Fond natif aligné sur le thème : sinon les transitions laissent voir la fenêtre blanche.
+function ThemedRoot({ children }: React.PropsWithChildren) {
+  const background = palette[useAppColorScheme()].background;
+  useEffect(() => { void SystemUI.setBackgroundColorAsync(background).catch(() => {}); }, [background]);
+  return <GestureHandlerRootView style={{ flex: 1, backgroundColor: background }}>{children}</GestureHandlerRootView>;
+}
 export default function App() {
-  return <SafeAreaProvider><ThemeProvider><ApiProvider><GestureHandlerRootView style={{ flex: 1 }}><DialogProvider><AppContent /></DialogProvider></GestureHandlerRootView></ApiProvider></ThemeProvider></SafeAreaProvider>;
+  return <SafeAreaProvider><ThemeProvider><ApiProvider><ThemedRoot><DialogProvider><AppContent /></DialogProvider></ThemedRoot></ApiProvider></ThemeProvider></SafeAreaProvider>;
 }
