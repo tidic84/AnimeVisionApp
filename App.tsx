@@ -8,6 +8,7 @@ import databaseService from './src/services/databaseService';
 import apiService from './src/services/apiService';
 import * as malSync from './src/services/mal/malSync';
 import * as updates from './src/services/updateService';
+import { DialogProvider } from './src/components/Dialog';
 
 function AppContent() {
   const { setApiAvailable, setApiError } = useApi();
@@ -28,5 +29,5 @@ function AppContent() {
   return <AppNavigator />;
 }
 export default function App() {
-  return <SafeAreaProvider><ThemeProvider><ApiProvider><GestureHandlerRootView style={{ flex: 1 }}><AppContent /></GestureHandlerRootView></ApiProvider></ThemeProvider></SafeAreaProvider>;
+  return <SafeAreaProvider><ThemeProvider><ApiProvider><GestureHandlerRootView style={{ flex: 1 }}><DialogProvider><AppContent /></DialogProvider></GestureHandlerRootView></ApiProvider></ThemeProvider></SafeAreaProvider>;
 }

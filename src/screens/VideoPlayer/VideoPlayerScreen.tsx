@@ -14,6 +14,7 @@ import { RootStackScreenProps } from '../../types/navigation';
 import { Anime, Episode, StreamingServer } from '../../types/anime';
 import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
+import { isFinished } from '../../utils/watchProgress';
 import * as malSync from '../../services/mal/malSync';
 import { getFavoriteHosts } from '../../services/preferences';
 import { getBackgroundPlayback } from '../../services/preferences';
@@ -203,9 +204,9 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     if (value.duration <= 0 || !episode) return;
     const progress = Math.max(0, Math.min(100, value.time / value.duration * 100));
     void databaseService.updateWatchHistory(animeId, episodeId, progress).catch(() => {});
-    void databaseService.updateEpisodeProgress(episodeId, progress, progress >= 95).catch(() => {});
-    // MAL dès 90 % : quitter pendant le générique de fin doit compter l'épisode comme vu.
-    if (progress >= 90) void malSync.episodeWatched(animeId, episode);
+    void databaseService.updateEpisodeProgress(episodeId, progress, isFinished(progress)).catch(() => {});
+    // Quitter pendant le générique de fin compte l'épisode comme vu.
+    if (isFinished(progress)) void malSync.episodeWatched(animeId, episode);
   }, [animeId, episodeId, episode]);
   useEffect(() => {
     void ScreenOrientation.lockAsync(startFullscreen ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
@@ -227,14 +228,14 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
           list = await databaseService.getAnimeEpisodes(animeId);
           const local = list.find(candidate => candidate.id === episodeId);
           if (!local) throw new Error('Les informations de cet épisode ne sont pas disponibles hors ligne.');
-          item = local; resumePercent.current = local.watchProgress < 95 ? local.watchProgress : 0; animeData = await databaseService.getAnime(animeId);
+          item = local; resumePercent.current = !isFinished(local.watchProgress) ? local.watchProgress : 0; animeData = await databaseService.getAnime(animeId);
         } else {
           list = []; animeData = null;
           const metadata = apiService.getAnimeById(animeId).then(data => { if (active) setAnime(data); return data; }).catch(() => null);
           item = await apiService.getEpisodeById(episodeId);
           const history = await databaseService.getWatchHistory(100).catch(() => []);
           const saved = history.find(entry => entry.episodeId === episodeId);
-          resumePercent.current = saved && saved.progress < 95 ? saved.progress : 0;
+          resumePercent.current = saved && !isFinished(saved.progress) ? saved.progress : 0;
           item = { ...item, watchProgress: resumePercent.current };
           const onlineEpisode = item;
           void (async () => {
