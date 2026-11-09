@@ -6,6 +6,8 @@ import { STREAM_HOSTS } from '../../services/streamHosts';
 import * as mal from '../../services/mal/malService';
 import * as malSync from '../../services/mal/malSync';
 import * as updates from '../../services/updateService';
+import { elapsedSince } from '../../utils/relativeTime';
+import { ScraperStatus } from '../../types/anime';
 import { useApi } from '../../contexts/ApiContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import useReducedMotion from '../../hooks/useReducedMotion';
@@ -166,6 +168,9 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     { text: 'Annuler', style: 'cancel' },
     { text: 'Se déconnecter', style: 'destructive', onPress: async () => { await mal.disconnect(); setMalUser(null); await saveSettings({ malEnabled: false, malUsername: '' }); } },
   ]);
+
+  const [scraper, setScraper] = useState<ScraperStatus | null>(null);
+  useEffect(() => { apiService.getScraperStatus().then(setScraper); }, []);
 
   useEffect(() => {
     loadSettings();
@@ -693,6 +698,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               `AnimeVision v${updates.currentVersion()}`,
               updateStatus || undefined,
               checkUpdate
+            )}
+            {scraper?.last_update && renderSettingRow(
+              'sync',
+              'Catalogue',
+              `Mis à jour il y a ${elapsedSince(scraper.last_update)}`,
+              scraper.stale ? 'En retard' : undefined
             )}
             {renderSettingRow(
               'globe',

@@ -1,5 +1,5 @@
 import loadScheduler, { LoadGroup } from './loadScheduler';
-import { Episode, Anime, AnimeStatus, VideoQuality, Season, StreamingServer, ApiResponse, ApiError, SimulcastSeason, PlanningDay } from '../types/anime';
+import { Episode, Anime, AnimeStatus, VideoQuality, Season, StreamingServer, ApiResponse, ApiError, SimulcastSeason, PlanningDay, ScraperStatus } from '../types/anime';
 import { API_ADDRESS } from '@env';
 import { SkipResult } from '../utils/skipTimes';
 
@@ -24,10 +24,11 @@ class ApiService {
 
   private groupFor(endpoint: string): LoadGroup {
     if (endpoint === '/health') return 'system';
+    if (/^\/api\/anime\/\d+\/similar/.test(endpoint)) return 'background';
     if (/^\/api\/episode\/\d+(?:[/?]|$)/.test(endpoint)) return 'player';
     if (/^\/api\/(?:anime|episode|saison)\/\d+(?:[/?]|$)/.test(endpoint)) return 'detail';
     if (/^\/api\/(?:anime\/(?:latest|popular)|episodes\/latest|discover\/trending)/.test(endpoint)) return 'home';
-    if (/genre\//.test(endpoint)) return 'background';
+    if (/genre\//.test(endpoint) || endpoint === '/api/system/scraper') return 'background';
     return 'catalog';
   }
 
@@ -298,6 +299,12 @@ class ApiService {
     return response.data.map(anime => this.mapApiAnimeToAnime(anime));
   }
 
+  /** Recommandations des utilisateurs MAL reliées au catalogue (absent des API non mises à jour). */
+  async getSimilarAnimes(animeId: string, limit: number = 12): Promise<Anime[]> {
+    const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/anime/${animeId}/similar?limit=${limit}`);
+    return response.data.map(anime => this.mapApiAnimeToAnime(anime));
+  }
+
   async getRandomAnimes(limit: number = 10): Promise<Anime[]> {
     const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/discover/random?limit=${limit}`);
     return response.data.map(anime => this.mapApiAnimeToAnime(anime));
@@ -524,6 +531,16 @@ class ApiService {
   async getPlanning(): Promise<PlanningDay[]> {
     const response = await this.fetchWithErrorHandling<ApiResponse<PlanningDay[]>>('/api/planning');
     return response.data;
+  }
+
+  /** null si l'API ne connaît pas encore cette route : rien n'est alors affiché. */
+  async getScraperStatus(): Promise<ScraperStatus | null> {
+    try {
+      const response = await this.fetchWithErrorHandling<ApiResponse<ScraperStatus>>('/api/system/scraper');
+      return response.data && typeof response.data.stale === 'boolean' ? response.data : null;
+    } catch {
+      return null;
+    }
   }
 
   async getAnimeStats(): Promise<any> {
