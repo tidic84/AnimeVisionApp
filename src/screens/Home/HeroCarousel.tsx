@@ -13,6 +13,8 @@ import { Anime } from '../../types/anime';
 const nativeDriver = Platform.OS !== 'web';
 /** Time each slide stays on screen before the carousel advances. */
 const SLIDE_MS = 7000;
+/** Length of an automatic slide change: slow enough to show the parallax and zoom. */
+const TRANSITION_MS = 1400;
 /** The incoming artwork settles from this zoom while it slides in. */
 const ENTER_ZOOM = 1.12;
 /** Fraction of the swipe distance the artwork lags behind (parallax). */
@@ -45,13 +47,22 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
   const slideRef = useRef(0);
   const shownSlide = useRef(0);
   const count = items.length;
+  const offset = useRef(0);
+  const transition = useRef<Animated.CompositeAnimation | null>(null);
+  const stopTransition = () => { transition.current?.stop(); transition.current = null; };
 
   const goTo = useCallback((index: number, animated = true) => {
     if (!count) return;
     const next = ((index % count) + count) % count;
     slideRef.current = next;
     setSlide(next);
-    list.current?.scrollToOffset({ offset: next * width, animated: animated && !reduced });
+    stopTransition();
+    if (!animated || reduced) { list.current?.scrollToOffset({ offset: next * width, animated: false }); return; }
+    // scrollToOffset({ animated: true }) is a fixed, very short native animation: drive the offset ourselves instead.
+    const driver = new Animated.Value(offset.current);
+    const id = driver.addListener(({ value }) => list.current?.scrollToOffset({ offset: value, animated: false }));
+    transition.current = Animated.timing(driver, { toValue: next * width, duration: TRANSITION_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: false });
+    transition.current.start(() => driver.removeListener(id));
   }, [count, width, reduced]);
 
   // Keep the visible slide valid when the list shrinks or the screen rotates.
@@ -118,9 +129,9 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
       keyExtractor={a => a.id}
       showsHorizontalScrollIndicator={false}
       getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
-      onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: nativeDriver })}
+      onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: nativeDriver, listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => { offset.current = event.nativeEvent.contentOffset.x; } })}
       scrollEventThrottle={16}
-      onScrollBeginDrag={() => setTouching(true)}
+      onScrollBeginDrag={() => { stopTransition(); setTouching(true); }}
       onMomentumScrollEnd={onMomentumEnd}
       renderItem={renderItem}
     />
