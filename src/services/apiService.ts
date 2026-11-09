@@ -1,5 +1,5 @@
 import loadScheduler, { LoadGroup } from './loadScheduler';
-import { Episode, Anime, AnimeStatus, VideoQuality, Season, StreamingServer, ApiResponse, ApiError, SimulcastSeason, PlanningDay } from '../types/anime';
+import { Episode, Anime, AnimeStatus, VideoQuality, Season, StreamingServer, ApiResponse, ApiError, SimulcastSeason, PlanningDay, ScraperStatus } from '../types/anime';
 import { API_ADDRESS } from '@env';
 
 class ApiService {
@@ -26,7 +26,7 @@ class ApiService {
     if (/^\/api\/episode\/\d+(?:[/?]|$)/.test(endpoint)) return 'player';
     if (/^\/api\/(?:anime|episode|saison)\/\d+(?:[/?]|$)/.test(endpoint)) return 'detail';
     if (/^\/api\/(?:anime\/(?:latest|popular)|episodes\/latest|discover\/trending)/.test(endpoint)) return 'home';
-    if (/genre\//.test(endpoint)) return 'background';
+    if (/genre\//.test(endpoint) || endpoint === '/api/system/scraper') return 'background';
     return 'catalog';
   }
 
@@ -517,6 +517,16 @@ class ApiService {
   async getPlanning(): Promise<PlanningDay[]> {
     const response = await this.fetchWithErrorHandling<ApiResponse<PlanningDay[]>>('/api/planning');
     return response.data;
+  }
+
+  /** null si l'API ne connaît pas encore cette route : rien n'est alors affiché. */
+  async getScraperStatus(): Promise<ScraperStatus | null> {
+    try {
+      const response = await this.fetchWithErrorHandling<ApiResponse<ScraperStatus>>('/api/system/scraper');
+      return response.data && typeof response.data.stale === 'boolean' ? response.data : null;
+    } catch {
+      return null;
+    }
   }
 
   async getAnimeStats(): Promise<any> {

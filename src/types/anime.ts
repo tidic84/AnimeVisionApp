@@ -185,6 +185,23 @@ export interface PlanningDay {
   entries: PlanningEntry[];
 }
 
+export interface ScraperRun {
+  started_at: string;
+  finished_at: string | null;
+  running: boolean;
+  success: boolean | null;
+  error: string | null;
+  last_success_at: string | null;
+}
+
+/** Derniers passages du scraper (GET /api/system/scraper). */
+export interface ScraperStatus {
+  latest: ScraperRun | null;
+  full: ScraperRun | null;
+  last_update: string | null;
+  stale: boolean;
+}
+
 export interface ApiError {
   error: true;
   message: string;
