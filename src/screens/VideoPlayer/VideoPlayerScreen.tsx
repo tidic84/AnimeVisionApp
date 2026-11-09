@@ -100,6 +100,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const trackArea = useRef(1);
   const progressRef = useRef({ time: 0, duration: 0 });
   const lastSave = useRef(0);
+  // Secondes réellement lues dans cette session (hors sauts et reprise).
+  const played = useRef(0);
   const resumePercent = useRef(0);
   const player = useVideoPlayer(null, video => { video.timeUpdateEventInterval = 0.25; });
   const current = episodes.findIndex(item => item.id === episodeId);
@@ -201,12 +203,17 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const show = useCallback(() => { opacity.stopAnimation(); setControls(true); setControlsActivity(value => value + 1); Animated.timing(opacity, { toValue: 1, duration: reduced ? 0 : 160, useNativeDriver: true }).start(); }, [opacity, reduced]);
   const saveProgress = useCallback(() => {
     const value = progressRef.current;
-    if (value.duration <= 0 || !episode) return;
+    // Moins de 5 s lues : ouverture par erreur, rien n'est enregistré (ni « Continuer » remonté).
+    if (value.duration <= 0 || !episode || played.current < 5) return;
     const progress = Math.max(0, Math.min(100, value.time / value.duration * 100));
-    void databaseService.updateWatchHistory(animeId, episodeId, progress).catch(() => {});
-    void databaseService.updateEpisodeProgress(episodeId, progress, isFinished(progress)).catch(() => {});
-    // Quitter pendant le générique de fin compte l'épisode comme vu.
-    if (isFinished(progress)) void malSync.episodeWatched(animeId, episode);
+    void (async () => {
+      // Un épisode déjà vu le reste : le revoir n'écrit rien et ne relance pas MAL.
+      if (await databaseService.isEpisodeWatched(animeId, episodeId)) return;
+      await databaseService.updateWatchHistory(animeId, episodeId, progress);
+      await databaseService.updateEpisodeProgress(episodeId, progress, isFinished(progress));
+      // Quitter pendant le générique de fin compte l'épisode comme vu.
+      if (isFinished(progress)) void malSync.episodeWatched(animeId, episode);
+    })().catch(() => {});
   }, [animeId, episodeId, episode]);
   useEffect(() => {
     void ScreenOrientation.lockAsync(startFullscreen ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
@@ -217,7 +224,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     setLoading(true); setError(''); setSource(null); setEmbed(''); setSources([]); setEpisode(null); setEpisodes([]); setAnime(null); setTime(0); setDuration(0); player.pause();
     session.current += 1; pick.current += 1; probeCache.current = {}; order.current = []; activeRef.current = ''; manualChoice.current = false;
     setProbes({}); setOrdered([]); setActive(''); setNotice(''); setStutterOff(false);
-    progressRef.current = { time: 0, duration: 0 }; lastSave.current = 0; resumePercent.current = 0;
+    progressRef.current = { time: 0, duration: 0 }; lastSave.current = 0; played.current = 0; resumePercent.current = 0;
     let superseded = false;
     const load = async () => {
       try {
@@ -318,7 +325,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   useEffect(() => () => { if (tapTimer.current) clearTimeout(tapTimer.current); if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
   useEffect(() => {
     const listeners = [
-      player.addListener('timeUpdate', event => { const pending = pendingSeek.current; if (pending) { if (Date.now() < pending.until && Math.abs(event.currentTime - pending.target) > 1.5) return; pendingSeek.current = null; } setTime(event.currentTime); setDuration(player.duration); progressRef.current = { time: event.currentTime, duration: player.duration }; if (Date.now() - lastSave.current > 10000) { lastSave.current = Date.now(); saveProgress(); } }),
+      player.addListener('timeUpdate', event => { const pending = pendingSeek.current; if (pending) { if (Date.now() < pending.until && Math.abs(event.currentTime - pending.target) > 1.5) return; pendingSeek.current = null; } const delta = event.currentTime - progressRef.current.time; if (player.playing && delta > 0 && delta < 1.5) played.current += delta / Math.max(1, player.playbackRate); setTime(event.currentTime); setDuration(player.duration); progressRef.current = { time: event.currentTime, duration: player.duration }; if (Date.now() - lastSave.current > 10000) { lastSave.current = Date.now(); saveProgress(); } }),
       player.addListener('playingChange', event => setPlaying(event.isPlaying)),
       player.addListener('statusChange', event => { setStatus(event.status); if (event.status === 'readyToPlay') setDuration(player.duration); if (event.status === 'readyToPlay' && resumePercent.current > 0 && player.duration > 0) { player.currentTime = player.duration * Math.min(100, resumePercent.current) / 100; resumePercent.current = 0; } if (event.status === 'readyToPlay' && startTimer.current) { clearTimeout(startTimer.current); startTimer.current = null; } if (event.status === 'error') { if (activeRef.current) failRef.current('Lecture impossible'); else setError('Impossible de lire cette source. Sélectionnez un autre lecteur.'); show(); } }),
       // Changer de lecteur remplace la source et peut émettre playToEnd : on n'enchaîne que si la lecture était vraiment à la fin.

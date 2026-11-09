@@ -1,5 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { Anime, Episode, AnimeList, WatchHistory, UserAnimeStatus, WatchStatus, DownloadStatus } from '../types/anime';
+import { WATCHED_PROGRESS } from '../utils/watchProgress';
 
 class DatabaseService {
   private db: SQLite.SQLiteDatabase | null = null;
@@ -334,6 +335,15 @@ class DatabaseService {
        VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
       [animeId, episodeId, progress]
     );
+  }
+
+  /** Vu localement : fin de lecture dans l'historique ou « Marquer comme vu ». */
+  async isEpisodeWatched(animeId: string, episodeId: string): Promise<boolean> {
+    await this.initializeDatabase();
+    if (!this.db) throw new Error('Base de données non initialisée');
+    const history = await this.db.getFirstAsync('SELECT 1 FROM watchHistory WHERE animeId = ? AND episodeId = ? AND progress >= ?', [animeId, episodeId, WATCHED_PROGRESS]);
+    if (history) return true;
+    return Boolean(await this.db.getFirstAsync('SELECT 1 FROM episodes WHERE id = ? AND isWatched = 1', [episodeId]));
   }
 
   async removeWatchHistory(animeId: string, episodeId: string): Promise<void> {
