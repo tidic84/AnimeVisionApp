@@ -103,11 +103,12 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
         setEpisodesLoading(false);
         if (seasonsResult.status === 'rejected') setEpisodeError('Les saisons sont indisponibles. Les épisodes enregistrés localement restent accessibles.');
       }
-      if (details.genres.length) {
-        apiService.getAnimesByGenre(details.genres[0], 12).then(items => {
+      // Recommandations MAL ; une API sans cette route se rabat sur le premier genre.
+      apiService.getSimilarAnimes(animeId, 12)
+        .catch(() => details.genres.length ? apiService.getAnimesByGenre(details.genres[0], 12) : [])
+        .then(items => {
           if (token === detailEpoch.current) setSimilar(items.filter(item => item.id !== animeId));
         }).catch(() => { if (token === detailEpoch.current) setSimilar([]); });
-      } else setSimilar([]);
     } catch (cause) { if (token === detailEpoch.current) setError(cause instanceof Error ? cause.message : 'Impossible de charger la fiche.'); }
     finally { if (token === detailEpoch.current) setLoading(false); }
   };
