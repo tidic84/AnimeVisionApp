@@ -47,7 +47,8 @@ function HomeContent() {
 
   const loadPersonal = useCallback(async () => {
     try {
-      const history = await databaseService.getWatchHistory(20);
+      // Large : marquer une saison comme vue ajoute beaucoup d'entrées récentes à 100 %.
+      const history = await databaseService.getWatchHistory(300);
       const episodes = await Promise.all(history.filter(h => h.progress > 0 && h.progress < 90).slice(0, 8).map(async h => {
         const stored = (await databaseService.getAnimeEpisodes(h.animeId)).find(e => e.id === h.episodeId);
         const episode = stored || await apiService.getEpisodeById(h.episodeId);
