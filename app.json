@@ -58,7 +58,8 @@
       "./plugins/withReleaseSigning",
       "expo-font",
       "expo-status-bar",
-      "expo-system-ui"
+      "expo-system-ui",
+      "./plugins/withShortCmakePaths"
     ]
   }
 }
