@@ -99,8 +99,10 @@ const hlsResult = url => ({ success: true, urls: [{ url, type: 'hls', extractedA
   {
     const extractions = { 9: { success: false, urls: [], error: 'hors ligne' } };
     const { service, hlsCalls, gates } = harness(extractions);
-    await service.startDownload(episode('9'));
+    const seen = [];
+    await service.startDownload(episode('9'), Q.HIGH, progress => seen.push(progress.status));
     await until(() => service.downloads.get('download_9_1080p').status === S.FAILED, 'extraction failure must fail');
+    await until(() => seen.at(-1) === 'error', 'the caller is told about the failure');
     extractions[9] = hlsResult('https://h/9.m3u8');
     await service.startDownload(episode('9'));
     await until(() => hlsCalls.length === 1, 'retry should reach the HLS downloader');

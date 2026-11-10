@@ -247,6 +247,7 @@ export class DownloadService {
       downloadItem.progress.status = 'error';
       await this.saveDownloadsToStorage();
       await this.updateEpisodeDownloadStatus(episode.id, DownloadStatus.FAILED);
+      onProgress?.(downloadItem.progress);
       throw error;
     } finally {
       this.downloadCallbacks.delete(downloadId);
