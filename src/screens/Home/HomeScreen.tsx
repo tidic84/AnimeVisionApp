@@ -18,6 +18,7 @@ import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
 import * as malSync from '../../services/mal/malSync';
 import { clearContinueCache, getContinueWatching } from '../../services/continueWatching';
+import { clearRecommendationsCache, getRecommendationShelf, RecommendationShelf } from '../../services/recommendations';
 import { Anime, Episode, ScraperStatus } from '../../types/anime';
 import { elapsedSince } from '../../utils/relativeTime';
 
@@ -38,6 +39,8 @@ function HomeContent() {
   const [watchlist, setWatchlist] = useState<Anime[]>([]);
   const [watchlistId, setWatchlistId] = useState<string | null>(null);
   const [shelves, setShelves] = useState<Shelf[]>([]);
+  const [recommended, setRecommended] = useState<RecommendationShelf | null>(null);
+  const recommendedEpoch = useRef(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -51,6 +54,12 @@ function HomeContent() {
     try {
       // Tout l'historique : un animé fini doit revenir dès la sortie de l'épisode suivant, même ancien.
       const history = await databaseService.getWatchHistory(5000);
+      // Sans attendre : l'étagère de recommandations arrive quand elle est prête, ou pas du tout.
+      const token = ++recommendedEpoch.current;
+      void Promise.all([databaseService.getAnimeLists(), databaseService.getTrackedAnimeIds()])
+        .then(([all, tracked]) => getRecommendationShelf(history, [...all.flatMap(l => l.animeIds), ...tracked]))
+        .catch(() => null)
+        .then(result => { if (token === recommendedEpoch.current) setRecommended(result); });
       const episodes = (await getContinueWatching(history)).map(item => item.episode);
       setResume(episodes);
       const lists = await databaseService.getAnimeLists();
@@ -72,7 +81,7 @@ function HomeContent() {
 
   const load = useCallback(async (refresh = false) => {
     setError('');
-    if (refresh) { setRefreshing(true); clearContinueCache(); } else setLoading(true);
+    if (refresh) { setRefreshing(true); clearContinueCache(); clearRecommendationsCache(); } else setLoading(true);
     void apiService.getScraperStatus().then(setScraper);
     try {
       const home = await apiService.getMobileHome();
@@ -144,6 +153,7 @@ function HomeContent() {
       </View>}
       {episodes('Nouveaux épisodes', latest)}
       {shelf('Votre Watchlist', watchlist)}
+      {recommended && shelf(recommended.title, recommended.items)}
       {shelves.slice(1).map(s => shelf(s.title, s.items, s.subtitle))}
       <MotionPressable accessibilityLabel="Explorer tous les animés" onPress={() => navigation.navigate('Catalog')} style={[styles.browse, { borderColor: colors.primary }]}><Text style={{ color: colors.primary, fontWeight: '700' }}>EXPLORER TOUS LES ANIME</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} /></MotionPressable>
     </Animated.ScrollView>

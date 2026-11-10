@@ -457,6 +457,14 @@ class DatabaseService {
     };
   }
 
+  /** Animés suivis hors historique local (import MAL : en cours, terminés, en pause, abandonnés). */
+  async getTrackedAnimeIds(): Promise<string[]> {
+    await this.initializeDatabase();
+    if (!this.db) throw new Error('Base de données non initialisée');
+    const results = await this.db.getAllAsync('SELECT animeId FROM userAnimeStatus WHERE status != ?', [WatchStatus.NOT_STARTED]) as any[];
+    return results.map(result => String(result.animeId));
+  }
+
   // Paramètres
   async getSetting(key: string): Promise<string | null> {
     await this.initializeDatabase();
