@@ -203,11 +203,6 @@ class ApiService {
     return response.data.map(anime => this.mapApiAnimeToAnime(anime));
   }
 
-  async searchAnimes(query: string, limit: number = 20, page: number = 1): Promise<Anime[]> {
-    const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/anime/search?q=${encodeURIComponent(query)}&limit=${limit}&page=${page}`);
-    return response.data.map(anime => this.mapApiAnimeToAnime(anime));
-  }
-
   async searchSuggestions(query: string): Promise<string[]> {
     const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/search/suggestions?q=${encodeURIComponent(query)}`);
     return response.data.map((item: any) => item.titre || item.suggestion || '');
@@ -357,24 +352,16 @@ class ApiService {
     return { status: response.status === 'ok' ? 'ok' : 'error' };
   }
 
+  /** Données de l'accueil ; une erreur est propagée pour que l'écran affiche son message. */
   async getMobileHome(): Promise<{latest_episodes: Episode[], popular_animes: Anime[]}> {
-    try {
-      const [latestEpisodes, popularAnimes] = await Promise.all([
-        this.getLatestEpisodes(20, 'vostfr'),
-        this.getPopularAnimes(20),
-      ]);
-
-      return {
-        latest_episodes: latestEpisodes,
-        popular_animes: popularAnimes,
-      };
-    } catch (error) {
-      console.error('[ApiService] Erreur lors de la récupération des données de l\'accueil:', error);
-      return {
-        latest_episodes: [],
-        popular_animes: [],
-      };
-    }
+    const [latestEpisodes, popularAnimes] = await Promise.all([
+      this.getLatestEpisodes(20, 'vostfr'),
+      this.getPopularAnimes(20),
+    ]);
+    return {
+      latest_episodes: latestEpisodes,
+      popular_animes: popularAnimes,
+    };
   }
 
   async testConnection(): Promise<boolean> {
@@ -384,11 +371,6 @@ class ApiService {
     } catch {
       return false;
     }
-  }
-
-  setBaseUrl(newBaseUrl: string): void {
-    this.baseUrl = newBaseUrl;
-    console.log(`[ApiService] URL de base mise à jour: ${this.baseUrl}`);
   }
 
   // Méthodes obsolètes maintenues pour compatibilité

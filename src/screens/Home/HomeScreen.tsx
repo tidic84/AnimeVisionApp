@@ -14,7 +14,6 @@ import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/Skel
 import AnimeCard from '../../components/AnimeCard/AnimeCard';
 import EpisodeCard from '../../components/EpisodeCard/EpisodeCard';
 import ApiGuard from '../../components/ApiGuard';
-import hybridScrapingService from '../../services/hybridScrapingService';
 import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
 import * as malSync from '../../services/mal/malSync';
@@ -76,9 +75,9 @@ function HomeContent() {
     if (refresh) { setRefreshing(true); clearContinueCache(); } else setLoading(true);
     void apiService.getScraperStatus().then(setScraper);
     try {
-      const home = await (refresh ? hybridScrapingService.forceRefresh() : hybridScrapingService.getMobileHome());
-      setFeatured(home.popularAnimes.slice(0, 5));
-      setLatest(home.latestEpisodes);
+      const home = await apiService.getMobileHome();
+      setFeatured(home.popular_animes.slice(0, 5));
+      setLatest(home.latest_episodes);
       const requests = await Promise.allSettled([
         apiService.getTrendingAnimes(12),
         apiService.getLatestAnimes(12),
