@@ -1,25 +1,14 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { Episode, DownloadStatus, VideoQuality } from '../types/anime';
+import { Episode } from '../types/anime';
 import { logger } from '../utils/logger';
-import videoUrlExtractor from './VideoUrlExtractor';
 
-export interface DownloadProgress {
+/** Avancement d'un téléchargement HLS, segment par segment. */
+export interface HlsProgress {
   downloadId: string;
   totalSegments: number;
   completedSegments: number;
   totalBytes: number;
   status: 'downloading' | 'completed' | 'error';
-}
-
-export interface DownloadItem {
-  episode: Episode;
-  quality: VideoQuality;
-  url: string;
-  progress: DownloadProgress;
-  status: DownloadStatus;
-  filePath?: string;
-  downloadedAt?: Date;
-  fileSize?: number;
 }
 
 interface HLSSegment {
@@ -28,14 +17,15 @@ interface HLSSegment {
   index: number;
 }
 
-// Classe optimisée pour le téléchargement HLS
-export class DownloadServiceOptimized {
-  private activeDownloads = new Map<string, boolean>();
-  private readonly CONCURRENT_DOWNLOADS = 6; // Téléchargements simultanés
-  private readonly MAX_RETRIES = 5; // Augmenté de 3 à 5 retries
+/**
+ * Télécharge un flux HLS : les segments sont copiés dans downloads/ à côté
+ * d'une playlist locale <titre>.m3u8. Le chemin renvoyé est <titre>.ts, que
+ * le lecteur convertit en .m3u8 ; ce format est celui des téléchargements
+ * déjà présents sur les téléphones.
+ */
+export class HlsDownloader {
   private readonly CHUNK_SIZE = 5; // Réduire pour éviter la surcharge serveur
   private readonly MAX_FILE_SIZE_MB = 700; // Augmenté de 300MB à 700MB pour les épisodes plus lourds
-  private readonly SEGMENT_TIMEOUT_MS = 60000; // Augmenté de 45s à 60s timeout
   private readonly ESTIMATED_SEGMENT_SIZE_MB = 4; // ~4MB par segment en moyenne
 
   private generateDownloadId(episode: Episode): string {
@@ -46,7 +36,7 @@ export class DownloadServiceOptimized {
   async downloadHLS(
     episode: Episode,
     hlsUrl: string,
-    onProgress: (progress: DownloadProgress) => void
+    onProgress: (progress: HlsProgress) => void
   ): Promise<string> {
     const downloadId = this.generateDownloadId(episode);
     logger.debug(`[DownloadOpt] 🚀 Début téléchargement HLS: ${episode.title}`);
@@ -57,9 +47,6 @@ export class DownloadServiceOptimized {
       const segments = await this.parseHLSPlaylist(hlsUrl);
       logger.debug(`[DownloadOpt] 📋 ${segments.length} segments trouvés`);
 
-      // Valider la taille avant de commencer
-      await this.validateSegments(segments);
-      
       // Télécharger et assembler les segments
       return await this.downloadAndAssembleStreaming(
         episode,
@@ -221,60 +208,6 @@ export class DownloadServiceOptimized {
     }
   }
 
-  private async downloadBatchParallel(batch: HLSSegment[]): Promise<(string | null)[]> {
-    const downloadPromises = batch.map(async (segment) => {
-      let retries = 0;
-      while (retries < this.MAX_RETRIES) {
-        try {
-          logger.debug(`[DownloadOpt] 📥 Segment ${segment.index}: tentative ${retries + 1}/${this.MAX_RETRIES}`);
-          
-          const response = await FileSystem.downloadAsync(
-            segment.url,
-            FileSystem.cacheDirectory + `segment_${segment.index}.ts`,
-            {
-              headers: {
-                'User-Agent': 'Mozilla/5.0',
-                'Accept': '*/*',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Sec-Fetch-Mode': 'cors'
-              }
-            }
-          );
-
-          if (response.status !== 200) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-
-          // Lire le fichier en base64
-          const data = await FileSystem.readAsStringAsync(response.uri, {
-            encoding: FileSystem.EncodingType.Base64
-          });
-
-          // Nettoyer le fichier temporaire
-          await FileSystem.deleteAsync(response.uri, { idempotent: true });
-
-          return data;
-
-        } catch (error) {
-          retries++;
-          logger.warn(`[DownloadOpt] ⚠️ Segment ${segment.index}, erreur ${retries}/${this.MAX_RETRIES}:`, error);
-          
-          if (retries === this.MAX_RETRIES) {
-            logger.error(`[DownloadOpt] ❌ Segment ${segment.index}: échec après ${this.MAX_RETRIES} tentatives`);
-            return null;
-          }
-          
-          // Attendre avant de réessayer
-          await new Promise(resolve => setTimeout(resolve, 1000 * retries));
-        }
-      }
-      return null;
-    });
-
-    return Promise.all(downloadPromises);
-  }
-
   private createBatches<T>(array: T[], batchSize: number): T[][] {
     const batches: T[][] = [];
     for (let i = 0; i < array.length; i += batchSize) {
@@ -283,20 +216,11 @@ export class DownloadServiceOptimized {
     return batches;
   }
 
-  private async validateFileSize(totalBytes: number): Promise<void> {
-    const totalSizeMB = Math.round(totalBytes / (1024 * 1024));
-    logger.debug(`[DownloadOpt] 📊 Taille totale estimée: ${totalSizeMB} MB`);
-    
-    if (totalBytes > this.MAX_FILE_SIZE_MB * 1024 * 1024) {
-      throw new Error(`Fichier trop volumineux (≈${totalSizeMB}MB). Limite: ${this.MAX_FILE_SIZE_MB}MB.`);
-    }
-  }
-
   private async downloadAndAssembleStreaming(
     episode: Episode,
     segments: HLSSegment[],
     downloadId: string,
-    onProgress: (progress: DownloadProgress) => void
+    onProgress: (progress: HlsProgress) => void
   ): Promise<string> {
     // Valider la taille avant de commencer
     await this.validateSegments(segments);
@@ -385,7 +309,7 @@ export class DownloadServiceOptimized {
         const batchResults = await Promise.all(batchPromises);
         
         // Filtrer les segments valides et les ajouter à la liste
-        const validSegments = batchResults.filter(path => path !== null) as string[];
+        const validSegments = batchResults.filter((path): path is string => path !== null);
         segmentFiles.push(...validSegments);
         completedSegments += validSegments.length;
         
@@ -606,4 +530,4 @@ export class DownloadServiceOptimized {
   }
 }
 
-export default new DownloadServiceOptimized();
+export default new HlsDownloader();

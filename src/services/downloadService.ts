@@ -4,7 +4,7 @@ import { Episode, DownloadStatus, VideoQuality } from '../types/anime';
 import { logger } from '../utils/logger';
 import databaseService from './databaseService';
 import videoUrlExtractor, { VideoUrlExtractor } from './VideoUrlExtractor';
-import downloadServiceOptimized, { DownloadServiceOptimized, DownloadProgress as HlsProgress } from './downloadServiceOptimized';
+import hlsDownloader, { HlsDownloader, HlsProgress } from './hlsDownloader';
 
 export interface DownloadProgress {
   downloadId: string;
@@ -40,7 +40,7 @@ export class DownloadService {
   private isStorageLoaded = false;
 
   constructor(
-    private hlsDownloader: DownloadServiceOptimized,
+    private hlsDownloader: HlsDownloader,
     private videoUrlExtractor: VideoUrlExtractor
   ) {
     this.loadDownloadsFromStorage();
@@ -435,7 +435,4 @@ export class DownloadService {
 }
 
 // Export singleton instance
-export default new DownloadService(
-  downloadServiceOptimized,
-  videoUrlExtractor
-);
+export default new DownloadService(hlsDownloader, videoUrlExtractor);
