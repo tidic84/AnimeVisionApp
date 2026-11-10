@@ -50,8 +50,13 @@ run(`${gradlew} assembleRelease --no-daemon --max-workers=2 -PreactNativeArchite
 
 const apk = path.join(root, `AnimeVision-${tag}.apk`);
 fs.copyFileSync(path.join(root, 'android/app/build/outputs/apk/release/app-release.apk'), apk);
+// Empreinte publiée à côté de l'APK (format sha256sum) : l'app la compare avant d'ouvrir l'installateur.
+const checksum = `${apk}.sha256`;
+const sha256 = require('crypto').createHash('sha256').update(fs.readFileSync(apk)).digest('hex');
+fs.writeFileSync(checksum, `${sha256}  ${path.basename(apk)}\n`);
 let exists = true;
 try { execSync(`gh release view ${tag}`, { cwd: root, stdio: 'ignore' }); } catch { exists = false; }
-run(exists ? `gh release upload ${tag} "${apk}" --clobber` : `gh release create ${tag} "${apk}" --title "AnimeVision ${tag}" --generate-notes --verify-tag`);
+run(exists ? `gh release upload ${tag} "${apk}" "${checksum}" --clobber` : `gh release create ${tag} "${apk}" "${checksum}" --title "AnimeVision ${tag}" --generate-notes --verify-tag`);
 fs.rmSync(apk);
+fs.rmSync(checksum);
 console.log(`\nAPK ${tag} publié.`);
