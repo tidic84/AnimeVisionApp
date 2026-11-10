@@ -28,6 +28,8 @@ import { palette } from '../../theme/palette';
 import PlayerDetails from './PlayerDetails';
 import PlayerSettingsSheet, { Page, ServerChoice } from './PlayerSettingsSheet';
 import useStutterDetector from './useStutterDetector';
+import SeekPreview from './SeekPreview';
+import { loadStoryboard, Storyboard } from '../../services/seekPreview';
 import { pickSkips, SkipResult } from '../../utils/skipTimes';
 
 const colors = palette.dark;
@@ -73,6 +75,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const [stutterOff, setStutterOff] = useState(false);
   const [background, setBackground] = useState(false);
   const [skipTimes, setSkipTimes] = useState<SkipResult[]>([]);
+  const [storyboard, setStoryboard] = useState<Storyboard | null>(null);
   const [durationWidth, setDurationWidth] = useState(32);
   const [stutterHeight, setStutterHeight] = useState(44);
   const skipIn = useRef(new Animated.Value(0)).current;
@@ -152,7 +155,10 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       // Qualités lues dans le manifeste HLS ; un flux sans variantes n'affiche que sa résolution si elle est connue.
       setSources(result.qualities.length ? result.qualities : result.height ? [{ label: `${result.height}p`, url: result.url }] : []);
       setSource({ uri: result.url, headers: result.headers });
-    } else { player.pause(); setSource(null); setSources([]); setEmbed(server.url); }
+      const id = pick.current;
+      setStoryboard(null);
+      if (result.thumbnails) void loadStoryboard(result.thumbnails, result.headers).then(value => { if (pick.current === id) setStoryboard(value); });
+    } else { player.pause(); setSource(null); setSources([]); setEmbed(server.url); setStoryboard(null); }
   };
   // Lecteurs testés dans l'ordre des favoris : le premier dont le flux s'extrait passe en lecture native, sinon le premier lecteur web plausible.
   // null : la recherche a été remplacée par un choix plus récent, qui gère lui-même le chargement.
@@ -413,6 +419,9 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const skipBottom = stutterShown ? (fullscreen ? 72 : 56) + stutterHeight + 8 : skipBase;
   const skipLift = stutterShown ? 0 : fullscreen ? 56 : 25;
   const skipShift = stutterShown || fullscreen ? 0 : durationWidth + 12;
+  // Marges de l'overlay, reprises par la bulle d'aperçu pour se placer au-dessus du curseur.
+  const barLeft = ui.side + (fullscreen ? insets.left : 0);
+  const barBottom = fullscreen ? Math.max(8, insets.bottom) : 0;
   const seriesTitle = anime?.title || episode?.animeTitle || '';
   const episodeTitle = episode ? `E${episode.number} - ${episode.title || episode.titre_episode || `Épisode ${episode.number}`}` : '';
   // Même barre du haut pendant le chargement, une erreur ou un lecteur web que sur le lecteur natif : sinon d'anciennes icônes s'affichaient le temps de l'ouverture.
@@ -433,7 +442,7 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       {loading ? <View style={[StyleSheet.absoluteFill, styles.empty, styles.cover]}><ActivityIndicator size="large" color={colors.primary} />{!!ordered.length && <Text style={styles.error}>{active ? `Ouverture de ${labelOf(active)}…` : 'Recherche d’un lecteur disponible…'}</Text>}</View> : embed ? (focused ? <WebViewVideoPlayer key={embed} embedUrl={embed} background={background} onDead={reason => failRef.current(reason)} /> : null) : !source && <View style={[StyleSheet.absoluteFill, styles.empty, styles.cover]}><Ionicons name="videocam-off-outline" color={colors.textSecondary} size={36} /><Text style={[styles.error, { textAlign: 'center' }]}>{error || 'Aucun lecteur disponible.'}</Text><View style={styles.emptyActions}>{choices.length > 1 && <TouchableOpacity onPress={openServers} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Changer de lecteur</Text></TouchableOpacity>}<TouchableOpacity onPress={() => setAttempt(value => value + 1)} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Réessayer</Text></TouchableOpacity></View></View>}
       {!embed && source && !loading && <View accessible accessibilityLabel={controls ? 'Masquer les commandes' : 'Afficher les commandes'} accessibilityRole="button" onAccessibilityTap={() => controls ? hide() : show()} style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={event => handleTap(event.nativeEvent.locationX, trackArea.current)} onLayout={event => { trackArea.current = event.nativeEvent.layout.width; }} />}
       {seekHint && <View pointerEvents="none" style={[styles.seekHint, seekHint.side === 'left' ? { left: 0 } : { right: 0 }]}><MaterialIcons name={seekHint.side === 'left' ? 'fast-rewind' : 'fast-forward'} color="white" size={32} /><Text style={styles.seekHintText}>{seekHint.side === 'left' ? '-' : '+'}{seekHint.amount} s</Text></View>}
-      {(embed || loading || !source) ? <View pointerEvents="box-none" style={[styles.staticBar, { paddingLeft: ui.side + (fullscreen ? insets.left : 0), paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6 }]}><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']} style={StyleSheet.absoluteFill} />{topBar}</View> : <Animated.View pointerEvents={controls ? 'box-none' : 'none'} style={[styles.overlay, { opacity, paddingLeft: ui.side + (fullscreen ? insets.left : 0), paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6, paddingBottom: fullscreen ? Math.max(8, insets.bottom) : 0 }]}>
+      {(embed || loading || !source) ? <View pointerEvents="box-none" style={[styles.staticBar, { paddingLeft: ui.side + (fullscreen ? insets.left : 0), paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6 }]}><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']} style={StyleSheet.absoluteFill} />{topBar}</View> : <Animated.View pointerEvents={controls ? 'box-none' : 'none'} style={[styles.overlay, { opacity, paddingLeft: barLeft, paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6, paddingBottom: barBottom }]}>
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.scrim]} /><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']} style={styles.scrimTop} /><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.75)']} style={styles.scrimBottom} />
         <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, styles.center, { gap: ui.gap }]}>
           {control('replay-10', 'Reculer de 10 secondes', () => seek(time - 10), ui.skip)}
@@ -450,6 +459,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       {skip && <Animated.View pointerEvents="box-none" style={[styles.skipWrap, { right: ui.side + (fullscreen ? insets.right : 0), bottom: skipBottom, opacity: skipIn, transform: [{ translateX: Animated.add(skipIn.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }), opacity.interpolate({ inputRange: [0, 1], outputRange: [0, -skipShift] })) }, { translateY: opacity.interpolate({ inputRange: [0, 1], outputRange: [0, -skipLift] }) }] }]}>
         <MotionPressable pressedScale={0.94} accessibilityRole="button" accessibilityLabel={skipLabel} onPress={() => { if (skipToNext && next) navigateEpisode(next); else seek(skip.end, false); }} hitSlop={8} style={[styles.skip, fullscreen ? { height: 40, paddingHorizontal: 18 } : { height: 30, paddingHorizontal: 12 }]}><Text style={[styles.skipText, fullscreen && { fontSize: 14 }]}>{skipLabel}</Text><MaterialIcons name={skipToNext ? 'skip-next' : 'fast-forward'} color="white" size={fullscreen ? 20 : 16} /></MotionPressable>
       </Animated.View>}
+      {/* Rendue ici, par-dessus tout le lecteur, plutôt que dans la barre de 44 px : elle n'y apparaissait pas sur Android. */}
+      {drag !== null && <SeekPreview time={drag} label={clock(drag)} x={barLeft + fraction * trackWidth.current} barLeft={barLeft} barWidth={trackWidth.current} bottom={barBottom + 36} storyboard={storyboard} headers={streamHeaders.current} large={fullscreen} />}
     </View>
     {!fullscreen && <ScrollView style={{ flex: 1 }} pointerEvents={settings || touchLock ? 'none' : 'auto'}>{!!(notice || (error && (source || embed))) && <TouchableOpacity accessibilityRole="button" onPress={openServers} style={styles.notice}><Ionicons name="swap-horizontal" color={colors.primary} size={18} /><Text style={[styles.error, { flex: 1 }]}>{error && (source || embed) ? error : notice}</Text><Text style={styles.noticeAction}>Lecteurs</Text></TouchableOpacity>}{episode && <PlayerDetails anime={anime} episode={episode} episodes={episodes} onEpisode={navigateEpisode} onAnime={() => navigation.navigate('AnimeDetail', { animeId })} />}</ScrollView>}
     <PlayerSettingsSheet visible={settings} onClose={closeSettings} reduced={reduced} nativePlayback={!!source && !embed}
