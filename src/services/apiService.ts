@@ -2,6 +2,9 @@ import loadScheduler, { LoadGroup } from './loadScheduler';
 import { Episode, Anime, AnimeStatus, VideoQuality, Season, StreamingServer, ApiResponse, ApiError, SimulcastSeason, PlanningDay, ScraperStatus } from '../types/anime';
 import { API_ADDRESS } from '@env';
 import { SkipResult } from '../utils/skipTimes';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('ApiService');
 
 class ApiService {
   private baseUrl: string;
@@ -15,10 +18,10 @@ class ApiService {
   constructor() {
     // Utiliser la nouvelle URL de l'API
     this.baseUrl = (API_ADDRESS || 'http://localhost:3000').replace(/\/+$/, '');
-    console.log(`[ApiService] Utilisation de l'API: ${this.baseUrl}`);
+    log.info(`Utilisation de l'API: ${this.baseUrl}`);
 
     if (!API_ADDRESS) {
-      console.warn('[ApiService] Variable API_ADDRESS non définie dans .env, utilisation du fallback');
+      log.warn('Variable API_ADDRESS non définie dans .env, utilisation du fallback');
     }
   }
 
@@ -261,7 +264,7 @@ class ApiService {
         const season = await this.getSeasonById(response.data.saison_id);
         animeId = season.anime_id;
       } catch (error) {
-        console.warn(`[ApiService] Impossible de récupérer l'anime_id pour la saison ${response.data.saison_id}:`, error);
+        log.warn(`Impossible de récupérer l'anime_id pour la saison ${response.data.saison_id}:`, error);
       }
     }
 
@@ -310,7 +313,7 @@ class ApiService {
       const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/anime/genres`);
       return response.data.map((item: any) => item.genre || item);
     } catch (error) {
-      console.warn('[ApiService] Impossible de récupérer les genres, utilisation des genres par défaut');
+      log.warn('Impossible de récupérer les genres, utilisation des genres par défaut');
       return ['Action', 'Adventure', 'Comedy', 'Drama', 'Fantasy', 'Romance', 'Sci-Fi', 'Thriller'];
     }
   }
@@ -326,7 +329,7 @@ class ApiService {
     try {
       // Valider que l'animeId n'est pas vide
       if (!animeId || animeId.trim() === '') {
-        console.error('[ApiService] animeId vide ou undefined dans getAnimeEpisodes');
+        log.error('animeId vide ou undefined dans getAnimeEpisodes');
         return [];
       }
 
@@ -342,7 +345,7 @@ class ApiService {
 
       return allEpisodes.sort((a, b) => Number(a.num_saison || 1) - Number(b.num_saison || 1) || a.number - b.number);
     } catch (error) {
-      console.error(`[ApiService] Erreur lors de la récupération des épisodes pour l'animé ${animeId}:`, error);
+      log.error(`Erreur lors de la récupération des épisodes pour l'animé ${animeId}:`, error);
       return [];
     }
   }
@@ -464,7 +467,7 @@ class ApiService {
         currentPage: page,
       };
     } catch (error) {
-      console.error('[ApiService] Erreur lors de la recherche avec filtres:', error);
+      log.error('Erreur lors de la recherche avec filtres:', error);
       throw error;
     }
   }

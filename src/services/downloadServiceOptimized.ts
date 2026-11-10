@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Episode, DownloadStatus, VideoQuality } from '../types/anime';
+import { logger } from '../utils/logger';
 import videoUrlExtractor from './VideoUrlExtractor';
 
 export interface DownloadProgress {
@@ -48,13 +49,13 @@ export class DownloadServiceOptimized {
     onProgress: (progress: DownloadProgress) => void
   ): Promise<string> {
     const downloadId = this.generateDownloadId(episode);
-    console.log(`[DownloadOpt] 🚀 Début téléchargement HLS: ${episode.title}`);
-    console.log(`[DownloadOpt] 🔗 URL: ${hlsUrl}`);
+    logger.debug(`[DownloadOpt] 🚀 Début téléchargement HLS: ${episode.title}`);
+    logger.debug(`[DownloadOpt] 🔗 URL: ${hlsUrl}`);
 
     try {
       // Parser la playlist M3U8
       const segments = await this.parseHLSPlaylist(hlsUrl);
-      console.log(`[DownloadOpt] 📋 ${segments.length} segments trouvés`);
+      logger.debug(`[DownloadOpt] 📋 ${segments.length} segments trouvés`);
 
       // Valider la taille avant de commencer
       await this.validateSegments(segments);
@@ -69,7 +70,7 @@ export class DownloadServiceOptimized {
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[DownloadOpt] ❌ Erreur: ${errorMessage}`);
+      logger.error(`[DownloadOpt] ❌ Erreur: ${errorMessage}`);
       throw error;
     }
   }
@@ -90,7 +91,7 @@ export class DownloadServiceOptimized {
     
     // Vérifier si c'est une master playlist
     if (m3u8Content.includes('#EXT-X-STREAM-INF')) {
-      console.log(`[DownloadOpt] 📺 Master playlist détectée`);
+      logger.debug(`[DownloadOpt] 📺 Master playlist détectée`);
       const streamUrl = await this.resolveMasterPlaylist(hlsUrl, m3u8Content);
       
       // Récupérer la playlist de la meilleure qualité
@@ -106,7 +107,7 @@ export class DownloadServiceOptimized {
       }
 
       const streamContent = await streamResponse.text();
-      console.log(`[DownloadOpt] ✅ Playlist qualité récupérée: ${streamUrl}`);
+      logger.debug(`[DownloadOpt] ✅ Playlist qualité récupérée: ${streamUrl}`);
       
       // Parser les segments de la playlist de qualité
       const baseUrl = streamUrl.substring(0, streamUrl.lastIndexOf('/'));
@@ -161,13 +162,13 @@ export class DownloadServiceOptimized {
       const urlMatch = masterUrl.match(/_([\w,]+)\.urlset/);
       if (urlMatch && urlMatch[1]) {
         const qualities = urlMatch[1].split(',').filter(q => q);
-        console.log(`[DownloadOpt] 📊 Qualités disponibles:`, qualities);
+        logger.debug(`[DownloadOpt] 📊 Qualités disponibles:`, qualities);
         
         // Choisir la meilleure qualité (n > l)
         const bestQuality = qualities.includes('n') ? 'n' : 'l';
         const streamUrl = masterUrl.replace('master.m3u8', `index-${bestQuality}1-a1.m3u8`);
         
-        console.log(`[DownloadOpt] ✅ Meilleure qualité: ${bestQuality}`);
+        logger.debug(`[DownloadOpt] ✅ Meilleure qualité: ${bestQuality}`);
         return streamUrl;
       }
       
@@ -178,7 +179,7 @@ export class DownloadServiceOptimized {
     streams.sort((a, b) => b.bandwidth - a.bandwidth);
     const bestStream = streams[0];
     
-    console.log(`[DownloadOpt] ✅ Meilleur stream: ${bestStream.resolution} (${Math.round(bestStream.bandwidth/1000)}kbps)`);
+    logger.debug(`[DownloadOpt] ✅ Meilleur stream: ${bestStream.resolution} (${Math.round(bestStream.bandwidth/1000)}kbps)`);
     return bestStream.url;
   }
 
@@ -209,7 +210,7 @@ export class DownloadServiceOptimized {
 
   private async validateSegments(segments: HLSSegment[]): Promise<void> {
     const estimatedTotalMB = Math.round((segments.length * this.ESTIMATED_SEGMENT_SIZE_MB));
-    console.log(`[DownloadOpt] 📊 Taille estimée: ${estimatedTotalMB}MB (${segments.length} segments)`);
+    logger.debug(`[DownloadOpt] 📊 Taille estimée: ${estimatedTotalMB}MB (${segments.length} segments)`);
     
     if (estimatedTotalMB > this.MAX_FILE_SIZE_MB) {
       throw new Error(
@@ -225,7 +226,7 @@ export class DownloadServiceOptimized {
       let retries = 0;
       while (retries < this.MAX_RETRIES) {
         try {
-          console.log(`[DownloadOpt] 📥 Segment ${segment.index}: tentative ${retries + 1}/${this.MAX_RETRIES}`);
+          logger.debug(`[DownloadOpt] 📥 Segment ${segment.index}: tentative ${retries + 1}/${this.MAX_RETRIES}`);
           
           const response = await FileSystem.downloadAsync(
             segment.url,
@@ -257,10 +258,10 @@ export class DownloadServiceOptimized {
 
         } catch (error) {
           retries++;
-          console.warn(`[DownloadOpt] ⚠️ Segment ${segment.index}, erreur ${retries}/${this.MAX_RETRIES}:`, error);
+          logger.warn(`[DownloadOpt] ⚠️ Segment ${segment.index}, erreur ${retries}/${this.MAX_RETRIES}:`, error);
           
           if (retries === this.MAX_RETRIES) {
-            console.error(`[DownloadOpt] ❌ Segment ${segment.index}: échec après ${this.MAX_RETRIES} tentatives`);
+            logger.error(`[DownloadOpt] ❌ Segment ${segment.index}: échec après ${this.MAX_RETRIES} tentatives`);
             return null;
           }
           
@@ -284,7 +285,7 @@ export class DownloadServiceOptimized {
 
   private async validateFileSize(totalBytes: number): Promise<void> {
     const totalSizeMB = Math.round(totalBytes / (1024 * 1024));
-    console.log(`[DownloadOpt] 📊 Taille totale estimée: ${totalSizeMB} MB`);
+    logger.debug(`[DownloadOpt] 📊 Taille totale estimée: ${totalSizeMB} MB`);
     
     if (totalBytes > this.MAX_FILE_SIZE_MB * 1024 * 1024) {
       throw new Error(`Fichier trop volumineux (≈${totalSizeMB}MB). Limite: ${this.MAX_FILE_SIZE_MB}MB.`);
@@ -308,7 +309,7 @@ export class DownloadServiceOptimized {
     await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
     await FileSystem.makeDirectoryAsync(tempDir, { intermediates: true });
 
-    console.log(`[DownloadOpt] 🔗 Assemblage streaming de ${segments.length} segments`);
+    logger.debug(`[DownloadOpt] 🔗 Assemblage streaming de ${segments.length} segments`);
 
     let totalBytes = 0;
     let completedSegments = 0;
@@ -318,7 +319,7 @@ export class DownloadServiceOptimized {
     try {
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
-        console.log(`[DownloadOpt] 📥 Téléchargement batch ${i + 1}/${batches.length} (${batch.length} segments)`);
+        logger.debug(`[DownloadOpt] 📥 Téléchargement batch ${i + 1}/${batches.length} (${batch.length} segments)`);
         
         // Télécharger chaque segment directement dans un fichier avec retry
         const batchPromises = batch.map(async (segment, j) => {
@@ -357,22 +358,22 @@ export class DownloadServiceOptimized {
               
               // Si statut non-200 ou fichier vide, retry
               if (attempt < maxRetries - 1) {
-                console.warn(`[DownloadOpt] ⚠️ Segment ${segment.index} échec (statut: ${downloadResult.status}), retry ${attempt + 1}/${maxRetries}`);
+                logger.warn(`[DownloadOpt] ⚠️ Segment ${segment.index} échec (statut: ${downloadResult.status}), retry ${attempt + 1}/${maxRetries}`);
                 await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Délai progressif
                 continue;
               }
               
-              console.warn(`[DownloadOpt] ❌ Segment ${segment.index} définitivement échué après ${maxRetries} tentatives (statut: ${downloadResult.status})`);
+              logger.warn(`[DownloadOpt] ❌ Segment ${segment.index} définitivement échué après ${maxRetries} tentatives (statut: ${downloadResult.status})`);
               return null;
               
             } catch (error) {
               if (attempt < maxRetries - 1) {
-                console.warn(`[DownloadOpt] ⚠️ Erreur segment ${segment.index}, retry ${attempt + 1}/${maxRetries}:`, error);
+                logger.warn(`[DownloadOpt] ⚠️ Erreur segment ${segment.index}, retry ${attempt + 1}/${maxRetries}:`, error);
                 await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1))); // Délai progressif
                 continue;
               }
               
-              console.warn(`[DownloadOpt] ❌ Segment ${segment.index} définitivement échué après ${maxRetries} tentatives:`, error);
+              logger.warn(`[DownloadOpt] ❌ Segment ${segment.index} définitivement échué après ${maxRetries} tentatives:`, error);
               return null;
             }
           }
@@ -390,7 +391,7 @@ export class DownloadServiceOptimized {
         
         // Si aucun segment n'a réussi dans ce batch, augmenter le délai
         if (validSegments.length === 0 && batch.length > 0) {
-          console.warn(`[DownloadOpt] ⚠️ Batch ${i + 1} complètement échoué, pause de récupération...`);
+          logger.warn(`[DownloadOpt] ⚠️ Batch ${i + 1} complètement échoué, pause de récupération...`);
           await new Promise(resolve => setTimeout(resolve, 3000)); // 3s de pause
         }
         
@@ -404,7 +405,7 @@ export class DownloadServiceOptimized {
           status: 'downloading'
         });
         
-        console.log(`[DownloadOpt] ✅ Batch ${i + 1}/${batches.length} terminé: ${validSegments.length}/${batch.length} segments (Total: ${completedSegments}/${segments.length} - ${progressPercent}%)`);
+        logger.debug(`[DownloadOpt] ✅ Batch ${i + 1}/${batches.length} terminé: ${validSegments.length}/${batch.length} segments (Total: ${completedSegments}/${segments.length} - ${progressPercent}%)`);
         
         // Pause entre les batches pour éviter la surcharge serveur
         if (i < batches.length - 1) {
@@ -421,15 +422,15 @@ export class DownloadServiceOptimized {
       }
       
       if (successRate < 0.95) {
-        console.warn(`[DownloadOpt] ⚠️ Téléchargement partiel accepté: ${completedSegments}/${segments.length} segments (${Math.round(successRate * 100)}%)`);
+        logger.warn(`[DownloadOpt] ⚠️ Téléchargement partiel accepté: ${completedSegments}/${segments.length} segments (${Math.round(successRate * 100)}%)`);
       }
 
-      console.log(`[DownloadOpt] 🔗 Assemblage de ${segmentFiles.length} fichiers segments...`);
+      logger.debug(`[DownloadOpt] 🔗 Assemblage de ${segmentFiles.length} fichiers segments...`);
       
       // Assembler les segments en utilisant la concaténation binaire
       await this.concatenateFiles(segmentFiles, finalPath);
 
-      console.log(`[DownloadOpt] ✅ Assemblage terminé: ${completedSegments} segments, ${totalBytes} bytes`);
+      logger.debug(`[DownloadOpt] ✅ Assemblage terminé: ${completedSegments} segments, ${totalBytes} bytes`);
 
       // Valider le fichier final
       await this.validateDownload(finalPath, segments.length);
@@ -443,7 +444,7 @@ export class DownloadServiceOptimized {
         status: 'completed'
       });
 
-      console.log(`[DownloadOpt] 🎉 Téléchargement terminé avec succès: ${finalPath}`);
+      logger.debug(`[DownloadOpt] 🎉 Téléchargement terminé avec succès: ${finalPath}`);
 
       return finalPath;
     } finally {
@@ -451,7 +452,7 @@ export class DownloadServiceOptimized {
       try {
         await FileSystem.deleteAsync(tempDir, { idempotent: true });
       } catch (error) {
-        console.warn('[DownloadOpt] ⚠️ Erreur lors du nettoyage des fichiers temporaires:', error);
+        logger.warn('[DownloadOpt] ⚠️ Erreur lors du nettoyage des fichiers temporaires:', error);
       }
     }
   }
@@ -461,7 +462,7 @@ export class DownloadServiceOptimized {
    * Nouvelle approche : création d'une playlist M3U8 locale
    */
   private async concatenateFiles(inputFiles: string[], outputFile: string): Promise<void> {
-    console.log(`[DownloadOpt] 🎬 Création d'une playlist M3U8 pour ${inputFiles.length} segments...`);
+    logger.debug(`[DownloadOpt] 🎬 Création d'une playlist M3U8 pour ${inputFiles.length} segments...`);
     
     if (inputFiles.length === 0) {
       throw new Error('Aucun fichier à traiter');
@@ -476,8 +477,8 @@ export class DownloadServiceOptimized {
       const playlistPath = outputFile.replace('.ts', '.m3u8');
       await FileSystem.writeAsStringAsync(playlistPath, playlistContent);
       
-      console.log(`[DownloadOpt] ✅ Playlist M3U8 créée: ${playlistPath}`);
-      console.log(`[DownloadOpt] ✅ Fichier principal créé: ${outputFile}`);
+      logger.debug(`[DownloadOpt] ✅ Playlist M3U8 créée: ${playlistPath}`);
+      logger.debug(`[DownloadOpt] ✅ Fichier principal créé: ${outputFile}`);
       
       // Calculer la taille totale des segments
       let totalSize = 0;
@@ -488,10 +489,10 @@ export class DownloadServiceOptimized {
         }
       }
       
-      console.log(`[DownloadOpt] ✅ Assemblage terminé: ${inputFiles.length} segments, ${totalSize} bytes`);
+      logger.debug(`[DownloadOpt] ✅ Assemblage terminé: ${inputFiles.length} segments, ${totalSize} bytes`);
       
     } catch (error) {
-      console.error('[DownloadOpt] ❌ Erreur lors de la création de la playlist:', error);
+      logger.error('[DownloadOpt] ❌ Erreur lors de la création de la playlist:', error);
       throw error;
     }
   }
@@ -542,7 +543,7 @@ export class DownloadServiceOptimized {
    * Vérifie que le téléchargement est complet et valide
    */
   private async validateDownload(outputFile: string, expectedSegments: number): Promise<void> {
-    console.log(`[DownloadOpt] 🔍 Validation du téléchargement...`);
+    logger.debug(`[DownloadOpt] 🔍 Validation du téléchargement...`);
     
     try {
       // Vérifier que la playlist M3U8 existe
@@ -581,14 +582,14 @@ export class DownloadServiceOptimized {
               totalSize += segmentInfo.size;
             }
           } else {
-            console.warn(`[DownloadOpt] ⚠️ Segment manquant: ${cleanSegmentPath}`);
+            logger.warn(`[DownloadOpt] ⚠️ Segment manquant: ${cleanSegmentPath}`);
           }
         } catch (error) {
-          console.warn(`[DownloadOpt] ⚠️ Erreur vérification segment ${cleanSegmentPath}:`, error);
+          logger.warn(`[DownloadOpt] ⚠️ Erreur vérification segment ${cleanSegmentPath}:`, error);
         }
       }
       
-      console.log(`[DownloadOpt] 📊 Segments validés: ${existingSegments}/${expectedSegments} (${Math.round(totalSize / 1024 / 1024)}MB)`);
+      logger.debug(`[DownloadOpt] 📊 Segments validés: ${existingSegments}/${expectedSegments} (${Math.round(totalSize / 1024 / 1024)}MB)`);
       
       // Vérifier qu'on a au moins 85% des segments (comme avant)
       const successRate = (existingSegments / expectedSegments) * 100;
@@ -596,10 +597,10 @@ export class DownloadServiceOptimized {
         throw new Error(`Téléchargement incomplet: ${successRate.toFixed(1)}% des segments présents (${existingSegments}/${expectedSegments})`);
       }
       
-      console.log(`[DownloadOpt] ✅ Validation réussie: ${successRate.toFixed(1)}% des segments présents`);
+      logger.debug(`[DownloadOpt] ✅ Validation réussie: ${successRate.toFixed(1)}% des segments présents`);
       
     } catch (error) {
-      console.error('[DownloadOpt] ❌ Erreur de validation:', error);
+      logger.error('[DownloadOpt] ❌ Erreur de validation:', error);
       throw error;
     }
   }

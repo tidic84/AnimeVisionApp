@@ -7,6 +7,7 @@ import * as mal from '../../services/mal/malService';
 import * as malSync from '../../services/mal/malSync';
 import * as updates from '../../services/updateService';
 import { elapsedSince } from '../../utils/relativeTime';
+import { createLogger, formatRecentErrors, getRecentErrors } from '../../utils/logger';
 import { ScraperStatus } from '../../types/anime';
 import { useApi } from '../../contexts/ApiContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -25,6 +26,7 @@ import {
   Modal,
   TextInput,
   Linking,
+  Share,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +36,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { dialog } from '../../components/Dialog';
 
 type SettingsScreenProps = MainTabScreenProps<'Settings'>;
+
+const log = createLogger('Settings');
 
 const Colors = palette;
 
@@ -186,7 +190,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
         setSettings(previous => ({ ...previous, ...JSON.parse(savedSettings) }));
       }
     } catch (error) {
-      console.error('[Settings] Erreur lors du chargement des paramètres:', error);
+      log.error('Chargement des paramètres impossible:', error);
     }
   };
 
@@ -197,7 +201,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
       if (newSettings.darkMode !== undefined) setScheme(newSettings.darkMode ? 'dark' : 'light');
       await AsyncStorage.setItem('appSettings', JSON.stringify(updatedSettings));
     } catch (error) {
-      console.error('[Settings] Erreur lors de la sauvegarde des paramètres:', error);
+      log.error('Sauvegarde des paramètres impossible:', error);
       dialog.alert('Erreur', 'Impossible de sauvegarder les paramètres');
     }
   };
@@ -243,6 +247,19 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     } catch (error) {
       dialog.alert('Mise à jour', error instanceof Error ? error.message : 'Vérification impossible.');
     } finally { setUpdateStatus(''); }
+  };
+
+  // Journal local des dernières erreurs, à joindre à un signalement de bug.
+  const shareErrorLog = () => {
+    const report = `AnimeVision v${updates.currentVersion()}
+
+${formatRecentErrors()}`;
+    Share.share({ title: 'Journal d’erreurs AnimeVision', message: report }).catch(async error => {
+      // Navigateur sans partage natif : copie dans le presse-papiers à la place.
+      const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
+      if (!clipboard) { log.warn('Partage du journal impossible:', error); return; }
+      await clipboard.writeText(report).then(() => dialog.alert('Journal d’erreurs', 'Copié dans le presse-papiers.'), () => log.warn('Copie du journal impossible:', error));
+    });
   };
 
   const openURL = (url: string) => {
@@ -704,6 +721,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
               'Catalogue',
               `Mis à jour il y a ${elapsedSince(scraper.last_update)}`,
               scraper.stale ? 'En retard' : undefined
+            )}
+            {renderSettingRow(
+              'document-text',
+              'Journal d’erreurs',
+              'Partager les dernières erreurs pour signaler un problème',
+              String(getRecentErrors().length),
+              shareErrorLog
             )}
             {renderSettingRow(
               'globe',

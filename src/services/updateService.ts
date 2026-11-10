@@ -4,6 +4,9 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dialog } from '../components/Dialog';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('Update');
 
 /** Mises à jour de l'APK Android depuis les releases GitHub du dépôt de l'app. */
 const RELEASES_URL = 'https://api.github.com/repos/tidic84/AnimeVisionApp/releases/latest';
@@ -98,6 +101,6 @@ export async function checkOnLaunch() {
     if (!update || update.version === await AsyncStorage.getItem(SKIPPED_KEY)) return;
     promptUpdate(update, { allowSkip: true });
   } catch (error) {
-    console.warn('[Update] Vérification impossible:', error);
+    log.warn('Vérification impossible:', error);
   }
 }

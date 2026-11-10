@@ -14,7 +14,7 @@ function compile(file, mock) {
  return exports;
 }
 const types = compile('types/anime.ts', require);
-const { DownloadService } = compile('services/downloadService.ts', name => name === 'react-native' ? { Platform: platform } : name === 'expo-file-system/legacy' ? filesystem : name === '../types/anime' ? types : name === 'buffer' ? { Buffer } : {});
+const { DownloadService } = compile('services/downloadService.ts', name => name === 'react-native' ? { Platform: platform } : name === 'expo-file-system/legacy' ? filesystem : name === '../types/anime' ? types : name === 'buffer' ? { Buffer } : name === '../utils/logger' ? { logger: { debug() {}, info() {}, warn() {}, error() {} } } : {});
 const S = types.DownloadStatus, Q = types.VideoQuality;
 const item = (id, quality, status) => ({ episode: { id }, quality, status, progress: {}, filePath: status === S.DOWNLOADED ? `/app/${id}_${quality}.mp4` : undefined });
 (async () => {
