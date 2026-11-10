@@ -11,6 +11,7 @@ import apiService from './src/services/apiService';
 import * as malSync from './src/services/mal/malSync';
 import * as updates from './src/services/updateService';
 import { DialogProvider } from './src/components/Dialog';
+import ErrorBoundary from './src/components/ErrorBoundary';
 import { logger } from './src/utils/logger';
 
 function AppContent() {
@@ -38,5 +39,6 @@ function ThemedRoot({ children }: React.PropsWithChildren) {
   return <GestureHandlerRootView style={{ flex: 1, backgroundColor: background }}>{children}</GestureHandlerRootView>;
 }
 export default function App() {
-  return <SafeAreaProvider><ThemeProvider><ApiProvider><ThemedRoot><DialogProvider><AppContent /></DialogProvider></ThemedRoot></ApiProvider></ThemeProvider></SafeAreaProvider>;
+  // La frontière d'erreur n'entoure que ce qui peut planter : son écran de repli lit le thème s'il existe.
+  return <SafeAreaProvider><ThemeProvider><ErrorBoundary><ApiProvider><ThemedRoot><DialogProvider><AppContent /></DialogProvider></ThemedRoot></ApiProvider></ErrorBoundary></ThemeProvider></SafeAreaProvider>;
 }

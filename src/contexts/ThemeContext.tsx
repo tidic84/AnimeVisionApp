@@ -24,3 +24,5 @@ export function useTheme() {
   return context;
 }
 export function useAppColorScheme() { return useTheme().scheme; }
+/** Sans fournisseur (écran d'erreur rendu hors de l'arbre normal) : null au lieu d'une exception. */
+export function useOptionalColorScheme(): Scheme | null { return useContext(ThemeContext)?.scheme ?? null; }

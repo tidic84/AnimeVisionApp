@@ -11,7 +11,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RootStackParamList, MainTabParamList } from '../types/navigation';
+import { RootStackParamList, MainTabParamList, RootStackScreenProps } from '../types/navigation';
 import { useApi } from '../contexts/ApiContext';
 
 // Importation des écrans
@@ -22,6 +22,8 @@ import PlanningScreen from '../screens/Planning/PlanningScreen';
 import SettingsScreen from '../screens/Settings/SettingsScreen';
 import AnimeDetailScreen from '../screens/AnimeDetail/AnimeDetailScreen';
 import VideoPlayerScreen from '../screens/VideoPlayer/VideoPlayerScreen';
+import ErrorBoundary from '../components/ErrorBoundary';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const updateLoadPriority = () => {
@@ -29,6 +31,26 @@ const updateLoadPriority = () => {
   const group: LoadGroup = name === 'Home' ? 'home' : name === 'Catalog' || name === 'Planning' ? 'catalog' : name === 'AnimeDetail' ? 'detail' : name === 'VideoPlayer' ? 'player' : 'local';
   loadScheduler.setActiveGroup(group);
 };
+
+// Un plantage du lecteur ramène à l'écran précédent (la fiche) au lieu de bloquer toute l'app.
+function VideoPlayerWithBoundary(props: RootStackScreenProps<'VideoPlayer'>) {
+  const leave = () => {
+    if (props.navigation.canGoBack()) props.navigation.goBack();
+    else props.navigation.navigate('MainTabs');
+  };
+  return (
+    <ErrorBoundary
+      title="La lecture a rencontré un problème"
+      message="Le lecteur a planté. Vous pouvez relancer l’épisode ou revenir à la fiche."
+      actionLabel="Retour"
+      onAction={leave}
+      // Comme à la sortie normale du lecteur : le plein écran ne doit pas rester verrouillé en paysage.
+      onError={() => { void ScreenOrientation.unlockAsync().catch(() => {}); }}
+    >
+      <VideoPlayerScreen {...props} />
+    </ErrorBoundary>
+  );
+}
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -252,7 +274,7 @@ export default function AppNavigator() {
         />
         <Stack.Screen
           name="VideoPlayer"
-          component={VideoPlayerScreen}
+          component={VideoPlayerWithBoundary}
           options={{
             headerShown: false,
             animation: reducedMotion ? 'none' : 'fade',
