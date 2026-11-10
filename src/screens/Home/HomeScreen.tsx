@@ -145,7 +145,7 @@ function HomeContent() {
       {episodes('Nouveaux épisodes', latest)}
       {shelf('Votre Watchlist', watchlist)}
       {shelves.slice(1).map(s => shelf(s.title, s.items, s.subtitle))}
-      <MotionPressable onPress={() => navigation.navigate('Catalog')} style={[styles.browse, { borderColor: colors.primary }]}><Text style={{ color: colors.primary, fontWeight: '700' }}>EXPLORER TOUS LES ANIME</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} /></MotionPressable>
+      <MotionPressable accessibilityLabel="Explorer tous les animés" onPress={() => navigation.navigate('Catalog')} style={[styles.browse, { borderColor: colors.primary }]}><Text style={{ color: colors.primary, fontWeight: '700' }}>EXPLORER TOUS LES ANIME</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} /></MotionPressable>
     </Animated.ScrollView>
     <View pointerEvents="box-none" style={[styles.topBar, { height: barHeight + 40 }]}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: barFade }]}><LinearGradient colors={['rgba(0,0,0,.6)', 'rgba(0,0,0,0)']} style={StyleSheet.absoluteFill} /></Animated.View>

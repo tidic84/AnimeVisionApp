@@ -114,7 +114,7 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
           <Text style={styles.description} numberOfLines={3}>{anime.synopsis.replace(/<[^>]*>/g, '').trim()}</Text>
           <View style={styles.actions}>
             <MotionPressable onPress={() => onOpen(anime.id)} accessibilityLabel={`Découvrir ${anime.title}`} style={[styles.button, { backgroundColor: colors.buttonBg }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={[styles.buttonText, { color: colors.buttonText }]}>Découvrir l’anime</Text></MotionPressable>
-            <MotionPressable disabled={!watchlistEnabled} onPress={() => onToggleWatchlist(anime)} accessibilityLabel={`${saved ? 'Retirer' : 'Ajouter'} ${anime.title} ${saved ? 'de' : 'à'} la Watchlist`} style={[styles.watchlist, { borderColor: colors.primary }]}><Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={24} color={colors.primary} /></MotionPressable>
+            <MotionPressable disabled={!watchlistEnabled} onPress={() => onToggleWatchlist(anime)} accessibilityState={{ selected: saved, disabled: !watchlistEnabled }} accessibilityLabel={`${saved ? 'Retirer' : 'Ajouter'} ${anime.title} ${saved ? 'de' : 'à'} la Watchlist`} style={[styles.watchlist, { borderColor: colors.primary }]}><Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={24} color={colors.primary} /></MotionPressable>
           </View>
         </Animated.View>
       </LinearGradient>
@@ -143,7 +143,7 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
     {count > 1 && <View style={styles.indicators}>
       {items.map((anime, index) => {
         const active = index === slide;
-        return <Pressable key={anime.id} hitSlop={10} onPress={() => goTo(index)} accessibilityRole="button" accessibilityState={{ selected: active }} accessibilityLabel={`Afficher ${anime.title}, ${index + 1} sur ${count}`} style={styles.track}>
+        return <Pressable key={anime.id} hitSlop={{ top: 20, bottom: 20, left: 3, right: 3 }} onPress={() => goTo(index)} accessibilityRole="button" accessibilityState={{ selected: active }} accessibilityLabel={`Afficher ${anime.title}, ${index + 1} sur ${count}`} style={styles.track}>
           {active && <Animated.View style={[styles.fill, { backgroundColor: colors.primary, transform: [{ scaleX: reduced ? 1 : progress }] }]} />}
         </Pressable>;
       })}

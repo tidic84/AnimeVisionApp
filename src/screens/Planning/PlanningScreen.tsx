@@ -54,7 +54,7 @@ export default function PlanningScreen({ navigation }: MainTabScreenProps<'Plann
     const details = [item.episode ? `Épisode ${item.episode}` : null, item.season_label, item.langue.toUpperCase()].filter(Boolean).join(' · ');
     const open = () => item.anime_id && navigation.navigate('AnimeDetail', { animeId: String(item.anime_id) });
     return (
-      <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${item.title}${item.episode ? `, épisode ${item.episode}` : ''}, ${postponed ? 'reporté' : `à ${item.time}`}, ${item.langue.toUpperCase()}`} disabled={!item.anime_id} onPress={open} style={[styles.row, { borderBottomColor: colors.border }]}>
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${item.title}${item.episode ? `, épisode ${item.episode}` : ''}, ${postponed ? 'reporté' : `à ${item.time}${aired ? ', sorti' : ''}`}, ${item.langue.toUpperCase()}`} disabled={!item.anime_id} onPress={open} style={[styles.row, { borderBottomColor: colors.border }]}>
         <View style={styles.time}>
           <Text style={{ color: postponed ? colors.warning : aired ? colors.textSecondary : colors.text, fontSize: 17, fontWeight: '700' }}>{postponed ? '—' : item.time}</Text>
           {aired && <Text style={{ color: colors.success, fontSize: 11, marginTop: 4 }}>Sorti</Text>}
@@ -99,8 +99,8 @@ export default function PlanningScreen({ navigation }: MainTabScreenProps<'Plann
           </TouchableOpacity>;
         })}
       </View>
-      <View style={styles.languages}>{LANGUAGES.map(option => <TouchableOpacity key={option.key} accessibilityRole="button" accessibilityState={{ selected: language === option.key }} onPress={() => setLanguage(option.key)} style={[styles.chip, { borderColor: language === option.key ? colors.primary : colors.border }]}><Text style={{ color: language === option.key ? colors.primary : colors.text, fontSize: 13 }}>{option.label}</Text></TouchableOpacity>)}</View>
-      {!!error && <TouchableOpacity onPress={() => load()} style={{ paddingHorizontal: 16, paddingVertical: 8 }}><Text style={{ color: colors.error }}>{error}</Text></TouchableOpacity>}
+      <View style={styles.languages}>{LANGUAGES.map(option => <TouchableOpacity key={option.key} accessibilityRole="button" accessibilityState={{ selected: language === option.key }} onPress={() => setLanguage(option.key)} hitSlop={{ top: 7, bottom: 7 }} style={[styles.chip, { borderColor: language === option.key ? colors.primary : colors.border }]}><Text style={{ color: language === option.key ? colors.primary : colors.text, fontSize: 13 }}>{option.label}</Text></TouchableOpacity>)}</View>
+      {!!error && <TouchableOpacity accessibilityRole="button" accessibilityHint="Touchez pour réessayer" onPress={() => load()} style={{ paddingHorizontal: 16, paddingVertical: 8 }}><Text style={{ color: colors.error }}>{error}</Text></TouchableOpacity>}
         <FlatList
           data={entries}
           keyExtractor={(item, index) => `${item.slug}-${item.langue}-${item.season_label}-${index}`}

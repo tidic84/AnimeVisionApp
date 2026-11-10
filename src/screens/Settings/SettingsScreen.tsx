@@ -287,6 +287,12 @@ ${formatRecentErrors()}`;
       style={[styles.settingRow, { borderBottomColor: colors.border }, onPress && styles.settingRowPressable]}
       onPress={onPress}
       disabled={!onPress && !onSwitchChange}
+      accessibilityRole={onSwitchChange ? 'switch' : onPress ? 'button' : undefined}
+      accessibilityLabel={[title, value].filter(Boolean).join(', ')}
+      accessibilityHint={subtitle}
+      accessibilityState={onSwitchChange ? { checked: !!switchValue } : undefined}
+      accessibilityActions={onSwitchChange ? [{ name: 'activate' }] : undefined}
+      onAccessibilityAction={onSwitchChange ? () => onSwitchChange(!switchValue) : undefined}
     >
       <View style={styles.settingRowLeft}>
         <View style={styles.settingText}>
@@ -338,12 +344,14 @@ ${formatRecentErrors()}`;
       onRequestClose={onClose}
     >
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+        <View accessibilityViewIsModal style={[styles.modalContent, { backgroundColor: colors.card }]}>
           <Text style={[styles.modalTitle, { color: colors.textSecondary }]}>{title}</Text>
 
           {options.map((option) => (
             <TouchableOpacity
               key={option.value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: currentValue === option.value }}
               style={[
                 styles.optionRow,
                 { borderBottomColor: colors.border },
@@ -367,6 +375,7 @@ ${formatRecentErrors()}`;
           ))}
 
           <TouchableOpacity
+            accessibilityRole="button"
             style={[styles.modalButton, { backgroundColor: colors.border }]}
             onPress={onClose}
           >
@@ -395,14 +404,14 @@ ${formatRecentErrors()}`;
   const renderFavoritesModal = () => {
     const others = STREAM_HOSTS.filter(host => !settings.favoriteHosts.includes(host.id));
     const iconButton = (name: React.ComponentProps<typeof Ionicons>['name'], label: string, action: () => void, disabled = false) => (
-      <TouchableOpacity accessibilityLabel={label} onPress={action} disabled={disabled} hitSlop={6} style={[styles.favoriteButton, disabled && { opacity: 0.25 }]}>
+      <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled }} accessibilityLabel={label} onPress={action} disabled={disabled} hitSlop={6} style={[styles.favoriteButton, disabled && { opacity: 0.25 }]}>
         <Ionicons name={name} size={20} color={colors.text} />
       </TouchableOpacity>
     );
     return (
       <Modal visible={showFavoritesModal} animationType={reducedMotion ? 'none' : 'slide'} transparent onRequestClose={() => setShowFavoritesModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: '85%' }]}>
+          <View accessibilityViewIsModal style={[styles.modalContent, { backgroundColor: colors.card, maxHeight: '85%' }]}>
             <Text style={[styles.modalTitle, { color: colors.textSecondary }]}>Lecteurs favoris</Text>
             <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>À l’ouverture d’un épisode, le premier lecteur disponible de cette liste est choisi. Les autres suivent dans l’ordre de l’épisode.</Text>
             <ScrollView style={{ flexShrink: 1 }}>
@@ -415,13 +424,13 @@ ${formatRecentErrors()}`;
                 </View>
               ))}
               {others.map(host => (
-                <TouchableOpacity key={host.id} accessibilityLabel={`Ajouter ${host.label} aux favoris`} onPress={() => moveFavorite(host.id, 1)} style={[styles.optionRow, { borderBottomColor: colors.border }]}>
+                <TouchableOpacity key={host.id} accessibilityRole="button" accessibilityLabel={`Ajouter ${host.label} aux favoris`} onPress={() => moveFavorite(host.id, 1)} style={[styles.optionRow, { borderBottomColor: colors.border }]}>
                   <Text style={[styles.optionText, { color: colors.text, flex: 1 }]}>{host.label}</Text>
                   <Ionicons name="add" size={20} color={colors.textSecondary} />
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity style={[styles.modalButton, { backgroundColor: colors.border, marginTop: 16, flex: 0 }]} onPress={() => setShowFavoritesModal(false)}>
+            <TouchableOpacity accessibilityRole="button" style={[styles.modalButton, { backgroundColor: colors.border, marginTop: 16, flex: 0 }]} onPress={() => setShowFavoritesModal(false)}>
               <Text style={[styles.modalButtonText, { color: colors.text }]}>Fermer</Text>
             </TouchableOpacity>
           </View>
@@ -438,12 +447,14 @@ ${formatRecentErrors()}`;
       onRequestClose={() => setShowStorageModal(false)}
     >
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+        <View accessibilityViewIsModal style={[styles.modalContent, { backgroundColor: colors.card }]}>
           <Text style={[styles.modalTitle, { color: colors.text }]}>Stockage maximum</Text>
 
           {STORAGE_OPTIONS.map((option) => (
             <TouchableOpacity
               key={option.value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: settings.maxStorageGB === option.value }}
               style={[
                 styles.optionRow,
                 { borderBottomColor: colors.border },
@@ -467,6 +478,7 @@ ${formatRecentErrors()}`;
           ))}
 
           <TouchableOpacity
+            accessibilityRole="button"
             style={[styles.modalButton, { backgroundColor: colors.border }]}
             onPress={() => setShowStorageModal(false)}
           >
@@ -480,7 +492,7 @@ ${formatRecentErrors()}`;
   const renderProfileModal = () => (
     <Modal visible={showProfileModal} transparent animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={() => setShowProfileModal(false)}>
       <View style={styles.modalOverlay}>
-        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+        <View accessibilityViewIsModal style={[styles.modalContent, { backgroundColor: colors.card }]}>
           <Text style={[styles.modalTitle, { color: colors.text }]}>Modifier mon profil</Text>
           <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>Votre pseudo est enregistré sur cet appareil.</Text>
           <TextInput accessibilityLabel="Pseudo du profil" style={[styles.textInput, { borderColor: colors.border, color: colors.text }]} value={profileDraft} onChangeText={setProfileDraft} maxLength={32} autoFocus returnKeyType="done" onSubmitEditing={saveProfile} />

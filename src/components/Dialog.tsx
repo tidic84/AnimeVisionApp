@@ -141,7 +141,7 @@ function Surface({ request, onClosed }: { request: Request; onClosed: () => void
           {buttons.map((button, index) => {
             const cancel = button.style === 'cancel';
             const background = cancel ? 'transparent' : button.style === 'destructive' ? colors.error : colors.buttonBg;
-            return <Pressable key={index} accessibilityRole="button" onPress={() => close({ value: cancel ? null : button.value ?? button.text, onPress: button.onPress })}
+            return <Pressable key={index} accessibilityRole="button" hitSlop={{ top: 2, bottom: 2 }} onPress={() => close({ value: cancel ? null : button.value ?? button.text, onPress: button.onPress })}
               style={({ pressed }) => [styles.button, { backgroundColor: background, opacity: pressed ? 0.75 : 1 }]}>
               <Text style={[styles.buttonText, { color: cancel ? colors.textSecondary : colors.buttonText }]}>{button.text}</Text>
             </Pressable>;
