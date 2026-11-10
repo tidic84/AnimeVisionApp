@@ -1,9 +1,9 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { Episode, DownloadStatus, VideoQuality } from '../types/anime';
+import { Episode } from '../types/anime';
 import { logger } from '../utils/logger';
-import videoUrlExtractor from './VideoUrlExtractor';
 
-export interface DownloadProgress {
+/** Avancement d'un téléchargement HLS, segment par segment. */
+export interface HlsProgress {
   downloadId: string;
   totalSegments: number;
   completedSegments: number;
@@ -11,16 +11,7 @@ export interface DownloadProgress {
   status: 'downloading' | 'completed' | 'error';
 }
 
-export interface DownloadItem {
-  episode: Episode;
-  quality: VideoQuality;
-  url: string;
-  progress: DownloadProgress;
-  status: DownloadStatus;
-  filePath?: string;
-  downloadedAt?: Date;
-  fileSize?: number;
-}
+const safeName = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '_');
 
 interface HLSSegment {
   url: string;
@@ -28,14 +19,15 @@ interface HLSSegment {
   index: number;
 }
 
-// Classe optimisée pour le téléchargement HLS
-export class DownloadServiceOptimized {
-  private activeDownloads = new Map<string, boolean>();
-  private readonly CONCURRENT_DOWNLOADS = 6; // Téléchargements simultanés
-  private readonly MAX_RETRIES = 5; // Augmenté de 3 à 5 retries
+/**
+ * Télécharge un flux HLS : les segments sont copiés dans downloads/ à côté
+ * d'une playlist locale <titre>.m3u8. Le chemin renvoyé est <titre>.ts, que
+ * le lecteur convertit en .m3u8 ; ce format est celui des téléchargements
+ * déjà présents sur les téléphones.
+ */
+export class HlsDownloader {
   private readonly CHUNK_SIZE = 5; // Réduire pour éviter la surcharge serveur
   private readonly MAX_FILE_SIZE_MB = 700; // Augmenté de 300MB à 700MB pour les épisodes plus lourds
-  private readonly SEGMENT_TIMEOUT_MS = 60000; // Augmenté de 45s à 60s timeout
   private readonly ESTIMATED_SEGMENT_SIZE_MB = 4; // ~4MB par segment en moyenne
 
   private generateDownloadId(episode: Episode): string {
@@ -46,7 +38,7 @@ export class DownloadServiceOptimized {
   async downloadHLS(
     episode: Episode,
     hlsUrl: string,
-    onProgress: (progress: DownloadProgress) => void
+    onProgress: (progress: HlsProgress) => void
   ): Promise<string> {
     const downloadId = this.generateDownloadId(episode);
     logger.debug(`[DownloadOpt] 🚀 Début téléchargement HLS: ${episode.title}`);
@@ -57,9 +49,6 @@ export class DownloadServiceOptimized {
       const segments = await this.parseHLSPlaylist(hlsUrl);
       logger.debug(`[DownloadOpt] 📋 ${segments.length} segments trouvés`);
 
-      // Valider la taille avant de commencer
-      await this.validateSegments(segments);
-      
       // Télécharger et assembler les segments
       return await this.downloadAndAssembleStreaming(
         episode,
@@ -221,60 +210,6 @@ export class DownloadServiceOptimized {
     }
   }
 
-  private async downloadBatchParallel(batch: HLSSegment[]): Promise<(string | null)[]> {
-    const downloadPromises = batch.map(async (segment) => {
-      let retries = 0;
-      while (retries < this.MAX_RETRIES) {
-        try {
-          logger.debug(`[DownloadOpt] 📥 Segment ${segment.index}: tentative ${retries + 1}/${this.MAX_RETRIES}`);
-          
-          const response = await FileSystem.downloadAsync(
-            segment.url,
-            FileSystem.cacheDirectory + `segment_${segment.index}.ts`,
-            {
-              headers: {
-                'User-Agent': 'Mozilla/5.0',
-                'Accept': '*/*',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Sec-Fetch-Mode': 'cors'
-              }
-            }
-          );
-
-          if (response.status !== 200) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-
-          // Lire le fichier en base64
-          const data = await FileSystem.readAsStringAsync(response.uri, {
-            encoding: FileSystem.EncodingType.Base64
-          });
-
-          // Nettoyer le fichier temporaire
-          await FileSystem.deleteAsync(response.uri, { idempotent: true });
-
-          return data;
-
-        } catch (error) {
-          retries++;
-          logger.warn(`[DownloadOpt] ⚠️ Segment ${segment.index}, erreur ${retries}/${this.MAX_RETRIES}:`, error);
-          
-          if (retries === this.MAX_RETRIES) {
-            logger.error(`[DownloadOpt] ❌ Segment ${segment.index}: échec après ${this.MAX_RETRIES} tentatives`);
-            return null;
-          }
-          
-          // Attendre avant de réessayer
-          await new Promise(resolve => setTimeout(resolve, 1000 * retries));
-        }
-      }
-      return null;
-    });
-
-    return Promise.all(downloadPromises);
-  }
-
   private createBatches<T>(array: T[], batchSize: number): T[][] {
     const batches: T[][] = [];
     for (let i = 0; i < array.length; i += batchSize) {
@@ -283,27 +218,20 @@ export class DownloadServiceOptimized {
     return batches;
   }
 
-  private async validateFileSize(totalBytes: number): Promise<void> {
-    const totalSizeMB = Math.round(totalBytes / (1024 * 1024));
-    logger.debug(`[DownloadOpt] 📊 Taille totale estimée: ${totalSizeMB} MB`);
-    
-    if (totalBytes > this.MAX_FILE_SIZE_MB * 1024 * 1024) {
-      throw new Error(`Fichier trop volumineux (≈${totalSizeMB}MB). Limite: ${this.MAX_FILE_SIZE_MB}MB.`);
-    }
-  }
-
   private async downloadAndAssembleStreaming(
     episode: Episode,
     segments: HLSSegment[],
     downloadId: string,
-    onProgress: (progress: DownloadProgress) => void
+    onProgress: (progress: HlsProgress) => void
   ): Promise<string> {
     // Valider la taille avant de commencer
     await this.validateSegments(segments);
 
     const downloadDir = `${FileSystem.documentDirectory}downloads`;
     const tempDir = `${FileSystem.documentDirectory}temp_${downloadId}`;
-    const finalPath = `${downloadDir}/${episode.title.replace(/[^a-zA-Z0-9]/g, '_')}.ts`;
+    // Le titre seul (« Episode 1 ») se répète d'un animé à l'autre : l'id le rend unique.
+    const baseName = `${safeName(episode.title)}_${safeName(episode.id)}`;
+    const finalPath = `${downloadDir}/${baseName}.ts`;
     
     // Créer les répertoires nécessaires
     await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
@@ -385,7 +313,7 @@ export class DownloadServiceOptimized {
         const batchResults = await Promise.all(batchPromises);
         
         // Filtrer les segments valides et les ajouter à la liste
-        const validSegments = batchResults.filter(path => path !== null) as string[];
+        const validSegments = batchResults.filter((path): path is string => path !== null);
         segmentFiles.push(...validSegments);
         completedSegments += validSegments.length;
         
@@ -474,7 +402,7 @@ export class DownloadServiceOptimized {
       const playlistContent = await this.createLocalM3U8Playlist(inputFiles, outputFile);
       
       // Sauvegarder la playlist
-      const playlistPath = outputFile.replace('.ts', '.m3u8');
+      const playlistPath = outputFile.replace(/\.ts$/, '.m3u8');
       await FileSystem.writeAsStringAsync(playlistPath, playlistContent);
       
       logger.debug(`[DownloadOpt] ✅ Playlist M3U8 créée: ${playlistPath}`);
@@ -512,11 +440,12 @@ export class DownloadServiceOptimized {
       '#EXT-X-MEDIA-SEQUENCE:0'
     ];
 
-    // Ajouter chaque segment en utilisant un chemin relatif
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      // Extraire juste le nom du fichier pour un chemin relatif
-      const segmentName = segment.substring(segment.lastIndexOf('/') + 1);
+    // Les segments sont copiés à côté de la playlist sous un nom propre à ce
+    // téléchargement : avec des noms communs, chaque nouvel épisode écrasait
+    // les segments des précédents.
+    const prefix = outputFile.substring(outputFile.lastIndexOf('/') + 1).replace(/\.ts$/, '');
+    const segmentNames = segments.map((_, i) => `${prefix}_${i}.ts`);
+    for (const segmentName of segmentNames) {
       playlist.push('#EXTINF:10.0,');
       playlist.push(segmentName);
     }
@@ -526,13 +455,9 @@ export class DownloadServiceOptimized {
 
     // Copier tous les segments dans le dossier de destination
     for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      const segmentName = segment.substring(segment.lastIndexOf('/') + 1);
-      const destPath = `${outputDir}/${segmentName}`;
-      
       await FileSystem.copyAsync({
-        from: segment,
-        to: destPath
+        from: segments[i],
+        to: `${outputDir}/${segmentNames[i]}`
       });
     }
 
@@ -547,7 +472,7 @@ export class DownloadServiceOptimized {
     
     try {
       // Vérifier que la playlist M3U8 existe
-      const m3u8Path = outputFile.replace('.ts', '.m3u8');
+      const m3u8Path = outputFile.replace(/\.ts$/, '.m3u8');
       const m3u8Info = await FileSystem.getInfoAsync(m3u8Path);
       
       if (!m3u8Info.exists) {
@@ -606,4 +531,4 @@ export class DownloadServiceOptimized {
   }
 }
 
-export default new DownloadServiceOptimized();
+export default new HlsDownloader();
