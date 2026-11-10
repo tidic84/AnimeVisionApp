@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "export:web": "expo export --platform web --output-dir dist-web",
     "export:android": "expo export --platform android --output-dir dist-android",
-    "release": "node scripts/release.cjs"
+    "release": "node scripts/release.cjs",
+    "test": "node tests/test-download-management.cjs && node tests/test-load-scheduler.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~58.0.17",
