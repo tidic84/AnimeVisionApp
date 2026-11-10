@@ -203,11 +203,6 @@ class ApiService {
     return response.data.map(anime => this.mapApiAnimeToAnime(anime));
   }
 
-  async searchAnimes(query: string, limit: number = 20, page: number = 1): Promise<Anime[]> {
-    const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/anime/search?q=${encodeURIComponent(query)}&limit=${limit}&page=${page}`);
-    return response.data.map(anime => this.mapApiAnimeToAnime(anime));
-  }
-
   async searchSuggestions(query: string): Promise<string[]> {
     const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/search/suggestions?q=${encodeURIComponent(query)}`);
     return response.data.map((item: any) => item.titre || item.suggestion || '');
@@ -376,11 +371,6 @@ class ApiService {
     } catch {
       return false;
     }
-  }
-
-  setBaseUrl(newBaseUrl: string): void {
-    this.baseUrl = newBaseUrl;
-    console.log(`[ApiService] URL de base mise à jour: ${this.baseUrl}`);
   }
 
   // Méthodes obsolètes maintenues pour compatibilité
