@@ -60,7 +60,8 @@ const hlsResult = url => ({ success: true, urls: [{ url, type: 'hls', extractedA
     gates[0].onProgress({ downloadId: 'x', totalSegments: 4, completedSegments: 1, totalBytes: 10, status: 'downloading' });
     await tick();
     assert.equal(seen.at(-1).progress, 25); assert.equal(seen.at(-1).totalSegments, 4); assert.equal(seen.at(-1).downloadId, 'download_7_720p');
-    files.add('/app/downloads/Episode_7.ts');
+    // The HLS engine writes the playlist next to the returned .ts path, never the .ts itself.
+    files.add('/app/downloads/Episode_7.m3u8');
     gates[0].resolve('/app/downloads/Episode_7.ts');
     await until(() => service.downloads.get('download_7_720p').status === S.DOWNLOADED, 'download should finish');
     await until(() => dbUpdates.some(update => update[2] === '/app/downloads/Episode_7.ts'), 'database should get the file path');
@@ -73,6 +74,14 @@ const hlsResult = url => ({ success: true, urls: [{ url, type: 'hls', extractedA
     // Starting the same episode/quality again is a no-op.
     await service.startDownload(episode('7'), Q.MEDIUM);
     await tick(); assert.equal(hlsCalls.length, 1);
+    // Starting another episode keeps the finished HLS download (its playlist exists)...
+    await service.startDownload(episode('70'), Q.MEDIUM);
+    assert.equal(service.downloads.get('download_7_720p')?.status, S.DOWNLOADED);
+    // ...but forgets it once the playlist is gone from the disk.
+    files.delete('/app/downloads/Episode_7.m3u8');
+    await service.startDownload(episode('71'), Q.MEDIUM);
+    assert.ok(!service.downloads.has('download_7_720p'));
+    assert.deepEqual(dbUpdates.at(-1), ['7', S.NOT_DOWNLOADED]);
   }
 
   // Only a direct MP4: the download fails without calling the HLS downloader.
@@ -109,7 +118,7 @@ const hlsResult = url => ({ success: true, urls: [{ url, type: 'hls', extractedA
     assert.equal(hlsCalls.length, 1);
     assert.equal(service.downloads.get('download_2_1080p').status, S.QUEUED);
     await assert.rejects(service.cancelDownload('1', Q.HIGH), /actif/);
-    files.add('/app/downloads/Episode_1.ts');
+    files.add('/app/downloads/Episode_1.m3u8');
     gates[0].resolve('/app/downloads/Episode_1.ts');
     await until(() => hlsCalls.length === 2, 'queued download should start after the first');
     assert.equal(hlsCalls[1].url, 'https://h/2.m3u8');

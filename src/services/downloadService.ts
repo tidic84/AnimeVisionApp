@@ -6,6 +6,15 @@ import databaseService from './databaseService';
 import videoUrlExtractor, { VideoUrlExtractor } from './VideoUrlExtractor';
 import hlsDownloader, { HlsDownloader, HlsProgress } from './hlsDownloader';
 
+/**
+ * Un téléchargement HLS enregistre <titre>.ts comme filePath, mais le fichier
+ * lisible est la playlist <titre>.m3u8 posée à côté (le lecteur fait la même
+ * conversion). Les autres chemins désignent directement le fichier.
+ */
+export function playableFile(filePath: string): string {
+  return filePath.replace(/.ts$/, '.m3u8');
+}
+
 export interface DownloadProgress {
   downloadId: string;
   episodeId: string;
@@ -414,15 +423,17 @@ export class DownloadService {
   }
 
   /**
-   * Nettoie les téléchargements orphelins
+   * Oublie les téléchargements terminés dont le fichier a disparu du disque.
    */
-  async cleanupOrphanedDownloads(): Promise<void> {
+  private async cleanupOrphanedDownloads(): Promise<void> {
     const downloadedItems = await this.getDownloadsByStatus(DownloadStatus.DOWNLOADED);
 
     for (const item of downloadedItems) {
       if (item.filePath) {
-        const fileInfo = await FileSystem.getInfoAsync(item.filePath);
-        if (!fileInfo.exists) {
+        const playable = playableFile(item.filePath);
+        const exists = (await FileSystem.getInfoAsync(playable)).exists
+          || (playable !== item.filePath && (await FileSystem.getInfoAsync(item.filePath)).exists);
+        if (!exists) {
           // Fichier supprimé, mettre à jour le statut
           await this.updateEpisodeDownloadStatus(item.episode.id, DownloadStatus.NOT_DOWNLOADED);
           this.downloads.delete(this.generateDownloadId(item.episode, item.quality));
