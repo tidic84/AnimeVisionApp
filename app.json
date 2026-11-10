@@ -3,10 +3,11 @@
     "name": "AnimeVision",
     "slug": "AnimeVisionApp",
     "scheme": "animevision",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0F1016",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tidic84.animevision"
@@ -56,7 +57,9 @@
       ],
       "./plugins/withReleaseSigning",
       "expo-font",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-system-ui",
+      "./plugins/withShortCmakePaths"
     ]
   }
 }
