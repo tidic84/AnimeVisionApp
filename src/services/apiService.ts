@@ -357,24 +357,16 @@ class ApiService {
     return { status: response.status === 'ok' ? 'ok' : 'error' };
   }
 
+  /** Données de l'accueil ; une erreur est propagée pour que l'écran affiche son message. */
   async getMobileHome(): Promise<{latest_episodes: Episode[], popular_animes: Anime[]}> {
-    try {
-      const [latestEpisodes, popularAnimes] = await Promise.all([
-        this.getLatestEpisodes(20, 'vostfr'),
-        this.getPopularAnimes(20),
-      ]);
-
-      return {
-        latest_episodes: latestEpisodes,
-        popular_animes: popularAnimes,
-      };
-    } catch (error) {
-      console.error('[ApiService] Erreur lors de la récupération des données de l\'accueil:', error);
-      return {
-        latest_episodes: [],
-        popular_animes: [],
-      };
-    }
+    const [latestEpisodes, popularAnimes] = await Promise.all([
+      this.getLatestEpisodes(20, 'vostfr'),
+      this.getPopularAnimes(20),
+    ]);
+    return {
+      latest_episodes: latestEpisodes,
+      popular_animes: popularAnimes,
+    };
   }
 
   async testConnection(): Promise<boolean> {
