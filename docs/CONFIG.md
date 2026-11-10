@@ -54,7 +54,6 @@ API_ADDRESS=https://api.tidic.fr
 L'application affichera dans les logs l'adresse API utilisée au démarrage :
 ```
 [ApiService] Utilisation de l'API: http://votre-serveur:8001
-[ScrapingApiService] Utilisation de l'API: http://votre-serveur:8001/api
 ```
 
 Si la variable n'est pas définie, un avertissement sera affiché :
@@ -71,7 +70,6 @@ Si la variable `API_ADDRESS` n'est pas définie, l'application utilisera :
 
 Les services suivants utilisent uniquement `process.env.API_ADDRESS` :
 - **ApiService** : API principale AnimeVisionAPI
-- **ScrapingApiService** : API de scraping (`${API_ADDRESS}/api`)
 - **VideoUrlExtractor** : Extraction d'URLs vidéo (`${API_ADDRESS}/extract-video`)
 
 ### API AnimeVisionAPI
