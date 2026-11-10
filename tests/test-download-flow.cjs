@@ -8,11 +8,12 @@ const path = require('node:path');
 
 const platform = { OS: 'android' };
 const files = new Set();
+let stored = null;
 const filesystem = {
   EncodingType: { UTF8: 'utf8' }, documentDirectory: '/app/',
   getInfoAsync: async file => ({ exists: files.has(file), size: files.has(file) ? 1000 : 0 }),
   deleteAsync: async file => { files.delete(file); },
-  writeAsStringAsync: async () => {}, readAsStringAsync: async () => { throw Error('none'); },
+  writeAsStringAsync: async () => {}, readAsStringAsync: async () => { if (stored === null) throw Error('none'); return stored; },
   getFreeDiskStorageAsync: async () => 1e9,
 };
 const silent = { debug() {}, info() {}, warn() {}, error() {} };
@@ -123,5 +124,20 @@ const hlsResult = url => ({ success: true, urls: [{ url, type: 'hls', extractedA
     await until(() => hlsCalls.length === 2, 'queued download should start after the first');
     assert.equal(hlsCalls[1].url, 'https://h/2.m3u8');
   }
-  console.log('Download flow passed: web guard, HLS over MP4, ids, progress mapping, completion, duplicate start, MP4-only and extraction failures, retry, single-transfer queue.');
+  // After an app restart, transfers left queued or in progress are failed, so they can be retried or deleted.
+  {
+    const saved = (id, status, filePath) => ({ episode: episode(id), quality: Q.HIGH, url: '', status, filePath, progress: { downloadId: `download_${id}_1080p`, episodeId: id, progress: 40, downloadedBytes: 0, totalBytes: 0, speed: 0, timeRemaining: 0, status: 'downloading' } });
+    stored = JSON.stringify({ download_20_1080p: saved('20', S.DOWNLOADING), download_21_1080p: saved('21', S.QUEUED), download_22_1080p: saved('22', S.DOWNLOADED, '/app/downloads/Episode_22.ts') });
+    files.add('/app/downloads/Episode_22.m3u8');
+    const { service, hlsCalls } = harness({ 21: hlsResult('https://h/21.m3u8') });
+    const byId = Object.fromEntries((await service.getAllDownloads()).map(item => [item.episode.id, item]));
+    assert.equal(byId['20'].status, S.FAILED); assert.equal(byId['20'].progress.status, 'error');
+    assert.equal(byId['21'].status, S.FAILED); assert.equal(byId['22'].status, S.DOWNLOADED);
+    await service.deleteDownload('20', Q.HIGH);
+    assert.ok(!service.downloads.has('download_20_1080p'));
+    await service.startDownload(episode('21'));
+    await until(() => hlsCalls.length === 1, 'an interrupted download can be started again');
+    stored = null;
+  }
+  console.log('Download flow passed: web guard, HLS over MP4, ids, progress mapping, completion, orphan cleanup, duplicate start, MP4-only and extraction failures, retry, single-transfer queue, restart recovery.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

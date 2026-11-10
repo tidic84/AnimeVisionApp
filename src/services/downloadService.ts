@@ -46,13 +46,18 @@ export class DownloadService {
   private downloadQueue: string[] = [];
   private activeDownloads = 0;
   private isProcessingQueue = false;
-  private isStorageLoaded = false;
+  private storageLoad?: Promise<void>;
 
   constructor(
     private hlsDownloader: HlsDownloader,
     private videoUrlExtractor: VideoUrlExtractor
   ) {
-    this.loadDownloadsFromStorage();
+    void this.ensureStorageLoaded();
+  }
+
+  /** Charge downloads.json une seule fois, même si plusieurs appels arrivent avant la fin. */
+  private ensureStorageLoaded(): Promise<void> {
+    return this.storageLoad ??= this.loadDownloadsFromStorage();
   }
 
   private generateDownloadId(episode: Episode, quality: VideoQuality): string {
@@ -82,9 +87,7 @@ export class DownloadService {
   ): Promise<void> {
     if (Platform.OS === 'web') throw new Error('Le téléchargement hors ligne est disponible dans l’application mobile.');
     // S'assurer que le storage est chargé
-    if (!this.isStorageLoaded) {
-      await this.loadDownloadsFromStorage();
-    }
+    await this.ensureStorageLoaded();
 
     // Nettoyer les téléchargements orphelins avant de continuer
     await this.cleanupOrphanedDownloads();
@@ -265,7 +268,7 @@ export class DownloadService {
   }
 
   private async removeDownload(episodeId: string, quality?: VideoQuality): Promise<void> {
-    if (!this.isStorageLoaded) await this.loadDownloadsFromStorage();
+    await this.ensureStorageLoaded();
     const match = Array.from(this.downloads.entries()).find(([, item]) =>
       item.episode.id === episodeId && (quality === undefined || item.quality === quality));
     if (!match) return;
@@ -293,9 +296,7 @@ export class DownloadService {
    */
   async getAllDownloads(): Promise<DownloadItem[]> {
     // S'assurer que le stockage est chargé
-    if (!this.isStorageLoaded) {
-      await this.loadDownloadsFromStorage();
-    }
+    await this.ensureStorageLoaded();
 
     // Dédupliquer par id d'épisode – garde la version la plus récente (downloadedAt ou date de création)
     const uniqueMap: Map<string, DownloadItem> = new Map();
@@ -406,19 +407,32 @@ export class DownloadService {
    * Charge les téléchargements depuis le stockage local
    */
   private async loadDownloadsFromStorage(): Promise<void> {
-    if (Platform.OS === 'web') { this.isStorageLoaded = true; return; }
+    if (Platform.OS === 'web') return;
     try {
       const data = await FileSystem.readAsStringAsync(
         `${FileSystem.documentDirectory}downloads.json`,
         { encoding: FileSystem.EncodingType.UTF8 }
       );
-      const savedDownloads = JSON.parse(data);
+      const savedDownloads: Record<string, DownloadItem> = JSON.parse(data);
       this.downloads = new Map(Object.entries(savedDownloads));
+      // La file et les transferts ne survivent pas à un redémarrage : un item resté
+      // en attente ou en cours ne reprendra jamais. Le marquer en échec permet de
+      // le relancer ou de le supprimer au lieu de le laisser bloqué.
+      let interrupted = 0;
+      for (const item of this.downloads.values()) {
+        if (item.status === DownloadStatus.QUEUED || item.status === DownloadStatus.DOWNLOADING) {
+          item.status = DownloadStatus.FAILED;
+          item.progress = { ...item.progress, status: 'error' };
+          interrupted++;
+        }
+      }
       logger.debug(`[Download] 📂 Chargé ${this.downloads.size} téléchargements depuis le stockage`);
-      this.isStorageLoaded = true;
+      if (interrupted) {
+        logger.info(`[Download] ${interrupted} téléchargement(s) interrompu(s) par un redémarrage marqué(s) en échec`);
+        await this.saveDownloadsToStorage();
+      }
     } catch (error) {
       logger.debug('[Download] 📝 Pas de téléchargements sauvegardés');
-      this.isStorageLoaded = true;
     }
   }
 
