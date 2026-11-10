@@ -52,6 +52,8 @@ const AnimeCard: React.FC<AnimeCardProps> = ({ anime, onPress, size = 'medium' }
         { backgroundColor: colors.background, borderColor: colors.background, width: sizeStyles.width }
       ]}
       onPress={() => onPress(anime.id)}
+      accessibilityLabel={[anime.title, ...(anime.genres || []).slice(0, 2)].join(', ')}
+      accessibilityHint="Ouvre la fiche de l’animé"
     >
       <Image
         source={{ uri: anime.thumbnail }}

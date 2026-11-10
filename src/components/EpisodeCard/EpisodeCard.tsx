@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { Episode } from '../../types/anime';
+import { episodeLabel } from '../../utils/accessibility';
 
 interface EpisodeCardProps {
   episode: Episode;
@@ -66,6 +67,8 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
         { backgroundColor: colors.background, borderColor: colors.background, width: sizeStyles.width }
       ]}
       onPress={() => onPress(episode)}
+      accessibilityLabel={episodeLabel(episode)}
+      accessibilityHint="Lance la lecture"
     >
       <View style={styles.thumbnailContainer}>
         <Image
