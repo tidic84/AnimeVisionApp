@@ -1,5 +1,8 @@
 import { API_ADDRESS } from '@env';
+import { StreamingServer } from '../types/anime';
 import { logger } from '../utils/logger';
+
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 interface ExtractedVideoUrl {
   url: string;
@@ -17,7 +20,12 @@ interface ExtractionResult {
   extractionTime?: number;
 }
 
-// Extracteur HLS côté client pour contourner les restrictions IP
+/**
+ * Trouve une URL HLS téléchargeable pour un épisode : relit ses serveurs sur
+ * l'API, puis cherche un .m3u8 dans la page de chaque lecteur (directement,
+ * puis via des proxys). Utilisé uniquement par le téléchargement ; la lecture
+ * en ligne passe par streamHosts.ts.
+ */
 export class VideoUrlExtractor {
   private readonly PROXY_SERVICES = [
     'https://api.codetabs.com/v1/proxy?quest=',
@@ -109,35 +117,21 @@ export class VideoUrlExtractor {
          }
        }
 
-             // Si aucune extraction client n'a fonctionné, essayer l'API backend
-       logger.debug(`[HLS Extractor] ⚠️ Extraction client échouée, tentative fallback API backend`);
-       const backendResult = await this.fallbackToBackendExtraction(episodeId, startTime);
+       return {
+         success: false,
+         urls: [],
+         error: `Échec d'extraction sur tous les serveurs. Serveurs testés: ${failedEmbeds.length}.`,
+         extractionTime: Date.now() - startTime
+       };
 
-       if (!backendResult.success) {
-         return {
-           success: false,
-           urls: [],
-           error: `Échec d'extraction sur tous les serveurs. Serveurs testés: ${failedEmbeds.length}. ${backendResult.error || 'API backend indisponible.'}`,
-           extractionTime: Date.now() - startTime
-         };
-       }
-
-       return backendResult;
-
-    } catch (error: any) {
-      logger.error('[HLS Extractor] ❌ Erreur:', error.message);
-
-      // Ultime fallback vers l'API backend
-      try {
-        return await this.fallbackToBackendExtraction(episodeId, startTime);
-      } catch (fallbackError: any) {
-        return {
-          success: false,
-          urls: [],
-          error: `Erreur critique: ${error.message}. Impossible de contacter l'API backend: ${fallbackError.message}`,
-          extractionTime: Date.now() - startTime
-        };
-      }
+    } catch (error) {
+      logger.error('[HLS Extractor] ❌ Erreur:', errorMessage(error));
+      return {
+        success: false,
+        urls: [],
+        error: `Erreur critique: ${errorMessage(error)}`,
+        extractionTime: Date.now() - startTime
+      };
     }
   }
 
@@ -162,13 +156,13 @@ export class VideoUrlExtractor {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: { data?: { streaming_servers?: StreamingServer[] } } = await response.json();
+      const servers = data.data?.streaming_servers;
 
-      if (data.data && Array.isArray(data.data.streaming_servers)) {
-        // Nouveau format de l'API : streaming_servers avec URL
-        const embedUrls = data.data.streaming_servers
-          .filter((server: any) => server.url)
-          .sort((a: any, b: any) => {
+      if (Array.isArray(servers)) {
+        const embedUrls = servers
+          .filter(server => server.url)
+          .sort((a, b) => {
             // Priorité : HD > SD, serveur 2 > serveur 1 > sibnet
             const priorityA = a.quality === 'HD' ? 2 : (a.quality === 'SD' ? 1 : 0);
             const priorityB = b.quality === 'HD' ? 2 : (b.quality === 'SD' ? 1 : 0);
@@ -182,35 +176,21 @@ export class VideoUrlExtractor {
             if (b.name.includes('Serveur 1')) return 1;
             return 0;
           })
-          .map((server: any) => server.url);
+          .map(server => server.url);
 
-        logger.debug(`[HLS Extractor] 📊 ${data.data.streaming_servers.length} serveurs trouvés, ${embedUrls.length} embeds extraits`);
-        logger.debug('[HLS Extractor] 🎯 Serveurs:', data.data.streaming_servers.map((s: any) => `${s.name} (${s.quality})`));
+        logger.debug(`[HLS Extractor] 📊 ${servers.length} serveurs trouvés, ${embedUrls.length} embeds extraits`);
+        logger.debug('[HLS Extractor] 🎯 Serveurs:', servers.map(server => `${server.name} (${server.quality})`));
         return embedUrls;
       }
 
       return [];
-    } catch (error: any) {
-      logger.error('[HLS Extractor] ❌ Erreur récupération embeds:', error.message);
+    } catch (error) {
+      logger.error('[HLS Extractor] ❌ Erreur récupération embeds:', errorMessage(error));
       return [];
     }
   }
 
 
-
-  /**
-   * Fallback vers l'extraction backend si le client échoue
-   */
-  private async fallbackToBackendExtraction(episodeId: string, startTime: number): Promise<ExtractionResult> {
-    logger.debug(`[HLS Extractor] ❌ Pas de fallback backend disponible pour la nouvelle API`);
-
-    return {
-      success: false,
-      urls: [],
-      error: 'Aucun fallback backend disponible pour cette API',
-      extractionTime: Date.now() - startTime
-    };
-  }
 
   /**
    * Extrait les URLs HLS depuis une page embed
@@ -368,12 +348,12 @@ export class VideoUrlExtractor {
         error: `Aucune URL vidéo trouvée dans ${html.length} caractères de HTML pour ${hostname}. Le serveur utilise peut-être du JavaScript dynamique ou de l'obfuscation avancée.`
       };
 
-    } catch (error: any) {
-      logger.debug(`[HLS Extractor] ❌ Erreur dans extractHLSFromUrl:`, error.message);
+    } catch (error) {
+      logger.debug(`[HLS Extractor] ❌ Erreur dans extractHLSFromUrl:`, errorMessage(error));
       return {
         success: false,
         urls: [],
-        error: `Erreur fetch pour ${this.getHostFromUrl(url)}: ${error.message}`
+        error: `Erreur fetch pour ${this.getHostFromUrl(url)}: ${errorMessage(error)}`
       };
     }
   }
@@ -509,26 +489,6 @@ export class VideoUrlExtractor {
     } catch {
       return 'unknown';
     }
-  }
-
-  /**
-   * Extrait les sections intéressantes du HTML pour debug
-   */
-  private extractInterestingSections(html: string): string[] {
-    const sections = [];
-
-    // Chercher mentions de "m3u8", "stream", "video", "player"
-    const keywords = ['m3u8', 'stream', 'video', 'player', 'source', 'file'];
-
-    for (const keyword of keywords) {
-      const regex = new RegExp(`.{0,100}${keyword}.{0,100}`, 'gi');
-      const matches = html.match(regex);
-      if (matches && matches.length > 0) {
-        sections.push(`${keyword}: ${matches.slice(0, 2).join(' | ')}`);
-      }
-    }
-
-    return sections;
   }
 
   /**
@@ -840,23 +800,6 @@ export class VideoUrlExtractor {
       return 'https:' + url;
     }
     return url;
-  }
-
-  /**
-   * Valide qu'une URL est bien un embed
-   */
-  private isValidEmbedUrl(url: string): boolean {
-    return (
-      typeof url === 'string' &&
-      url.length > 10 &&
-      (url.startsWith('http://') || url.startsWith('https://')) &&
-      (url.includes('embed') ||
-       url.includes('vidmoly') ||
-       url.includes('sibnet') ||
-       url.includes('oneupload') ||
-       url.includes('movearnpre') ||
-       url.includes('sendvid'))
-    );
   }
 }
 
