@@ -66,3 +66,12 @@ dev-debug.log
 # Native projects are generated from app.json by Expo prebuild
 /ios/
 /android/
+
+# Configurations d'assistants IA (non versionnées)
+.taskmaster/
+.roo/
+.roomodes
+.cursor/
+.windsurf/
+.trae/
+.clinerules/

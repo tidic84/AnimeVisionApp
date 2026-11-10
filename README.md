@@ -234,9 +234,9 @@ L'application utilise la variable d'environnement `API_ADDRESS` pour se connecte
 - **Réseau :** `http://192.168.1.100:8001` 
 - **Production :** `https://api.tidic.fr`
 
-📋 Consultez [`CONFIG.md`](CONFIG.md) pour la documentation complète de configuration.
+📋 Consultez [`CONFIG.md`](docs/CONFIG.md) pour la documentation complète de configuration.
 
-📋 Consultez [`readme-api.md`](readme-api.md) pour la documentation de l'API AnimeVisionAPI.
+📋 Consultez [`readme-api.md`](docs/readme-api.md) pour la documentation de l'API AnimeVisionAPI.
 
 ## 📱 Installation et Développement
 
@@ -245,7 +245,7 @@ L'application utilise la variable d'environnement `API_ADDRESS` pour se connecte
 - npm ou yarn
 - Expo CLI
 - Émulateur Android/iOS ou appareil physique
-- **API AnimeVisionAPI** en cours d'exécution (voir readme-api.md)
+- **API AnimeVisionAPI** en cours d'exécution (voir docs/readme-api.md)
 
 ### Installation
 ```bash

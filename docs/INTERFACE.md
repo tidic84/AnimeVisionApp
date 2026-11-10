@@ -67,5 +67,5 @@ avec une seule requête d'arrière-plan pour garder une place à la page ouverte
 Au changement de page, les requêtes de l'ancienne page peuvent libérer leur place,
 puis reprendre automatiquement. Les requêtes identiques en attente sont partagées.
 
-Validation : `node scripts/test-load-scheduler.cjs` (six scénarios) et navigation entre
+Validation : `node tests/test-load-scheduler.cjs` (six scénarios) et navigation entre
 les cinq onglets dans un navigateur avec des requêtes API retardées de dix secondes.
