@@ -11,7 +11,7 @@
     "export:web": "expo export --platform web --output-dir dist-web",
     "export:android": "expo export --platform android --output-dir dist-android",
     "release": "node scripts/release.cjs",
-    "test": "node tests/test-download-management.cjs && node tests/test-download-flow.cjs && node tests/test-video-url-extractor.cjs && node tests/test-hls-downloader.cjs && node tests/test-load-scheduler.cjs && node tests/test-logger.cjs && node tests/test-connectivity.cjs && node tests/test-apk-integrity.cjs && node tests/test-stream-hosts.cjs && node tests/test-watch-progress.cjs && node tests/test-skip-times.cjs && node tests/test-season-mapping.cjs && node tests/test-seek-preview.cjs && node tests/test-continue-watching.cjs && node tests/test-accessibility.cjs"
+    "test": "node tests/test-download-management.cjs && node tests/test-download-flow.cjs && node tests/test-video-url-extractor.cjs && node tests/test-hls-downloader.cjs && node tests/test-load-scheduler.cjs && node tests/test-logger.cjs && node tests/test-connectivity.cjs && node tests/test-apk-integrity.cjs && node tests/test-stream-hosts.cjs && node tests/test-watch-progress.cjs && node tests/test-skip-times.cjs && node tests/test-season-mapping.cjs && node tests/test-seek-preview.cjs && node tests/test-continue-watching.cjs && node tests/test-accessibility.cjs && node tests/test-home-shelves.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~58.0.17",

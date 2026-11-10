@@ -18,6 +18,7 @@ import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
 import * as malSync from '../../services/mal/malSync';
 import { clearContinueCache, getContinueWatching } from '../../services/continueWatching';
+import { getGenreShelves } from '../../services/homeShelves';
 import { Anime, Episode, ScraperStatus } from '../../types/anime';
 import { elapsedSince } from '../../utils/relativeTime';
 
@@ -75,17 +76,18 @@ function HomeContent() {
     if (refresh) { setRefreshing(true); clearContinueCache(); } else setLoading(true);
     void apiService.getScraperStatus().then(setScraper);
     try {
+      // Lancé en parallèle de l'accueil (lecture SQLite locale) pour ne pas le retarder.
+      const genreShelves = getGenreShelves();
       const home = await apiService.getMobileHome();
       setFeatured(home.popular_animes.slice(0, 5));
       setLatest(home.latest_episodes);
+      const genres = await genreShelves;
       const requests = await Promise.allSettled([
         apiService.getTrendingAnimes(12),
         apiService.getLatestAnimes(12),
-        apiService.getAnimesByGenre('Action', 12),
-        apiService.getAnimesByGenre('Romance', 12),
-        apiService.getAnimesByGenre('Aventure', 12),
+        ...genres.map(genre => apiService.getAnimesByGenre(genre.genre, 12)),
       ]);
-      const names = ['Tendances du moment', 'À découvrir', 'Place à l’action', 'Un peu de romance', 'L’aventure vous attend'];
+      const names = ['Tendances du moment', 'À découvrir', ...genres.map(genre => genre.title)];
       setShelves(requests.flatMap((result, index) => result.status === 'fulfilled' && result.value.length ? [{ title: names[index], items: result.value }] : []));
       await loadPersonal();
     } catch (e) { setError('Impossible de charger l’accueil. Vérifiez votre connexion, puis réessayez.'); }

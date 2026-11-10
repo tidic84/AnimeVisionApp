@@ -414,6 +414,33 @@ class DatabaseService {
     }));
   }
 
+  /** Animés de l'historique, des listes ou suivis, avec leurs genres : de quoi déduire les goûts (voir homeShelves). */
+  async getTasteSignals(): Promise<{ genres: string[]; watchedEpisodes: number; startedEpisodes: number; inList: boolean; status: string | null }[]> {
+    await this.initializeDatabase();
+    if (!this.db) throw new Error('Base de données non initialisée');
+    const results = await this.db.getAllAsync(
+      `SELECT a.genres,
+         (SELECT COUNT(*) FROM watchHistory wh WHERE wh.animeId = a.id AND wh.progress >= ?) AS watchedEpisodes,
+         (SELECT COUNT(*) FROM watchHistory wh WHERE wh.animeId = a.id AND wh.progress < ?) AS startedEpisodes,
+         EXISTS (SELECT 1 FROM listAnimes la WHERE la.animeId = a.id) AS inList,
+         (SELECT status FROM userAnimeStatus us WHERE us.animeId = a.id) AS status
+       FROM animes a
+       WHERE a.id IN (SELECT animeId FROM watchHistory UNION SELECT animeId FROM listAnimes UNION SELECT animeId FROM userAnimeStatus)`,
+      [WATCHED_PROGRESS, WATCHED_PROGRESS]
+    ) as any[];
+    return results.map(result => {
+      let genres: unknown = [];
+      try { genres = JSON.parse(result.genres || '[]'); } catch { /* genres illisibles : animé ignoré */ }
+      return {
+        genres: Array.isArray(genres) ? genres : [],
+        watchedEpisodes: Number(result.watchedEpisodes) || 0,
+        startedEpisodes: Number(result.startedEpisodes) || 0,
+        inList: Boolean(result.inList),
+        status: result.status ?? null,
+      };
+    });
+  }
+
   // Statut utilisateur des animés
   async updateUserAnimeStatus(status: UserAnimeStatus): Promise<void> {
     await this.initializeDatabase();
