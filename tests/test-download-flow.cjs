@@ -9,11 +9,18 @@ const path = require('node:path');
 const platform = { OS: 'android' };
 const files = new Set();
 let stored = null;
+const contents = new Map();
+const deleted = [];
 const filesystem = {
   EncodingType: { UTF8: 'utf8' }, documentDirectory: '/app/',
   getInfoAsync: async file => ({ exists: files.has(file), size: files.has(file) ? 1000 : 0 }),
-  deleteAsync: async file => { files.delete(file); },
-  writeAsStringAsync: async () => {}, readAsStringAsync: async () => { if (stored === null) throw Error('none'); return stored; },
+  deleteAsync: async file => { deleted.push(file); files.delete(file); },
+  writeAsStringAsync: async () => {},
+  readAsStringAsync: async file => {
+    if (file === '/app/downloads.json' && stored !== null) return stored;
+    if (contents.has(file) && files.has(file)) return contents.get(file);
+    throw Error('none');
+  },
   getFreeDiskStorageAsync: async () => 1e9,
 };
 const silent = { debug() {}, info() {}, warn() {}, error() {} };
@@ -141,5 +148,26 @@ const hlsResult = url => ({ success: true, urls: [{ url, type: 'hls', extractedA
     await until(() => hlsCalls.length === 1, 'an interrupted download can be started again');
     stored = null;
   }
-  console.log('Download flow passed: web guard, HLS over MP4, ids, progress mapping, completion, orphan cleanup, duplicate start, MP4-only and extraction failures, retry, single-transfer queue, restart recovery.');
+  // Size and deletion follow the playlist: its segments are counted and removed, shared files are kept.
+  {
+    const playlist = names => ['#EXTM3U', ...names.flatMap(name => ['#EXTINF:10.0,', name]), '#EXT-X-ENDLIST'].join('\n');
+    const { service, gates } = harness({ 30: hlsResult('https://h/30.m3u8') });
+    await service.startDownload(episode('30'));
+    await until(() => gates.length === 1, 'download 30 should start');
+    for (const name of ['Episode_30.m3u8', 'a_0.ts', 'a_1.ts', 'segment_0_0.ts']) files.add('/app/downloads/' + name);
+    contents.set('/app/downloads/Episode_30.m3u8', playlist(['a_0.ts', 'a_1.ts', 'segment_0_0.ts']));
+    gates[0].resolve('/app/downloads/Episode_30.ts');
+    await until(() => service.downloads.get('download_30_1080p').status === S.DOWNLOADED, 'download 30 should finish');
+    assert.equal(service.downloads.get('download_30_1080p').fileSize, 4000, 'playlist plus its three segments');
+    // An older download whose playlist cites the same legacy segment name.
+    files.add('/app/downloads/Episode_31.m3u8');
+    contents.set('/app/downloads/Episode_31.m3u8', playlist(['segment_0_0.ts']));
+    service.downloads.set('download_31_1080p', { episode: episode('31'), quality: Q.HIGH, url: '', status: S.DOWNLOADED, filePath: '/app/downloads/Episode_31.ts', progress: {} });
+    deleted.length = 0;
+    await service.deleteDownload('30', Q.HIGH);
+    assert.deepEqual(deleted, ['/app/downloads/Episode_30.ts', '/app/downloads/Episode_30.m3u8', '/app/downloads/a_0.ts', '/app/downloads/a_1.ts']);
+    assert.ok(files.has('/app/downloads/segment_0_0.ts'));
+    assert.equal(await service.sizeOnDisk('/app/downloads/Episode_31.ts'), 2000);
+  }
+  console.log('Download flow passed: web guard, HLS over MP4, ids, progress mapping, completion, orphan cleanup, duplicate start, MP4-only and extraction failures, retry, single-transfer queue, restart recovery, size on disk, playlist deletion with shared files.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

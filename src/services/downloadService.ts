@@ -228,14 +228,7 @@ export class DownloadService {
       downloadItem.status = DownloadStatus.DOWNLOADED;
       downloadItem.downloadedAt = new Date();
       downloadItem.filePath = filePath;
-      try {
-        const fileInfo = await FileSystem.getInfoAsync(filePath);
-        if (fileInfo.exists && fileInfo.size) {
-          downloadItem.fileSize = fileInfo.size;
-        }
-      } catch (error) {
-        logger.warn('[Download] ⚠️ Impossible de lire la taille du fichier:', error);
-      }
+      downloadItem.fileSize = await this.sizeOnDisk(filePath) || undefined;
       downloadItem.progress = { ...downloadItem.progress, progress: 100, status: 'completed' };
       await this.saveDownloadsToStorage();
       await this.updateEpisodeDownloadStatus(episode.id, DownloadStatus.DOWNLOADED, filePath);
@@ -279,7 +272,17 @@ export class DownloadService {
     if (item.status === DownloadStatus.DOWNLOADING) {
       throw new Error('Un transfert actif ne peut pas être annulé. Attendez sa fin pour le supprimer.');
     }
-    if (item.filePath) await FileSystem.deleteAsync(item.filePath, { idempotent: true });
+    if (item.filePath) {
+      // Deux qualités d'un même épisode, ou d'anciens téléchargements, peuvent
+      // partager des fichiers : ne supprimer que ceux qu'aucun autre ne référence.
+      const kept = new Set<string>();
+      for (const [otherId, other] of this.downloads) {
+        if (otherId !== downloadId && other.filePath) (await this.filesOnDisk(other.filePath)).forEach(file => kept.add(file));
+      }
+      for (const file of await this.filesOnDisk(item.filePath)) {
+        if (!kept.has(file)) await FileSystem.deleteAsync(file, { idempotent: true });
+      }
+    }
     this.downloadQueue = this.downloadQueue.filter(id => id !== downloadId);
     this.downloads.delete(downloadId);
     this.downloadCallbacks.delete(downloadId);
@@ -290,6 +293,36 @@ export class DownloadService {
       ?? remaining[0]?.status ?? DownloadStatus.NOT_DOWNLOADED;
     await this.updateEpisodeDownloadStatus(episodeId, status, downloaded?.filePath);
     await this.saveDownloadsToStorage();
+  }
+
+  /**
+   * Fichiers d'un téléchargement : pour un HLS, le chemin .ts enregistré, la
+   * playlist .m3u8 et les segments qu'elle cite ; sinon le fichier lui-même.
+   */
+  private async filesOnDisk(filePath: string): Promise<string[]> {
+    const playlist = playableFile(filePath);
+    if (playlist === filePath) return [filePath];
+    try {
+      const content = await FileSystem.readAsStringAsync(playlist);
+      const folder = playlist.slice(0, playlist.lastIndexOf('/') + 1);
+      const segments = content.split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'));
+      return [filePath, playlist, ...segments.map(name => folder + name)];
+    } catch {
+      return [filePath, playlist];
+    }
+  }
+
+  private async sizeOnDisk(filePath: string): Promise<number> {
+    let total = 0;
+    for (const file of await this.filesOnDisk(filePath)) {
+      try {
+        const info = await FileSystem.getInfoAsync(file);
+        if (info.exists && !info.isDirectory) total += info.size;
+      } catch (error) {
+        logger.warn('[Download] ⚠️ Impossible de lire la taille du fichier:', error);
+      }
+    }
+    return total;
   }
 
   /**
