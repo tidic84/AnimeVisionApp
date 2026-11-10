@@ -1,4 +1,5 @@
 import { API_ADDRESS } from '@env';
+import { logger } from '../utils/logger';
 
 interface ExtractedVideoUrl {
   url: string;
@@ -54,7 +55,7 @@ export class VideoUrlExtractor {
    */
   async extractHLSForEpisode(episodeId: string): Promise<ExtractionResult> {
     const startTime = Date.now();
-    console.log(`[HLS Extractor] 🎬 Début extraction pour épisode ${episodeId}`);
+    logger.debug(`[HLS Extractor] 🎬 Début extraction pour épisode ${episodeId}`);
 
     try {
       // 1. Récupérer les URLs embed de l'API
@@ -67,7 +68,7 @@ export class VideoUrlExtractor {
         };
       }
 
-             console.log(`[HLS Extractor] 📡 ${embedUrls.length} URLs embed récupérées`);
+             logger.debug(`[HLS Extractor] 📡 ${embedUrls.length} URLs embed récupérées`);
 
        // Filtrer seulement les embeds (pas les MP4 directs)
        const embedsOnly = embedUrls.filter(url =>
@@ -86,17 +87,17 @@ export class VideoUrlExtractor {
          };
        }
 
-       console.log(`[HLS Extractor] 🎯 ${embedsOnly.length} embeds à traiter`);
+       logger.debug(`[HLS Extractor] 🎯 ${embedsOnly.length} embeds à traiter`);
 
        // Essayer d'extraire HLS de chaque embed
        const failedEmbeds: string[] = [];
        for (const embedUrl of embedsOnly) {
-         console.log(`[HLS Extractor] 🔍 Extraction HLS depuis: ${embedUrl}`);
+         logger.debug(`[HLS Extractor] 🔍 Extraction HLS depuis: ${embedUrl}`);
 
          const result = await this.extractHLSFromEmbed(embedUrl);
          if (result.success && result.urls.length > 0) {
            const extractionTime = Date.now() - startTime;
-           console.log(`[HLS Extractor] ✅ HLS extrait en ${extractionTime}ms`);
+           logger.debug(`[HLS Extractor] ✅ HLS extrait en ${extractionTime}ms`);
 
            return {
              ...result,
@@ -109,7 +110,7 @@ export class VideoUrlExtractor {
        }
 
              // Si aucune extraction client n'a fonctionné, essayer l'API backend
-       console.log(`[HLS Extractor] ⚠️ Extraction client échouée, tentative fallback API backend`);
+       logger.debug(`[HLS Extractor] ⚠️ Extraction client échouée, tentative fallback API backend`);
        const backendResult = await this.fallbackToBackendExtraction(episodeId, startTime);
 
        if (!backendResult.success) {
@@ -124,7 +125,7 @@ export class VideoUrlExtractor {
        return backendResult;
 
     } catch (error: any) {
-      console.error('[HLS Extractor] ❌ Erreur:', error.message);
+      logger.error('[HLS Extractor] ❌ Erreur:', error.message);
 
       // Ultime fallback vers l'API backend
       try {
@@ -183,14 +184,14 @@ export class VideoUrlExtractor {
           })
           .map((server: any) => server.url);
 
-        console.log(`[HLS Extractor] 📊 ${data.data.streaming_servers.length} serveurs trouvés, ${embedUrls.length} embeds extraits`);
-        console.log('[HLS Extractor] 🎯 Serveurs:', data.data.streaming_servers.map((s: any) => `${s.name} (${s.quality})`));
+        logger.debug(`[HLS Extractor] 📊 ${data.data.streaming_servers.length} serveurs trouvés, ${embedUrls.length} embeds extraits`);
+        logger.debug('[HLS Extractor] 🎯 Serveurs:', data.data.streaming_servers.map((s: any) => `${s.name} (${s.quality})`));
         return embedUrls;
       }
 
       return [];
     } catch (error: any) {
-      console.error('[HLS Extractor] ❌ Erreur récupération embeds:', error.message);
+      logger.error('[HLS Extractor] ❌ Erreur récupération embeds:', error.message);
       return [];
     }
   }
@@ -201,7 +202,7 @@ export class VideoUrlExtractor {
    * Fallback vers l'extraction backend si le client échoue
    */
   private async fallbackToBackendExtraction(episodeId: string, startTime: number): Promise<ExtractionResult> {
-    console.log(`[HLS Extractor] ❌ Pas de fallback backend disponible pour la nouvelle API`);
+    logger.debug(`[HLS Extractor] ❌ Pas de fallback backend disponible pour la nouvelle API`);
 
     return {
       success: false,
@@ -215,7 +216,7 @@ export class VideoUrlExtractor {
    * Extrait les URLs HLS depuis une page embed
    */
   private async extractHLSFromEmbed(embedUrl: string): Promise<ExtractionResult> {
-    console.log(`[HLS Extractor] 🌐 Tentative d'extraction depuis: ${embedUrl}`);
+    logger.debug(`[HLS Extractor] 🌐 Tentative d'extraction depuis: ${embedUrl}`);
 
     // Essayer d'abord sans proxy
     try {
@@ -224,7 +225,7 @@ export class VideoUrlExtractor {
         return result;
       }
     } catch (error) {
-      console.log('[HLS Extractor] ⚠️ Extraction directe échouée, essai avec proxy');
+      logger.debug('[HLS Extractor] ⚠️ Extraction directe échouée, essai avec proxy');
     }
 
     // Essayer avec des proxies
@@ -233,11 +234,11 @@ export class VideoUrlExtractor {
         const proxiedUrl = proxy + encodeURIComponent(embedUrl);
         const result = await this.extractHLSFromUrl(proxiedUrl);
         if (result.success) {
-          console.log(`[HLS Extractor] ✅ Proxy réussi: ${proxy}`);
+          logger.debug(`[HLS Extractor] ✅ Proxy réussi: ${proxy}`);
           return result;
         }
       } catch (error) {
-        console.log(`[HLS Extractor] ❌ Proxy échoué: ${proxy}`);
+        logger.debug(`[HLS Extractor] ❌ Proxy échoué: ${proxy}`);
         continue;
       }
     }
@@ -254,7 +255,7 @@ export class VideoUrlExtractor {
    */
   private async extractHLSFromUrl(url: string): Promise<ExtractionResult> {
     try {
-      console.log(`[HLS Extractor] 🌐 Début extraction pour: ${this.getHostFromUrl(url)}`);
+      logger.debug(`[HLS Extractor] 🌐 Début extraction pour: ${this.getHostFromUrl(url)}`);
 
       // Headers adaptés selon l'hébergeur
       const hostname = this.getHostFromUrl(url);
@@ -264,7 +265,7 @@ export class VideoUrlExtractor {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 20000); // Plus de temps pour les serveurs lents
 
-      console.log(`[HLS Extractor] 📤 Envoi requête HTTP vers ${hostname}...`);
+      logger.debug(`[HLS Extractor] 📤 Envoi requête HTTP vers ${hostname}...`);
 
       const response = await fetch(url, {
         method: 'GET',
@@ -274,30 +275,30 @@ export class VideoUrlExtractor {
 
       clearTimeout(timeoutId);
 
-      console.log(`[HLS Extractor] 📥 Réponse reçue: ${response.status} ${response.statusText}`);
+      logger.debug(`[HLS Extractor] 📥 Réponse reçue: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const html = await response.text();
-      console.log(`[HLS Extractor] 📄 HTML récupéré: ${html.length} caractères pour ${hostname}`);
+      logger.debug(`[HLS Extractor] 📄 HTML récupéré: ${html.length} caractères pour ${hostname}`);
 
       // Vérifier si le HTML est valide
       const isValidHtml = html.trim().startsWith('<') || html.includes('<html') || html.includes('<script') || html.includes('<div');
 
       if (!isValidHtml) {
-        console.log(`[HLS Extractor] ⚠️ HTML invalide ou corrompu, longueur: ${html.length}`);
+        logger.debug(`[HLS Extractor] ⚠️ HTML invalide ou corrompu, longueur: ${html.length}`);
         const sample = html.substring(0, 100).replace(/[^\x20-\x7E]/g, '?');
-        console.log(`[HLS Extractor] 📋 Échantillon nettoyé: ${sample}`);
+        logger.debug(`[HLS Extractor] 📋 Échantillon nettoyé: ${sample}`);
         throw new Error('HTML corrompu ou compressé');
       }
 
       // Essayer d'abord l'extraction spécifique à l'hébergeur
-      console.log(`[HLS Extractor] 🎯 Tentative extraction spécifique pour ${hostname}...`);
+      logger.debug(`[HLS Extractor] 🎯 Tentative extraction spécifique pour ${hostname}...`);
       const specificResult = this.extractWithSpecificStrategy(url, html);
       if (specificResult.length > 0) {
-        console.log(`[HLS Extractor] ✅ ${specificResult.length} URLs trouvées avec stratégie spécifique:`, specificResult);
+        logger.debug(`[HLS Extractor] ✅ ${specificResult.length} URLs trouvées avec stratégie spécifique:`, specificResult);
         return {
           success: true,
           urls: specificResult.map(url => ({
@@ -311,10 +312,10 @@ export class VideoUrlExtractor {
       }
 
       // Patterns améliorés pour serveurs de streaming populaires
-      console.log(`[HLS Extractor] 🔄 Tentative extraction avancée...`);
+      logger.debug(`[HLS Extractor] 🔄 Tentative extraction avancée...`);
       const advancedResult = this.extractWithAdvancedPatterns(html);
       if (advancedResult.length > 0) {
-        console.log(`[HLS Extractor] ✅ ${advancedResult.length} URLs trouvées avec patterns avancés:`, advancedResult);
+        logger.debug(`[HLS Extractor] ✅ ${advancedResult.length} URLs trouvées avec patterns avancés:`, advancedResult);
         return {
           success: true,
           urls: advancedResult.map(url => ({
@@ -328,10 +329,10 @@ export class VideoUrlExtractor {
       }
 
       // Fallback sur l'extraction générique
-      console.log(`[HLS Extractor] 🔄 Tentative extraction générique...`);
+      logger.debug(`[HLS Extractor] 🔄 Tentative extraction générique...`);
       const hlsUrls = this.extractHLSFromHTML(html);
       if (hlsUrls.length > 0) {
-        console.log(`[HLS Extractor] ✅ ${hlsUrls.length} URLs HLS trouvées (générique):`, hlsUrls);
+        logger.debug(`[HLS Extractor] ✅ ${hlsUrls.length} URLs HLS trouvées (générique):`, hlsUrls);
         return {
           success: true,
           urls: hlsUrls.map(url => ({
@@ -345,10 +346,10 @@ export class VideoUrlExtractor {
       }
 
       // Si pas de HLS trouvé, chercher d'autres patterns vidéo
-      console.log(`[HLS Extractor] 🔄 Tentative patterns alternatifs...`);
+      logger.debug(`[HLS Extractor] 🔄 Tentative patterns alternatifs...`);
       const alternativeUrls = this.extractAlternativeVideoUrls(html);
       if (alternativeUrls.length > 0) {
-        console.log(`[HLS Extractor] ✅ ${alternativeUrls.length} URLs alternatives trouvées:`, alternativeUrls);
+        logger.debug(`[HLS Extractor] ✅ ${alternativeUrls.length} URLs alternatives trouvées:`, alternativeUrls);
         return {
           success: true,
           urls: alternativeUrls.map(url => ({
@@ -368,7 +369,7 @@ export class VideoUrlExtractor {
       };
 
     } catch (error: any) {
-      console.log(`[HLS Extractor] ❌ Erreur dans extractHLSFromUrl:`, error.message);
+      logger.debug(`[HLS Extractor] ❌ Erreur dans extractHLSFromUrl:`, error.message);
       return {
         success: false,
         urls: [],
@@ -535,7 +536,7 @@ export class VideoUrlExtractor {
    */
   private extractWithSpecificStrategy(url: string, html: string): string[] {
     const host = this.getHostFromUrl(url);
-    console.log(`[HLS Extractor] 🎯 Stratégie spécifique pour: ${host}`);
+    logger.debug(`[HLS Extractor] 🎯 Stratégie spécifique pour: ${host}`);
 
     if (host.includes('vidmoly.to')) {
       return this.extractFromVidmoly(html);
@@ -598,7 +599,7 @@ export class VideoUrlExtractor {
       while ((match = pattern.exec(html)) !== null) {
         const url = match[1];
         if (this.isValidHLSUrl(url)) {
-          console.log(`[HLS Extractor] 🎥 Sibnet URL trouvée: ${url}`);
+          logger.debug(`[HLS Extractor] 🎥 Sibnet URL trouvée: ${url}`);
           urls.add(this.normalizeUrl(url));
         }
       }
@@ -625,7 +626,7 @@ export class VideoUrlExtractor {
       while ((match = pattern.exec(html)) !== null) {
         const url = match[1];
         if (this.isValidHLSUrl(url)) {
-          console.log(`[HLS Extractor] 🎥 OneUpload URL trouvée: ${url}`);
+          logger.debug(`[HLS Extractor] 🎥 OneUpload URL trouvée: ${url}`);
           urls.add(this.normalizeUrl(url));
         }
       }
@@ -652,7 +653,7 @@ export class VideoUrlExtractor {
       while ((match = pattern.exec(html)) !== null) {
         const url = match[1];
         if (this.isValidHLSUrl(url)) {
-          console.log(`[HLS Extractor] 🎥 Movearnpre URL trouvée: ${url}`);
+          logger.debug(`[HLS Extractor] 🎥 Movearnpre URL trouvée: ${url}`);
           urls.add(this.normalizeUrl(url));
         }
       }
@@ -744,7 +745,7 @@ export class VideoUrlExtractor {
         const url = match[1] || match[0];
         if (this.isValidHLSUrl(url)) {
           const cleanUrl = this.normalizeUrl(url);
-          console.log(`[HLS Extractor] 🔍 HLS trouvé avec pattern: ${url}`);
+          logger.debug(`[HLS Extractor] 🔍 HLS trouvé avec pattern: ${url}`);
           hlsUrls.add(cleanUrl);
         }
       }
@@ -752,7 +753,7 @@ export class VideoUrlExtractor {
 
     // Si aucun HLS trouvé, chercher des patterns cachés
     if (hlsUrls.size === 0) {
-      console.log(`[HLS Extractor] 🔍 Aucun HLS standard trouvé, recherche patterns cachés...`);
+      logger.debug(`[HLS Extractor] 🔍 Aucun HLS standard trouvé, recherche patterns cachés...`);
       this.searchForHiddenVideoUrls(html, hlsUrls);
     }
 
@@ -776,7 +777,7 @@ export class VideoUrlExtractor {
               if (match) {
                 const decoded = atob(match[1]);
                 if (decoded.includes('.m3u8')) {
-                  console.log(`[HLS Extractor] 🔓 URL décodée trouvée: ${decoded}`);
+                  logger.debug(`[HLS Extractor] 🔓 URL décodée trouvée: ${decoded}`);
                   if (this.isValidHLSUrl(decoded)) {
                     urls.add(this.normalizeUrl(decoded));
                   }
@@ -798,7 +799,7 @@ export class VideoUrlExtractor {
         if (m3u8Match) {
           for (const url of m3u8Match) {
             if (this.isValidHLSUrl(url)) {
-              console.log(`[HLS Extractor] 💬 HLS trouvé dans commentaire: ${url}`);
+              logger.debug(`[HLS Extractor] 💬 HLS trouvé dans commentaire: ${url}`);
               urls.add(this.normalizeUrl(url));
             }
           }
@@ -812,7 +813,7 @@ export class VideoUrlExtractor {
       for (const dataMatch of dataMatches) {
         const urlMatch = dataMatch.match(/data-[^=]*=['"](https?:\/\/[^'"]*\.m3u8[^'"]*)['"]/i);
         if (urlMatch && this.isValidHLSUrl(urlMatch[1])) {
-          console.log(`[HLS Extractor] 📋 HLS trouvé dans data-attribute: ${urlMatch[1]}`);
+          logger.debug(`[HLS Extractor] 📋 HLS trouvé dans data-attribute: ${urlMatch[1]}`);
           urls.add(this.normalizeUrl(urlMatch[1]));
         }
       }

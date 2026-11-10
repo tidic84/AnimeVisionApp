@@ -10,8 +10,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiService from '../apiService';
 import databaseService from '../databaseService';
 import { Anime, Episode, WatchStatus } from '../../types/anime';
+import { createLogger } from '../../utils/logger';
 import * as mal from './malService';
 import { anilistQuery, fetchFranchise, firstEntry, mainLine, mapEpisode, MalTarget, regularSeasons, resolveAnilistId } from './seasonMapping';
+
+const log = createLogger('MAL');
 
 const PENDING_KEY = 'mal.pending';
 // Épisodes vus sans réseau (lecture hors ligne) : la correspondance MAL sera calculée plus tard.
@@ -92,7 +95,7 @@ export async function episodeWatched(animeId: string, episode: Pick<Episode, 'id
   } catch (error) {
     if (item) await queue(item).catch(() => {});
     else await queueEpisode({ animeId, id: episode.id, saison_id: episode.saison_id, number: episode.number }).catch(() => {});
-    console.warn('[MAL] Synchronisation reportée :', error instanceof Error ? error.message : error);
+    log.warn('Synchronisation reportée :', error instanceof Error ? error.message : error);
   }
 }
 
@@ -106,7 +109,7 @@ export async function watchlistAdded(anime: Pick<Anime, 'id'>): Promise<void> {
     if (!malId || await mal.getListStatus(malId)) return;
     await mal.updateListStatus(malId, { status: 'plan_to_watch' });
   } catch (error) {
-    console.warn('[MAL] Ajout en Plan to Watch impossible :', error instanceof Error ? error.message : error);
+    log.warn('Ajout en Plan to Watch impossible :', error instanceof Error ? error.message : error);
   }
 }
 

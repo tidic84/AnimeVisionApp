@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Buffer } from 'buffer';
 import { Episode, DownloadStatus, VideoQuality } from '../types/anime';
+import { logger } from '../utils/logger';
 import databaseService from './databaseService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import videoUrlExtractor from './VideoUrlExtractor';
@@ -103,15 +104,15 @@ export class DownloadService {
     );
 
     if (existingDownload) {
-      console.log(`[Download] ⏩ Épisode ${episode.id} déjà en téléchargement ou téléchargé (statut: ${existingDownload.status}). Ignoré.`);
-      console.log(`[Download] 📊 Téléchargements actuels: ${this.downloads.size}`);
+      logger.debug(`[Download] ⏩ Épisode ${episode.id} déjà en téléchargement ou téléchargé (statut: ${existingDownload.status}). Ignoré.`);
+      logger.debug(`[Download] 📊 Téléchargements actuels: ${this.downloads.size}`);
       Array.from(this.downloads.values()).forEach(dl => {
-        console.log(`[Download] - ${dl.episode.id}: ${dl.status} (${dl.episode.title})`);
+        logger.debug(`[Download] - ${dl.episode.id}: ${dl.status} (${dl.episode.title})`);
       });
       return; // Empêcher la création d'une entrée en double
     }
 
-    console.log(`[Download] 🎬 Téléchargement épisode ${episode.id}: ${episode.title}`);
+    logger.debug(`[Download] 🎬 Téléchargement épisode ${episode.id}: ${episode.title}`);
 
     try {
       // Générer un ID unique pour ce téléchargement
@@ -135,7 +136,7 @@ export class DownloadService {
 
       // Ajouter à la queue et démarrer le traitement
       this.downloadQueue.push(downloadId);
-      console.log(`[Download] 📋 Téléchargement ajouté à la file d'attente (position ${this.downloadQueue.length})`);
+      logger.debug(`[Download] 📋 Téléchargement ajouté à la file d'attente (position ${this.downloadQueue.length})`);
 
       // Enregistrer le callback
       if (onProgress) {
@@ -164,7 +165,7 @@ export class DownloadService {
       // Démarrer le traitement de la queue
       await this.processQueue();
     } catch (error) {
-      console.error('[Download] ❌ Erreur:', error);
+      logger.error('[Download] ❌ Erreur:', error);
       throw error;
     }
   }
@@ -181,7 +182,7 @@ export class DownloadService {
     this.activeDownloads++;
 
     try {
-      console.log(`[Download] 🔍 Extraction URL streaming pour ${downloadItem.episode.title}`);
+      logger.debug(`[Download] 🔍 Extraction URL streaming pour ${downloadItem.episode.title}`);
 
       // 1. Extraire les URLs de streaming réelles avec VideoUrlExtractor
       const extractionResult = await this.videoUrlExtractor.extractHLSForEpisode(downloadItem.episode.id);
@@ -221,10 +222,10 @@ export class DownloadService {
       downloadItem.status = DownloadStatus.DOWNLOADED;
       await this.saveDownloadsToStorage();
 
-      console.log(`[Download] ✅ Téléchargement terminé: ${downloadItem.episode.title}`);
+      logger.debug(`[Download] ✅ Téléchargement terminé: ${downloadItem.episode.title}`);
 
     } catch (error: any) {
-      console.error(`[Download] ❌ Erreur:`, error.message);
+      logger.error(`[Download] ❌ Erreur:`, error.message);
       downloadItem.status = DownloadStatus.FAILED;
       await this.saveDownloadsToStorage();
       throw error;
@@ -300,7 +301,7 @@ export class DownloadService {
       await this.finishDownload(downloadItem, filePath, fileName);
 
     } catch (error: any) {
-      console.error(`[Download] ❌ Erreur téléchargement direct:`, error.message);
+      logger.error(`[Download] ❌ Erreur téléchargement direct:`, error.message);
       throw error;
     }
   }
@@ -333,9 +334,9 @@ export class DownloadService {
       };
 
       // Extraire les segments HLS
-      console.log(`[Download] 📥 Extraction segments HLS: ${hlsUrl}`);
+      logger.debug(`[Download] 📥 Extraction segments HLS: ${hlsUrl}`);
       const segments = await this.extractHLSSegments(hlsUrl);
-      console.log(`[Download] 📊 ${segments.length} segments trouvés`);
+      logger.debug(`[Download] 📊 ${segments.length} segments trouvés`);
 
       // Télécharger et assembler les segments
       await this.downloadAndConcatenateSegments(downloadItem, segments, filePath);
@@ -344,7 +345,7 @@ export class DownloadService {
       await this.finishDownload(downloadItem, filePath, fileName);
 
     } catch (error: any) {
-      console.error(`[Download] ❌ Erreur téléchargement HLS:`, error.message);
+      logger.error(`[Download] ❌ Erreur téléchargement HLS:`, error.message);
       throw error;
     }
   }
@@ -363,7 +364,7 @@ export class DownloadService {
     }
 
     const m3u8Content = await response.text();
-    console.log(`[Download] 📋 Playlist récupérée: ${m3u8Content.length} caractères`);
+    logger.debug(`[Download] 📋 Playlist récupérée: ${m3u8Content.length} caractères`);
 
     // 2. Vérifier si c'est une master playlist ou une playlist de segments
     const finalPlaylistUrl = await this.resolveMasterPlaylist(hlsUrl, m3u8Content);
@@ -371,7 +372,7 @@ export class DownloadService {
     // 3. Si on a une nouvelle URL, récupérer la vraie playlist de segments
     let segmentPlaylistContent = m3u8Content;
     if (finalPlaylistUrl !== hlsUrl) {
-      console.log(`[Download] 🔗 Résolution master playlist: ${finalPlaylistUrl}`);
+      logger.debug(`[Download] 🔗 Résolution master playlist: ${finalPlaylistUrl}`);
       const segmentResponse = await fetch(finalPlaylistUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15',
@@ -384,7 +385,7 @@ export class DownloadService {
       }
 
       segmentPlaylistContent = await segmentResponse.text();
-      console.log(`[Download] 📋 Playlist segments récupérée: ${segmentPlaylistContent.length} caractères`);
+      logger.debug(`[Download] 📋 Playlist segments récupérée: ${segmentPlaylistContent.length} caractères`);
     }
 
     // 4. Parser les segments
@@ -394,7 +395,7 @@ export class DownloadService {
       throw new Error('Aucun segment trouvé dans la playlist');
     }
 
-    console.log(`[Download] 🧩 ${segments.length} segments à télécharger`);
+    logger.debug(`[Download] 🧩 ${segments.length} segments à télécharger`);
     return segments;
   }
 
@@ -482,7 +483,7 @@ export class DownloadService {
     };
 
     // Utiliser le téléchargement par lots parallèles
-    console.log(`[Download] 🧩 ${segments.length} segments à télécharger en parallèle`);
+    logger.debug(`[Download] 🧩 ${segments.length} segments à télécharger en parallèle`);
     const downloadedSegments = await this.downloadSegmentsInBatches(
       segmentUrls,
       baseUrl,
@@ -500,7 +501,7 @@ export class DownloadService {
     }
 
     if (downloadedSegments.length < segments.length * 0.8) {
-      console.warn(`[Download] ⚠️ Seulement ${downloadedSegments.length}/${segments.length} segments téléchargés`);
+      logger.warn(`[Download] ⚠️ Seulement ${downloadedSegments.length}/${segments.length} segments téléchargés`);
     }
 
     // Vérifier la taille totale avant assemblage
@@ -513,7 +514,7 @@ export class DownloadService {
       }
     }, 0);
     const totalSizeMB = Math.round(totalSizeBytes / (1024 * 1024));
-    console.log(`[Download] 📊 Taille totale estimée: ${totalSizeMB} MB`);
+    logger.debug(`[Download] 📊 Taille totale estimée: ${totalSizeMB} MB`);
 
     await this.validateFileSize(totalSizeBytes);
 
@@ -521,7 +522,7 @@ export class DownloadService {
     onProgress(downloadedSegments.length, totalSegments, downloadedBytes);
 
     // Assemblage progressif
-    console.log(`[Download] 🔗 Assemblage progressif de ${downloadedSegments.length} segments`);
+    logger.debug(`[Download] 🔗 Assemblage progressif de ${downloadedSegments.length} segments`);
     await this.assembleSegmentsProgressively(downloadedSegments, finalPath);
 
     // Progrès final
@@ -549,7 +550,7 @@ export class DownloadService {
   private async downloadSegmentWithRetry(url: string, filePath: string, maxRetries: number): Promise<boolean> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`[Download] 🔄 Tentative ${attempt}/${maxRetries} pour: ${url}`);
+        logger.debug(`[Download] 🔄 Tentative ${attempt}/${maxRetries} pour: ${url}`);
 
         const response = await fetch(url, {
           headers: {
@@ -574,14 +575,14 @@ export class DownloadService {
           encoding: FileSystem.EncodingType.Base64
         });
 
-        console.log(`[Download] ✅ Segment téléchargé: ${Math.round(arrayBuffer.byteLength / 1024)}KB`);
+        logger.debug(`[Download] ✅ Segment téléchargé: ${Math.round(arrayBuffer.byteLength / 1024)}KB`);
         return true;
 
       } catch (error: any) {
-        console.warn(`[Download] ⚠️ Échec tentative ${attempt}: ${error.message}`);
+        logger.warn(`[Download] ⚠️ Échec tentative ${attempt}: ${error.message}`);
 
         if (attempt === maxRetries) {
-          console.error(`[Download] ❌ Échec définitif après ${maxRetries} tentatives: ${url}`);
+          logger.error(`[Download] ❌ Échec définitif après ${maxRetries} tentatives: ${url}`);
           return false;
         }
 
@@ -614,7 +615,7 @@ export class DownloadService {
       throw new Error('Aucun segment à concaténer');
     }
 
-    console.log(`[Download] 🔗 Concaténation de ${segmentPaths.length} segments`);
+    logger.debug(`[Download] 🔗 Concaténation de ${segmentPaths.length} segments`);
 
     // Lire et concaténer tous les segments
     let concatenatedData = '';
@@ -633,7 +634,7 @@ export class DownloadService {
           totalSize += fileInfo.size || 0;
       }
     } catch (error) {
-        console.warn(`[Download] ⚠️ Erreur lecture segment ${segmentPath}:`, error);
+        logger.warn(`[Download] ⚠️ Erreur lecture segment ${segmentPath}:`, error);
       }
     }
 
@@ -646,7 +647,7 @@ export class DownloadService {
       encoding: FileSystem.EncodingType.Base64
     });
 
-    console.log(`[Download] ✅ Fichier final créé: ${finalPath} (${this.formatFileSize(totalSize)})`);
+    logger.debug(`[Download] ✅ Fichier final créé: ${finalPath} (${this.formatFileSize(totalSize)})`);
   }
 
   /**
@@ -685,10 +686,10 @@ export class DownloadService {
     }
 
     await this.saveDownloadsToStorage();
-      console.log(`[Download] ✅ Téléchargement terminé: ${fileName} (${Math.round(fileInfo.size / 1024 / 1024)}MB)`);
+      logger.debug(`[Download] ✅ Téléchargement terminé: ${fileName} (${Math.round(fileInfo.size / 1024 / 1024)}MB)`);
 
     } catch (error: any) {
-      console.error(`[Download] ❌ Erreur finalisation:`, error.message);
+      logger.error(`[Download] ❌ Erreur finalisation:`, error.message);
       throw error;
     }
   }
@@ -722,11 +723,11 @@ export class DownloadService {
         const downloadItem = this.downloads.get(downloadId);
         if (!downloadItem) continue;
 
-        console.log(`[Download] 🎬 Démarrage téléchargement: ${downloadItem.episode.title} (${this.downloadQueue.length} en attente)`);
+        logger.debug(`[Download] 🎬 Démarrage téléchargement: ${downloadItem.episode.title} (${this.downloadQueue.length} en attente)`);
 
         // Lancer le téléchargement optimisé directement
         this.executeOptimizedDownload(downloadId).catch(error => {
-          console.error(`[Download] ❌ Erreur téléchargement ${downloadId}:`, error);
+          logger.error(`[Download] ❌ Erreur téléchargement ${downloadId}:`, error);
         });
       }
     } finally {
@@ -753,7 +754,7 @@ export class DownloadService {
       const callback = this.downloadCallbacks.get(downloadId);
       await this.startDownloadOptimized(downloadItem.episode, downloadItem.quality, callback);
     } catch (error: any) {
-      console.error(`[Download] ❌ Erreur:`, error.message);
+      logger.error(`[Download] ❌ Erreur:`, error.message);
       downloadItem.status = DownloadStatus.FAILED;
       await this.saveDownloadsToStorage();
       throw error;
@@ -834,9 +835,9 @@ export class DownloadService {
     // on renvoie la liste brute pour éviter un affichage vide.
     const finalList = downloads.length > 0 ? downloads : Array.from(this.downloads.values());
 
-    console.log(`[Download] 📋 getAllDownloads retourne ${finalList.length} téléchargements (dédupliqués)`);
+    logger.debug(`[Download] 📋 getAllDownloads retourne ${finalList.length} téléchargements (dédupliqués)`);
     finalList.forEach(download => {
-      console.log(`[Download] - ${download.episode.title}: ${download.status}`);
+      logger.debug(`[Download] - ${download.episode.title}: ${download.status}`);
     });
     return finalList;
   }
@@ -892,7 +893,7 @@ export class DownloadService {
         await databaseService.saveEpisode(updatedEpisode);
       }
     } catch (error) {
-      console.warn(`[Download] Erreur mise à jour statut épisode ${episodeId}:`, error);
+      logger.warn(`[Download] Erreur mise à jour statut épisode ${episodeId}:`, error);
     }
   }
 
@@ -909,7 +910,7 @@ export class DownloadService {
         { encoding: FileSystem.EncodingType.UTF8 }
       );
     } catch (error) {
-      console.error('[Download] ❌ Erreur sauvegarde téléchargements:', error);
+      logger.error('[Download] ❌ Erreur sauvegarde téléchargements:', error);
     }
   }
 
@@ -925,10 +926,10 @@ export class DownloadService {
       );
       const savedDownloads = JSON.parse(data);
       this.downloads = new Map(Object.entries(savedDownloads));
-      console.log(`[Download] 📂 Chargé ${this.downloads.size} téléchargements depuis le stockage`);
+      logger.debug(`[Download] 📂 Chargé ${this.downloads.size} téléchargements depuis le stockage`);
       this.isStorageLoaded = true;
     } catch (error) {
-      console.log('[Download] 📝 Pas de téléchargements sauvegardés');
+      logger.debug('[Download] 📝 Pas de téléchargements sauvegardés');
       this.isStorageLoaded = true;
     }
   }
@@ -977,11 +978,11 @@ export class DownloadService {
 
     // Créer les lots de segments
     const batches = this.createBatches(segmentUrls, BATCH_SIZE);
-    console.log(`[Download] 📦 ${batches.length} lots de ${BATCH_SIZE} segments`);
+    logger.debug(`[Download] 📦 ${batches.length} lots de ${BATCH_SIZE} segments`);
 
     // Télécharger chaque lot en parallèle
     for (const [batchIndex, batch] of batches.entries()) {
-      console.log(`[Download] 🔄 Lot ${batchIndex + 1}/${batches.length}`);
+      logger.debug(`[Download] 🔄 Lot ${batchIndex + 1}/${batches.length}`);
 
       const batchResults = await Promise.allSettled(
         batch.map(async (url: string, index: number) => {
@@ -1014,7 +1015,7 @@ export class DownloadService {
               return { index: segmentIndex, data: base64 };
 
             } catch (error) {
-              console.warn(`[Download] ⚠️ Erreur segment ${segmentIndex}, tentative ${retries + 1}:`, error);
+              logger.warn(`[Download] ⚠️ Erreur segment ${segmentIndex}, tentative ${retries + 1}:`, error);
               retries++;
               if (retries < MAX_RETRIES) {
                 await new Promise(resolve => setTimeout(resolve, 1000 * retries));
@@ -1054,7 +1055,7 @@ export class DownloadService {
 
     // Écrire les segments par lots
     for (const [batchIndex, batch] of batches.entries()) {
-      console.log(`[Download] 📝 Écriture lot ${batchIndex + 1}/${batches.length}`);
+      logger.debug(`[Download] 📝 Écriture lot ${batchIndex + 1}/${batches.length}`);
 
       // Convertir et concaténer les segments du lot
       const batchData = batch.map(segment => segment.data).join('');
@@ -1081,7 +1082,7 @@ export class DownloadService {
     onProgress?: (progress: DownloadProgress) => void
   ): Promise<void> {
     if (Platform.OS === 'web') throw new Error('Le téléchargement hors ligne est disponible dans l’application mobile.');
-    console.log(`[Download] 🧪 TEST - Téléchargement optimisé épisode ${episode.id}: ${episode.title}`);
+    logger.debug(`[Download] 🧪 TEST - Téléchargement optimisé épisode ${episode.id}: ${episode.title}`);
 
     // Générer un ID unique pour ce téléchargement
     const downloadId = this.generateDownloadId(episode, quality);
@@ -1116,7 +1117,7 @@ export class DownloadService {
         throw new Error('Aucune URL HLS trouvée');
       }
 
-      console.log(`[Download] 📡 URL HLS: ${hlsUrl}`);
+      logger.debug(`[Download] 📡 URL HLS: ${hlsUrl}`);
 
       // 4. Callback adapté pour mettre à jour le progress et l'item
       const adaptedCallback = async (progress: any) => {
@@ -1140,7 +1141,7 @@ export class DownloadService {
 
           // Si le téléchargement est terminé, mettre à jour le statut immédiatement
           if (progress.status === 'completed') {
-            console.log(`[Download] 🎯 Téléchargement terminé détecté via callback: ${episode.title}`);
+            logger.debug(`[Download] 🎯 Téléchargement terminé détecté via callback: ${episode.title}`);
             item.status = DownloadStatus.DOWNLOADED;
             item.downloadedAt = new Date();
 
@@ -1166,7 +1167,7 @@ export class DownloadService {
       if (downloadItem) {
         // S'assurer que le statut n'a pas déjà été mis à jour par le callback
         if (downloadItem.status !== DownloadStatus.DOWNLOADED) {
-          console.log(`[Download] 🔄 Finalisation du téléchargement: ${episode.title}`);
+          logger.debug(`[Download] 🔄 Finalisation du téléchargement: ${episode.title}`);
           downloadItem.status = DownloadStatus.DOWNLOADED;
           downloadItem.downloadedAt = new Date();
         }
@@ -1179,9 +1180,9 @@ export class DownloadService {
           const fileInfo = await FileSystem.getInfoAsync(filePath);
           if (fileInfo.exists && fileInfo.size) {
             downloadItem.fileSize = fileInfo.size;
-            console.log(`[Download] 📊 Taille du fichier détectée: ${this.formatFileSize(fileInfo.size)}`);
+            logger.debug(`[Download] 📊 Taille du fichier détectée: ${this.formatFileSize(fileInfo.size)}`);
           } else {
-            console.warn(`[Download] ⚠️ FileSystem.getInfoAsync indique 0KB, vérification manuelle...`);
+            logger.warn(`[Download] ⚠️ FileSystem.getInfoAsync indique 0KB, vérification manuelle...`);
             // Vérification alternative en lisant le début du fichier
             try {
               const content = await FileSystem.readAsStringAsync(filePath, {
@@ -1189,15 +1190,15 @@ export class DownloadService {
                 length: 1000
               });
               if (content && content.length > 0) {
-                console.log(`[Download] ✅ Fichier validé par lecture manuelle (${content.length} caractères de test)`);
+                logger.debug(`[Download] ✅ Fichier validé par lecture manuelle (${content.length} caractères de test)`);
                 downloadItem.fileSize = Math.max(549956024, 500000000); // Utiliser la taille des logs ou 500MB minimum
               }
             } catch (readError) {
-              console.warn(`[Download] ⚠️ Impossible de vérifier le fichier manuellement:`, readError);
+              logger.warn(`[Download] ⚠️ Impossible de vérifier le fichier manuellement:`, readError);
             }
           }
         } catch (error) {
-          console.warn('[Download] ⚠️ Impossible de lire la taille du fichier:', error);
+          logger.warn('[Download] ⚠️ Impossible de lire la taille du fichier:', error);
         }
 
         // Mettre à jour la progression finale
@@ -1215,11 +1216,11 @@ export class DownloadService {
         // Mettre à jour le statut dans la base de données
         await this.updateEpisodeDownloadStatus(episode.id, DownloadStatus.DOWNLOADED, filePath);
 
-        console.log(`[Download] ✅ Téléchargement optimisé finalisé: ${episode.title}`);
-        console.log(`[Download] 📁 Fichier: ${filePath}`);
-        console.log(`[Download] 📊 Statut: ${downloadItem.status}`);
+        logger.debug(`[Download] ✅ Téléchargement optimisé finalisé: ${episode.title}`);
+        logger.debug(`[Download] 📁 Fichier: ${filePath}`);
+        logger.debug(`[Download] 📊 Statut: ${downloadItem.status}`);
         if (downloadItem.fileSize) {
-          console.log(`[Download] 📊 Taille finale: ${this.formatFileSize(downloadItem.fileSize)}`);
+          logger.debug(`[Download] 📊 Taille finale: ${this.formatFileSize(downloadItem.fileSize)}`);
         }
 
         // Notification finale de progression
@@ -1227,11 +1228,11 @@ export class DownloadService {
           onProgress(downloadItem.progress);
         }
       } else {
-        console.error(`[Download] ❌ Impossible de finaliser: téléchargement ${downloadId} introuvable`);
+        logger.error(`[Download] ❌ Impossible de finaliser: téléchargement ${downloadId} introuvable`);
       }
 
     } catch (error: any) {
-      console.error(`[Download] ❌ Erreur téléchargement optimisé:`, error.message);
+      logger.error(`[Download] ❌ Erreur téléchargement optimisé:`, error.message);
 
       // Mettre à jour le statut d'erreur
       const failedDownloadItem = this.downloads.get(downloadId);
@@ -1267,7 +1268,7 @@ export class DownloadService {
       const info = await FileSystem.getFreeDiskStorageAsync();
       return info;
     } catch (error) {
-      console.warn('[Download] ⚠️ Impossible de vérifier espace disponible:', error);
+      logger.warn('[Download] ⚠️ Impossible de vérifier espace disponible:', error);
       return Infinity; // En cas d'erreur, on suppose qu'il y a assez d'espace
     }
   }

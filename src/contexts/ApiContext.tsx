@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState, ReactNode } from 'react';
+import apiService from '../services/apiService';
 
 interface ApiContextType {
   isApiAvailable: boolean;
@@ -7,6 +8,8 @@ interface ApiContextType {
   setApiError: (error: string | null) => void;
   isOfflineMode: boolean;
   setOfflineMode: (offline: boolean) => void;
+  /** Teste l'API et met l'état à jour ; les appels simultanés partagent la même requête. */
+  checkApi: () => Promise<boolean>;
 }
 
 const ApiContext = createContext<ApiContextType | undefined>(undefined);
@@ -27,8 +30,9 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
   const [isApiAvailable, setIsApiAvailable] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const checking = useRef<Promise<boolean> | null>(null);
 
-  const setApiAvailable = (available: boolean) => {
+  const setApiAvailable = useCallback((available: boolean) => {
     setIsApiAvailable(available);
     if (available) {
       setApiError(null);
@@ -36,27 +40,35 @@ export const ApiProvider: React.FC<ApiProviderProps> = ({ children }) => {
     } else {
       setIsOfflineMode(true);
     }
-  };
+  }, []);
 
-  const setOfflineMode = (offline: boolean) => {
+  const setOfflineMode = useCallback((offline: boolean) => {
     setIsOfflineMode(offline);
     if (offline) {
       setIsApiAvailable(false);
     }
-  };
+  }, []);
 
-  return (
-    <ApiContext.Provider
-      value={{
-        isApiAvailable,
-        setApiAvailable,
-        apiError,
-        setApiError,
-        isOfflineMode,
-        setOfflineMode,
-      }}
-    >
-      {children}
-    </ApiContext.Provider>
-  );
-}; 
+  const checkApi = useCallback(() => {
+    if (!checking.current) {
+      checking.current = apiService.testConnection().then(connected => {
+        setApiAvailable(connected);
+        setApiError(connected ? null : 'Connexion au catalogue indisponible');
+        return connected;
+      }).finally(() => { checking.current = null; });
+    }
+    return checking.current;
+  }, [setApiAvailable]);
+
+  const value = useMemo(() => ({
+    isApiAvailable,
+    setApiAvailable,
+    apiError,
+    setApiError,
+    isOfflineMode,
+    setOfflineMode,
+    checkApi,
+  }), [isApiAvailable, apiError, isOfflineMode, setApiAvailable, setOfflineMode, checkApi]);
+
+  return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;
+};

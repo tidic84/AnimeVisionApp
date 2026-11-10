@@ -1,6 +1,9 @@
 import * as SQLite from 'expo-sqlite';
 import { Anime, Episode, AnimeList, WatchHistory, UserAnimeStatus, WatchStatus, DownloadStatus } from '../types/anime';
 import { WATCHED_PROGRESS } from '../utils/watchProgress';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('Database');
 
 class DatabaseService {
   private db: SQLite.SQLiteDatabase | null = null;
@@ -563,25 +566,24 @@ class DatabaseService {
             'DELETE FROM animes WHERE CAST(id AS INTEGER) < 1000',
             [],
             (_: any, result: any) => {
-              console.log(`[Database] ${result.rowsAffected} animés avec IDs invalides supprimés`);
+              log.debug(`${result.rowsAffected} animés avec IDs invalides supprimés`);
               
               // Supprimer aussi les épisodes orphelins
               tx.executeSql(
                 'DELETE FROM episodes WHERE animeId NOT IN (SELECT id FROM animes)',
                 [],
                 (_: any, episodeResult: any) => {
-                  console.log(`[Database] ${episodeResult.rowsAffected} épisodes orphelins supprimés`);
+                  log.debug(`${episodeResult.rowsAffected} épisodes orphelins supprimés`);
                 }
               );
             }
           );
         },
         (error: any) => {
-          console.error('Erreur lors du nettoyage des données invalides:', error);
+          log.error('Erreur lors du nettoyage des données invalides:', error);
           reject(error);
         },
         () => {
-          console.log('Nettoyage des données invalides terminé');
           resolve();
         }
       );

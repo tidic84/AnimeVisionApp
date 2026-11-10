@@ -64,10 +64,12 @@ jobs:
         run: |
           apk="AnimeVision-$GITHUB_REF_NAME.apk"
           cp android/app/build/outputs/apk/release/app-release.apk "$apk"
+          # Empreinte vérifiée par l'app avant d'ouvrir l'installateur.
+          sha256sum "$apk" > "$apk.sha256"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$apk" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$apk" "$apk.sha256" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$apk" --title "AnimeVision $GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" "$apk" "$apk.sha256" --title "AnimeVision $GITHUB_REF_NAME" --generate-notes
           fi
         env:
           GH_TOKEN: ${{ github.token }}
