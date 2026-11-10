@@ -12,7 +12,7 @@ import hlsDownloader, { HlsDownloader, HlsProgress } from './hlsDownloader';
  * conversion). Les autres chemins désignent directement le fichier.
  */
 export function playableFile(filePath: string): string {
-  return filePath.replace(/.ts$/, '.m3u8');
+  return filePath.replace(/\.ts$/, '.m3u8');
 }
 
 export interface DownloadProgress {
