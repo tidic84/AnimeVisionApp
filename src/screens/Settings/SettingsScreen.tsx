@@ -91,7 +91,7 @@ const STORAGE_OPTIONS = [
   { value: 50, label: '50 GB' },
 ];
 
-const SettingsScreen: React.FC<SettingsScreenProps> = () => {
+const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const { isApiAvailable, checkApi } = useApi();
   const [checkingConnection, setCheckingConnection] = useState(false);
   const colorScheme = useColorScheme();
@@ -522,7 +522,12 @@ ${formatRecentErrors()}`;
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {renderHeader()}
-        {renderSection('Profil', renderSettingRow('person', 'Modifier le profil', undefined, undefined, editProfile))}
+        {renderSection('Profil', (
+          <>
+            {renderSettingRow('person', 'Modifier le profil', undefined, undefined, editProfile)}
+            {renderSettingRow('stats-chart', 'Mes statistiques', 'Temps regardé, épisodes vus et genres favoris', undefined, () => navigation.navigate('Stats'))}
+          </>
+        ))}
         {renderSection('Connexion', renderSettingRow('refresh', 'Connexion au catalogue', 'Vérifier la connexion et retrouver le catalogue', checkingConnection ? 'Vérification…' : isApiAvailable ? 'Connecté' : 'Hors ligne', retryConnection))}
         {/* Lecture */}
         {renderSection('Lecture', (

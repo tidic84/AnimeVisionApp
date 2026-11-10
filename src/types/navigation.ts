@@ -15,6 +15,7 @@ export type RootStackParamList = {
     startFullscreen?: boolean; // Ouvre directement en plein écran paysage (épisode suivant)
   };
   Search: { query?: string };
+  Stats: undefined;
 };
 
 export type MainTabParamList = {
