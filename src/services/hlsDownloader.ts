@@ -11,6 +11,8 @@ export interface HlsProgress {
   status: 'downloading' | 'completed' | 'error';
 }
 
+const safeName = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '_');
+
 interface HLSSegment {
   url: string;
   duration: number;
@@ -227,7 +229,9 @@ export class HlsDownloader {
 
     const downloadDir = `${FileSystem.documentDirectory}downloads`;
     const tempDir = `${FileSystem.documentDirectory}temp_${downloadId}`;
-    const finalPath = `${downloadDir}/${episode.title.replace(/[^a-zA-Z0-9]/g, '_')}.ts`;
+    // Le titre seul (« Episode 1 ») se répète d'un animé à l'autre : l'id le rend unique.
+    const baseName = `${safeName(episode.title)}_${safeName(episode.id)}`;
+    const finalPath = `${downloadDir}/${baseName}.ts`;
     
     // Créer les répertoires nécessaires
     await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
@@ -398,7 +402,7 @@ export class HlsDownloader {
       const playlistContent = await this.createLocalM3U8Playlist(inputFiles, outputFile);
       
       // Sauvegarder la playlist
-      const playlistPath = outputFile.replace('.ts', '.m3u8');
+      const playlistPath = outputFile.replace(/\.ts$/, '.m3u8');
       await FileSystem.writeAsStringAsync(playlistPath, playlistContent);
       
       logger.debug(`[DownloadOpt] ✅ Playlist M3U8 créée: ${playlistPath}`);
@@ -436,11 +440,12 @@ export class HlsDownloader {
       '#EXT-X-MEDIA-SEQUENCE:0'
     ];
 
-    // Ajouter chaque segment en utilisant un chemin relatif
-    for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      // Extraire juste le nom du fichier pour un chemin relatif
-      const segmentName = segment.substring(segment.lastIndexOf('/') + 1);
+    // Les segments sont copiés à côté de la playlist sous un nom propre à ce
+    // téléchargement : avec des noms communs, chaque nouvel épisode écrasait
+    // les segments des précédents.
+    const prefix = outputFile.substring(outputFile.lastIndexOf('/') + 1).replace(/\.ts$/, '');
+    const segmentNames = segments.map((_, i) => `${prefix}_${i}.ts`);
+    for (const segmentName of segmentNames) {
       playlist.push('#EXTINF:10.0,');
       playlist.push(segmentName);
     }
@@ -450,13 +455,9 @@ export class HlsDownloader {
 
     // Copier tous les segments dans le dossier de destination
     for (let i = 0; i < segments.length; i++) {
-      const segment = segments[i];
-      const segmentName = segment.substring(segment.lastIndexOf('/') + 1);
-      const destPath = `${outputDir}/${segmentName}`;
-      
       await FileSystem.copyAsync({
-        from: segment,
-        to: destPath
+        from: segments[i],
+        to: `${outputDir}/${segmentNames[i]}`
       });
     }
 
@@ -471,7 +472,7 @@ export class HlsDownloader {
     
     try {
       // Vérifier que la playlist M3U8 existe
-      const m3u8Path = outputFile.replace('.ts', '.m3u8');
+      const m3u8Path = outputFile.replace(/\.ts$/, '.m3u8');
       const m3u8Info = await FileSystem.getInfoAsync(m3u8Path);
       
       if (!m3u8Info.exists) {

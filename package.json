@@ -11,7 +11,7 @@
     "export:web": "expo export --platform web --output-dir dist-web",
     "export:android": "expo export --platform android --output-dir dist-android",
     "release": "node scripts/release.cjs",
-    "test": "node tests/test-download-management.cjs && node tests/test-download-flow.cjs && node tests/test-video-url-extractor.cjs && node tests/test-load-scheduler.cjs && node tests/test-logger.cjs && node tests/test-connectivity.cjs && node tests/test-apk-integrity.cjs"
+    "test": "node tests/test-download-management.cjs && node tests/test-download-flow.cjs && node tests/test-video-url-extractor.cjs && node tests/test-hls-downloader.cjs && node tests/test-load-scheduler.cjs && node tests/test-logger.cjs && node tests/test-connectivity.cjs && node tests/test-apk-integrity.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~58.0.17",
