@@ -90,13 +90,13 @@ export default function PlayerSettingsSheet(props: Props) {
 
   return <Modal visible={visible} transparent animationType={reduced ? 'none' : 'slide'} onRequestClose={back} supportedOrientations={['portrait', 'landscape']} statusBarTranslucent navigationBarTranslucent>
     <View style={[styles.backdrop, landscape && { alignItems: 'center' }]}>
-      <TouchableOpacity style={StyleSheet.absoluteFill} accessibilityLabel="Fermer les paramètres" onPress={onClose} />
-      <View style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom) }, landscape && { width: Math.min(560, width - insets.left - insets.right - 32) }]}>
+      <TouchableOpacity style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Fermer les paramètres" onPress={onClose} />
+      <View accessibilityViewIsModal style={[styles.sheet, { paddingBottom: Math.max(16, insets.bottom) }, landscape && { width: Math.min(560, width - insets.left - insets.right - 32) }]}>
         <View style={styles.handle} />
         <View style={styles.header}>
-          {page !== 'main' && <TouchableOpacity accessibilityLabel="Retour aux paramètres" onPress={() => setPage('main')} hitSlop={8} style={styles.headerButton}><Ionicons name="chevron-back" size={24} color="white" /></TouchableOpacity>}
-          <Text style={[styles.title, page === 'main' && { marginLeft: 0 }]}>{titles[page]}</Text>
-          <TouchableOpacity accessibilityLabel="Fermer" onPress={onClose} hitSlop={8} style={styles.headerButton}><Ionicons name="close" size={24} color="white" /></TouchableOpacity>
+          {page !== 'main' && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retour aux paramètres" onPress={() => setPage('main')} hitSlop={8} style={styles.headerButton}><Ionicons name="chevron-back" size={24} color="white" /></TouchableOpacity>}
+          <Text accessibilityRole="header" style={[styles.title, page === 'main' && { marginLeft: 0 }]}>{titles[page]}</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Fermer" onPress={onClose} hitSlop={8} style={styles.headerButton}><Ionicons name="close" size={24} color="white" /></TouchableOpacity>
         </View>
         <ScrollView style={{ maxHeight: height * (landscape ? 0.7 : 0.6) }}>{content}</ScrollView>
       </View>
