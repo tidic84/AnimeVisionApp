@@ -457,6 +457,37 @@ class DatabaseService {
     };
   }
 
+  // Statistiques personnelles
+  /** Tout l'historique, avec la durée et les genres encore en cache (absents après un nettoyage du cache). */
+  async getWatchStatsRows(): Promise<import('../utils/watchStats').WatchStatsRow[]> {
+    await this.initializeDatabase();
+    if (!this.db) throw new Error('Base de données non initialisée');
+
+    const results = await this.db.getAllAsync(
+      `SELECT wh.animeId, wh.episodeId, wh.progress, wh.rewatchProgress, wh.lastWatchedAt,
+              e.duration AS episodeDuration, a.duration AS animeDuration, a.genres
+       FROM watchHistory wh
+       LEFT JOIN episodes e ON e.id = wh.episodeId
+       LEFT JOIN animes a ON a.id = wh.animeId`
+    ) as any[];
+
+    return results.map(result => {
+      let genres: unknown = [];
+      try { genres = JSON.parse(result.genres || '[]'); } catch { /* fiche illisible : pas de genres */ }
+      return {
+        animeId: result.animeId,
+        episodeId: result.episodeId,
+        progress: result.progress,
+        rewatchProgress: result.rewatchProgress,
+        // CURRENT_TIMESTAMP de SQLite : « AAAA-MM-JJ HH:MM:SS » en UTC.
+        lastWatchedAt: new Date(String(result.lastWatchedAt).replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/, '$1T$2Z')),
+        episodeDuration: result.episodeDuration,
+        animeDuration: result.animeDuration,
+        genres: Array.isArray(genres) ? genres.map(String) : [],
+      };
+    });
+  }
+
   // Paramètres
   async getSetting(key: string): Promise<string | null> {
     await this.initializeDatabase();

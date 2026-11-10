@@ -37,3 +37,11 @@ export function episodeLabel(episode: Episode, { withAnime = true, progress }: {
     episodeState(episode, progress ?? episode.watchProgress ?? 0),
   ].filter(Boolean).join(', ');
 }
+
+/** Équivalent textuel de l'histogramme « épisodes par semaine », de la semaine la plus ancienne à la plus récente. */
+export function weeklyChartLabel(weeks: { start: Date; count: number }[], weekName: (start: Date) => string): string {
+  const total = weeks.reduce((sum, week) => sum + week.count, 0);
+  if (!total) return `Aucun épisode vu sur les ${weeks.length} dernières semaines`;
+  const detail = weeks.map(week => `${weekName(week.start)} : ${week.count} épisode${week.count > 1 ? 's' : ''}`);
+  return `Épisodes vus par semaine, ${total} sur ${weeks.length} semaines. ${detail.join(', ')}`;
+}

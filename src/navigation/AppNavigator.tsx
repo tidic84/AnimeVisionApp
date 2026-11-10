@@ -21,6 +21,7 @@ import PlanningScreen from '../screens/Planning/PlanningScreen';
 import SettingsScreen from '../screens/Settings/SettingsScreen';
 import AnimeDetailScreen from '../screens/AnimeDetail/AnimeDetailScreen';
 import VideoPlayerScreen from '../screens/VideoPlayer/VideoPlayerScreen';
+import StatsScreen from '../screens/Stats/StatsScreen';
 import ErrorBoundary from '../components/ErrorBoundary';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
@@ -276,6 +277,13 @@ export default function AppNavigator() {
           options={{
             headerShown: false,
             animation: reducedMotion ? 'none' : 'fade',
+          }}
+        />
+        <Stack.Screen
+          name="Stats"
+          component={StatsScreen}
+          options={{
+            headerShown: false,
           }}
         />
       </Stack.Navigator>
