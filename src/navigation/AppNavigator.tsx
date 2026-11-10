@@ -12,7 +12,6 @@ import { View, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RootStackParamList, MainTabParamList, RootStackScreenProps } from '../types/navigation';
-import { useApi } from '../contexts/ApiContext';
 
 // Importation des écrans
 import HomeScreen from '../screens/Home/HomeScreen';
@@ -73,7 +72,6 @@ function MainTabNavigator() {
   const reducedMotion = useReducedMotion();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { isApiAvailable, isOfflineMode } = useApi();
   const insets = useSafeAreaInsets();
 
   // Déterminer la route initiale en fonction de la disponibilité de l'API

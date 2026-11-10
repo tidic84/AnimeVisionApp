@@ -92,7 +92,7 @@ const STORAGE_OPTIONS = [
 ];
 
 const SettingsScreen: React.FC<SettingsScreenProps> = () => {
-  const { isApiAvailable, setApiAvailable, setApiError } = useApi();
+  const { isApiAvailable, checkApi } = useApi();
   const [checkingConnection, setCheckingConnection] = useState(false);
   const colorScheme = useColorScheme();
   const { setScheme } = useTheme();
@@ -217,9 +217,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = () => {
     if (checkingConnection) return;
     setCheckingConnection(true);
     try {
-      const connected = await apiService.testConnection();
-      setApiAvailable(connected);
-      setApiError(connected ? null : 'Connexion au catalogue indisponible');
+      await checkApi();
     } finally { setCheckingConnection(false); }
   };
 
