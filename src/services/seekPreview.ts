@@ -29,7 +29,7 @@ export function loadStoryboard(url: string, headers: Record<string, string> = {}
   cache[url] ??= (async () => {
     const response = await fetch(url, { headers: { 'User-Agent': STREAM_USER_AGENT, ...headers } });
     const text = await response.text();
-    if (!response.ok || !text.startsWith('WEBVTT')) return null;
+    if (!response.ok || !text.replace(/^\uFEFF/, '').startsWith('WEBVTT')) return null;
     const cues = parseStoryboard(text, response.url || url);
     if (!cues.length) return null;
     const sizes: Storyboard['sizes'] = {};
