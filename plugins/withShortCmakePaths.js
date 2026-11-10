@@ -3,7 +3,7 @@
 // au-delà de CMAKE_OBJECT_PATH_MAX : on l'abaisse pour le module app.
 const { withAppBuildGradle } = require('expo/config-plugins');
 
-const LINE = 'externalNativeBuild { cmake { arguments "-DCMAKE_OBJECT_PATH_MAX=128" } }';
+const LINE = 'externalNativeBuild { cmake { arguments "-DCMAKE_OBJECT_PATH_MAX=240" } }';
 
 module.exports = config => withAppBuildGradle(config, gradle => {
   if (!gradle.modResults.contents.includes('CMAKE_OBJECT_PATH_MAX')) {
