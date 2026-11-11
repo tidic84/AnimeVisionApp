@@ -22,6 +22,8 @@ export interface Anime {
   anidb_id?: string;
   date_ajout?: string;
   date_update?: string;
+  /** Badge du carrousel d'accueil (« Saison 2 en cours »), repris d'anime-sama. */
+  featuredLabel?: string;
 }
 
 export interface Season {

@@ -87,8 +87,9 @@ function HomeContent() {
     try {
       // Lancé en parallèle de l'accueil (lecture SQLite locale) pour ne pas le retarder.
       const genreShelves = getGenreShelves();
-      const home = await apiService.getMobileHome();
-      setFeatured(home.popular_animes.slice(0, 5));
+      // Carrousel : sélection d'anime-sama ; à défaut, les mieux notés.
+      const [home, picks] = await Promise.all([apiService.getMobileHome(), apiService.getFeaturedAnimes(8).catch(() => [] as Anime[])]);
+      setFeatured(picks.length ? picks : home.popular_animes.slice(0, 5));
       setLatest(home.latest_episodes);
       const genres = await genreShelves;
       const requests = await Promise.allSettled([

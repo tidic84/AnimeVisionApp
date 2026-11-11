@@ -87,6 +87,7 @@ class ApiService {
       anidb_id: apiAnime.anidb_id,
       date_ajout: apiAnime.date_ajout,
       date_update: apiAnime.date_update,
+      featuredLabel: apiAnime.featured_label || undefined,
     };
   }
 
@@ -198,6 +199,12 @@ class ApiService {
 
   async getPopularAnimes(limit: number = 20, page: number = 1): Promise<Anime[]> {
     const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/anime/popular?limit=${limit}&page=${page}`);
+    return response.data.map(anime => this.mapApiAnimeToAnime(anime));
+  }
+
+  /** Sélection du carrousel d'accueil : séries en cours mises en avant par anime-sama. */
+  async getFeaturedAnimes(limit: number = 10): Promise<Anime[]> {
+    const response = await this.fetchWithErrorHandling<ApiResponse<any[]>>(`/api/anime/featured?limit=${limit}`);
     return response.data.map(anime => this.mapApiAnimeToAnime(anime));
   }
 

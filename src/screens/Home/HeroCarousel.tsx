@@ -109,6 +109,7 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
       <Animated.Image source={{ uri: anime.banner || anime.thumbnail }} resizeMode="cover" fadeDuration={0} style={[StyleSheet.absoluteFill, imageStyle]} />
       <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,.18)', palette.dark.background]} locations={[0, .35, .79]} style={styles.gradient}>
         <Animated.View style={[styles.content, contentStyle]}>
+          {anime.featuredLabel && <View style={[styles.badge, { backgroundColor: colors.buttonBg }]}><Ionicons name="play-circle" size={14} color={colors.buttonText} /><Text style={[styles.badgeText, { color: colors.buttonText }]}>{anime.featuredLabel}</Text></View>}
           <Text style={styles.title} numberOfLines={2}>{anime.title}</Text>
           <Text style={styles.metadata}>{[anime.year > 1900 ? String(anime.year) : '', ...anime.genres.slice(0, 3)].filter(Boolean).join(' · ')}</Text>
           <Text style={styles.description} numberOfLines={3}>{anime.synopsis.replace(/<[^>]*>/g, '').trim()}</Text>
@@ -155,6 +156,8 @@ const styles = StyleSheet.create({
   gradient: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 46 },
   content: { gap: 12, maxWidth: 700 },
   title: { color: '#FFF', fontSize: 32, fontWeight: '800', lineHeight: 37, textShadowColor: '#000', textShadowRadius: 6 },
+  badge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, paddingHorizontal: 10, height: 26, borderRadius: radii.pill },
+  badgeText: { fontSize: 12, fontWeight: '700' },
   metadata: { color: '#AAA', fontSize: 12 },
   description: { color: '#DDD', fontSize: 14, lineHeight: 21 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
