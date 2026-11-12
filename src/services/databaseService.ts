@@ -2,6 +2,11 @@ import * as SQLite from 'expo-sqlite';
 import { Anime, Episode, AnimeList, WatchHistory, UserAnimeStatus, WatchStatus, DownloadStatus } from '../types/anime';
 import { WATCHED_PROGRESS } from '../utils/watchProgress';
 import { createLogger } from '../utils/logger';
+import type { Comic } from './comics/types';
+
+/** Position de lecture d'un manga/manhwa : une ligne par titre, source et langue (le dernier chapitre ouvert
+ * dans cette traduction). `offset` : part déjà défilée de la page (0..1) en lecture verticale. */
+export interface ComicProgress { comicId: string; provider: string; chapterId: string; chapterNumber: string; language: string; page: number; pageCount: number; offset: number; comic: Comic; updatedAt: string }
 
 const log = createLogger('Database');
 
@@ -110,6 +115,39 @@ class DatabaseService {
         FOREIGN KEY (animeId) REFERENCES animes (id)
       )`,
 
+      // Scans (mangas, manhwas, fichiers importés) : favoris, chapitres lus et position de lecture.
+      // Le titre résumé est gardé en JSON pour l'affichage hors ligne.
+      `CREATE TABLE IF NOT EXISTS comicFavorites (
+        comicId TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        data TEXT NOT NULL,
+        addedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS comicReadChapters (
+        chapterId TEXT PRIMARY KEY,
+        comicId TEXT NOT NULL,
+        readAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      // Une position par traduction : passer du français à l'anglais ne remplace pas la progression française.
+      `CREATE TABLE IF NOT EXISTS comicPositions (
+        comicId TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        language TEXT NOT NULL DEFAULT '',
+        chapterId TEXT NOT NULL,
+        chapterNumber TEXT,
+        page INTEGER DEFAULT 0,
+        pageCount INTEGER DEFAULT 0,
+        offset REAL DEFAULT 0,
+        data TEXT NOT NULL,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (comicId, provider, language)
+      )`,
+      // Titres retirés de « En cours » : la progression est gardée, seule l'étagère les masque.
+      `CREATE TABLE IF NOT EXISTS comicHidden (
+        comicId TEXT PRIMARY KEY,
+        hiddenAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+
       // Table des paramètres
       `CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -124,6 +162,12 @@ class DatabaseService {
     // Revisionnage d'un épisode déjà vu : position à part, `progress` garde l'état « vu ».
     const columns = await this.db.getAllAsync('PRAGMA table_info(watchHistory)') as { name: string }[];
     if (!columns.some(column => column.name === 'rewatchProgress')) await this.db.execAsync('ALTER TABLE watchHistory ADD COLUMN rewatchProgress REAL');
+    // Ancienne table (une position par titre) : recopiée puis supprimée.
+    if (await this.db.getFirstAsync("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'comicProgress'")) {
+      await this.db.execAsync(`INSERT OR IGNORE INTO comicPositions (comicId, provider, language, chapterId, chapterNumber, page, pageCount, offset, data, updatedAt)
+        SELECT comicId, provider, CASE WHEN provider = 'local' THEN '' ELSE COALESCE(language, '') END, chapterId, chapterNumber, page, pageCount, offset, data, updatedAt FROM comicProgress;
+        DROP TABLE comicProgress;`);
+    }
   }
 
   private async createDefaultList(): Promise<void> {
@@ -544,6 +588,88 @@ class DatabaseService {
       'INSERT OR REPLACE INTO settings (key, value, updatedAt) VALUES (?, ?, CURRENT_TIMESTAMP)',
       [key, value]
     );
+  }
+
+  // Scans
+  private async ready(): Promise<SQLite.SQLiteDatabase> {
+    await this.initializeDatabase();
+    if (!this.db) throw new Error('Base de données non initialisée');
+    return this.db;
+  }
+
+  async getComicFavorites(): Promise<Comic[]> {
+    const rows = await (await this.ready()).getAllAsync<{ data: string }>('SELECT data FROM comicFavorites ORDER BY addedAt DESC');
+    return rows.map(row => JSON.parse(row.data));
+  }
+
+  async isComicFavorite(comicId: string): Promise<boolean> {
+    return !!(await (await this.ready()).getFirstAsync('SELECT 1 FROM comicFavorites WHERE comicId = ?', [comicId]));
+  }
+
+  async setComicFavorite(comic: Comic, favorite: boolean): Promise<void> {
+    const db = await this.ready();
+    if (favorite) await db.runAsync('INSERT OR REPLACE INTO comicFavorites (comicId, provider, data, addedAt) VALUES (?, ?, ?, CURRENT_TIMESTAMP)', [comic.id, comic.provider, JSON.stringify(comic)]);
+    else await db.runAsync('DELETE FROM comicFavorites WHERE comicId = ?', [comic.id]);
+  }
+
+  async getReadComicChapters(comicId: string): Promise<Set<string>> {
+    const rows = await (await this.ready()).getAllAsync<{ chapterId: string }>('SELECT chapterId FROM comicReadChapters WHERE comicId = ?', [comicId]);
+    return new Set(rows.map(row => row.chapterId));
+  }
+
+  async markComicChapterRead(comicId: string, chapterId: string): Promise<void> {
+    await (await this.ready()).runAsync('INSERT OR IGNORE INTO comicReadChapters (chapterId, comicId) VALUES (?, ?)', [chapterId, comicId]);
+  }
+
+  /** Enregistre la position ; relire un titre le remet dans « En cours ». */
+  async saveComicProgress(progress: Omit<ComicProgress, 'updatedAt'>): Promise<void> {
+    const db = await this.ready();
+    await db.runAsync(
+      'INSERT OR REPLACE INTO comicPositions (comicId, provider, language, chapterId, chapterNumber, page, pageCount, offset, data, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+      // Un fichier importé n'a pas de traduction : une seule position.
+      [progress.comicId, progress.provider, progress.provider === 'local' ? '' : progress.language || '', progress.chapterId, progress.chapterNumber, progress.page, progress.pageCount, progress.offset, JSON.stringify(progress.comic)]
+    );
+    await db.runAsync('DELETE FROM comicHidden WHERE comicId = ?', [progress.comicId]);
+  }
+
+  /** Positions d'un titre, une par source et langue, la plus récente d'abord. */
+  async getComicProgress(comicId: string): Promise<ComicProgress[]> {
+    const rows = await (await this.ready()).getAllAsync<any>('SELECT * FROM comicPositions WHERE comicId = ? ORDER BY updatedAt DESC', [comicId]);
+    return rows.map(({ data, ...row }) => ({ ...row, comic: JSON.parse(data) }));
+  }
+
+  /** « En cours » : la dernière position de chaque titre non retiré, la plus récente d'abord. */
+  async getComicHistory(): Promise<ComicProgress[]> {
+    // SQLite : avec MAX(), les autres colonnes viennent de la ligne la plus récente du groupe.
+    const rows = await (await this.ready()).getAllAsync<any>(
+      'SELECT *, MAX(updatedAt) AS latest FROM comicPositions WHERE comicId NOT IN (SELECT comicId FROM comicHidden) GROUP BY comicId ORDER BY latest DESC LIMIT 30'
+    );
+    return rows.map(({ data, latest, ...row }) => ({ ...row, comic: JSON.parse(data) }));
+  }
+
+  async isComicHidden(comicId: string): Promise<boolean> {
+    return !!(await (await this.ready()).getFirstAsync('SELECT 1 FROM comicHidden WHERE comicId = ?', [comicId]));
+  }
+
+  /** Retire (ou remet, pour « Annuler ») des titres de « En cours » sans toucher favoris ni progression. */
+  async setComicsHidden(comicIds: string[], hidden: boolean): Promise<void> {
+    const db = await this.ready();
+    for (const comicId of comicIds) {
+      if (hidden) await db.runAsync('INSERT OR REPLACE INTO comicHidden (comicId, hiddenAt) VALUES (?, CURRENT_TIMESTAMP)', [comicId]);
+      else await db.runAsync('DELETE FROM comicHidden WHERE comicId = ?', [comicId]);
+    }
+  }
+
+  /** Efface positions (toutes langues) et chapitres lus d'un titre ; les favoris restent. */
+  async resetComicProgress(comicId: string): Promise<void> {
+    const db = await this.ready();
+    for (const table of ['comicPositions', 'comicReadChapters', 'comicHidden']) await db.runAsync(`DELETE FROM ${table} WHERE comicId = ?`, [comicId]);
+  }
+
+  /** Oublie un titre (fichier importé supprimé). */
+  async forgetComic(comicId: string): Promise<void> {
+    const db = await this.ready();
+    for (const table of ['comicFavorites', 'comicReadChapters', 'comicPositions', 'comicHidden']) await db.runAsync(`DELETE FROM ${table} WHERE comicId = ?`, [comicId]);
   }
 
   // Nettoyage
