@@ -22,6 +22,8 @@ import { clearRecommendationsCache, getRecommendationShelf, RecommendationShelf 
 import { getGenreShelves } from '../../services/homeShelves';
 import { Anime, Episode, ScraperStatus } from '../../types/anime';
 import { elapsedSince } from '../../utils/relativeTime';
+import SectionHeader from '../../components/SectionHeader';
+import { gutterFor } from '../../theme/tokens';
 
 type Shelf = { title: string; subtitle?: string; items: Anime[] };
 export default function HomeScreen() {
@@ -97,7 +99,7 @@ function HomeContent() {
         apiService.getLatestAnimes(12),
         ...genres.map(genre => apiService.getAnimesByGenre(genre.genre, 12)),
       ]);
-      const names = ['Tendances du moment', 'À découvrir', ...genres.map(genre => genre.title)];
+      const names = ['Tendances', 'À découvrir', ...genres.map(genre => genre.title)];
       setShelves(requests.flatMap((result, index) => result.status === 'fulfilled' && result.value.length ? [{ title: names[index], items: result.value }] : []));
       await loadPersonal();
     } catch (e) { setError('Impossible de charger l’accueil. Vérifiez votre connexion, puis réessayez.'); }
@@ -107,17 +109,17 @@ function HomeContent() {
 
   const shelf = (title: string, items: Anime[], subtitle?: string) => items.length > 0 && (
     <FadeIn key={title} style={styles.section}>
-      <View style={styles.sectionHeading}><Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text></View>
-      {subtitle && <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>}
-      <FlatList horizontal data={items} keyExtractor={a => a.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} renderItem={({ item }) => <AnimeCard anime={item} size="medium" onPress={openAnime} />} />
+      <SectionHeader title={title} subtitle={subtitle} gutter={gutter} />
+      <FlatList horizontal data={items} keyExtractor={a => a.id} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: gutter, paddingVertical: 6 }} renderItem={({ item }) => <AnimeCard anime={item} size="medium" onPress={openAnime} />} />
     </FadeIn>
   );
   const episodes = (title: string, items: Episode[]) => items.length > 0 && (
     <FadeIn style={styles.section}>
-      <View style={styles.sectionHeading}><Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text></View>
-      <FlatList horizontal data={items.slice(0, 12)} keyExtractor={e => e.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} renderItem={({ item }) => <EpisodeCard episode={item} onPress={openEpisode} />} />
+      <SectionHeader title={title} gutter={gutter} />
+      <FlatList horizontal data={items.slice(0, 12)} keyExtractor={e => e.id} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: gutter, paddingVertical: 6 }} renderItem={({ item }) => <EpisodeCard episode={item} onPress={openEpisode} />} />
     </FadeIn>
   );
+  const gutter = gutterFor(width);
   const heroHeight = Math.min(660, Math.max(470, height * .69));
   const barHeight = insets.top + 56;
   // The top bar is only a scrim over the hero; it turns opaque once the hero scrolls away.
@@ -141,12 +143,12 @@ function HomeContent() {
       {error ? <View style={styles.error}><Text style={{ color: colors.textSecondary, textAlign: 'center' }}>{error}</Text><MotionPressable onPress={() => load()} style={[styles.retry, { borderColor: colors.primary }]}><Text style={{ color: colors.primary }}>Réessayer</Text></MotionPressable></View> : null}
       <LoadingSwap loading={loading && !featured.length} skeleton={<SkeletonGroup><View style={{ height: heroHeight + 32, paddingHorizontal: 18 }}><SkeletonBlock height={heroHeight * .6} style={{ marginHorizontal: -18 }} /><View style={{ paddingTop: 22, gap: 12 }}><SkeletonBlock width="75%" height={37} /><SkeletonBlock width="55%" height={14} /><SkeletonBlock height={20} /><SkeletonBlock width="85%" height={20} /><SkeletonBlock width={220} height={46} /></View></View></SkeletonGroup>}>
       {featured.length > 0 && <View style={styles.hero}>
-        <HeroCarousel items={featured} width={width} height={heroHeight} colors={colors} isInWatchlist={isSaved} watchlistEnabled={!!watchlistId} onOpen={openAnime} onToggleWatchlist={toggleWatchlist} />
+        <HeroCarousel items={featured} width={width} height={heroHeight} gutter={gutter} colors={colors} resumeFor={anime => resume.find(episode => episode.animeId === anime.id)} onResume={openEpisode} isInWatchlist={isSaved} watchlistEnabled={!!watchlistId} onOpen={openAnime} onToggleWatchlist={toggleWatchlist} />
       </View>}
       </LoadingSwap>
-      {episodes('Reprendre', resume)}
+      {episodes('Continuer', resume)}
       {shelves[0] && shelf(shelves[0].title, shelves[0].items)}
-      {scraper?.stale && scraper.latest && <View style={[styles.staleBanner, { borderColor: colors.warning }]}>
+      {scraper?.stale && scraper.latest && <View style={[styles.staleBanner, { borderColor: colors.warning, marginHorizontal: gutter }]}>
         <Ionicons name="time-outline" size={18} color={colors.warning} />
         <Text style={[styles.staleText, { color: colors.textSecondary }]}>
           {scraper.latest.last_success_at
@@ -154,11 +156,11 @@ function HomeContent() {
             : 'Les nouveaux épisodes ne sont plus mis à jour pour le moment.'}
         </Text>
       </View>}
-      {episodes('Nouveaux épisodes', latest)}
+      {episodes('Nouveautés', latest)}
       {shelf('Votre Watchlist', watchlist)}
       {recommended && shelf(recommended.title, recommended.items)}
       {shelves.slice(1).map(s => shelf(s.title, s.items, s.subtitle))}
-      <MotionPressable accessibilityLabel="Explorer tous les animés" onPress={() => navigation.navigate('Catalog')} style={[styles.browse, { borderColor: colors.primary }]}><Text style={{ color: colors.primary, fontWeight: '700' }}>EXPLORER TOUS LES ANIME</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} /></MotionPressable>
+      <MotionPressable accessibilityLabel="Explorer tous les animés" onPress={() => navigation.navigate('Catalog')} style={[styles.browse, { borderColor: colors.primary, marginHorizontal: gutter }]}><Text style={{ color: colors.primary, fontWeight: '700' }}>Explorer tous les animés</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} /></MotionPressable>
     </Animated.ScrollView>
     <View pointerEvents="box-none" style={[styles.topBar, { height: barHeight + 40 }]}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: barFade }]}><LinearGradient colors={['rgba(0,0,0,.6)', 'rgba(0,0,0,0)']} style={StyleSheet.absoluteFill} /></Animated.View>
@@ -179,15 +181,11 @@ const styles = StyleSheet.create({
   topBarRow: { paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   search: { borderRadius: radii.pill, padding: 8 },
   searchSolid: { position: 'absolute', top: 8, left: 8 },
-  hero: { marginBottom: 28 },
-  section: { marginBottom: 30 },
-  sectionHeading: { paddingHorizontal: 18, marginBottom: 14 },
-  sectionTitle: { fontSize: 21, fontWeight: '700' },
-  sectionSubtitle: { paddingHorizontal: 18, marginBottom: 14, fontSize: 14 },
-  row: { paddingHorizontal: 18 },
-  staleBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 18, marginBottom: 16, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radii.card, borderWidth: 1 },
+  hero: { marginBottom: 32 },
+  section: { marginBottom: 36 },
+  staleBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radii.card, borderWidth: 1 },
   staleText: { flex: 1, fontSize: 13 },
   error: { padding: 28, alignItems: 'center', gap: 16 },
   retry: { borderRadius: radii.pill, borderWidth: 1, padding: 12 },
-  browse: { borderRadius: radii.pill, borderWidth: 1, padding: 18, marginHorizontal: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12 },
+  browse: { borderRadius: radii.pill, borderWidth: 1, padding: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12 },
 });

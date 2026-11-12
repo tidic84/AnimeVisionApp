@@ -75,3 +75,6 @@ dev-debug.log
 .windsurf/
 .trae/
 .clinerules/
+
+# Windows (Electron)
+dist-desktop/

@@ -7,7 +7,8 @@ import { radii } from '../../theme/shape';
 import { palette } from '../../theme/palette';
 import useReducedMotion from '../../hooks/useReducedMotion';
 import { MotionPressable } from '../../components/Motion';
-import { Anime } from '../../types/anime';
+import { Anime, Episode } from '../../types/anime';
+import { layout, typography } from '../../theme/tokens';
 
 const nativeDriver = Platform.OS !== 'web';
 /** Time each slide stays on screen before the carousel advances. */
@@ -23,11 +24,15 @@ type Props = {
   items: Anime[];
   width: number;
   height: number;
+  gutter: number;
   colors: typeof palette.dark;
   isInWatchlist: (anime: Anime) => boolean;
   watchlistEnabled: boolean;
   onOpen: (id: string) => void;
   onToggleWatchlist: (anime: Anime) => void;
+  /** Épisode en cours pour cette œuvre : l'action principale devient « Reprendre ». */
+  resumeFor?: (anime: Anime) => Episode | undefined;
+  onResume?: (episode: Episode) => void;
 };
 
 /**
@@ -35,7 +40,8 @@ type Props = {
  * parallax + zoom-out on the artwork and a cross-fade of the text block.
  * Auto-advance pauses while touched, when the screen loses focus and when reduced motion is on.
  */
-export default function HeroCarousel({ items, width, height, colors, isInWatchlist, watchlistEnabled, onOpen, onToggleWatchlist }: Props) {
+export default function HeroCarousel({ items, width, height, gutter, colors, isInWatchlist, watchlistEnabled, onOpen, onToggleWatchlist, resumeFor, onResume }: Props) {
+  const wide = width >= layout.wide;
   const reduced = useReducedMotion();
   const focused = useIsFocused();
   const list = useRef<FlatList<Anime>>(null);
@@ -105,17 +111,23 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
       transform: [{ translateX: scrollX.interpolate({ inputRange: range, outputRange: [width * .25, 0, -width * .25], extrapolate: 'clamp' }) }],
     };
     const saved = isInWatchlist(anime);
+    const episode = resumeFor?.(anime);
     return <View style={{ width, height, overflow: 'hidden' }}>
       <Animated.Image source={{ uri: anime.banner || anime.thumbnail }} resizeMode="cover" fadeDuration={0} style={[StyleSheet.absoluteFill, imageStyle]} />
-      <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,.18)', palette.dark.background]} locations={[0, .35, .79]} style={styles.gradient}>
+      {/* Grand écran : voile latéral pour que le texte reste lisible sur l'illustration. */}
+      {wide && <LinearGradient pointerEvents="none" start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} colors={['rgba(8,8,12,.85)', 'rgba(8,8,12,.35)', 'rgba(8,8,12,0)']} locations={[0, .45, .75]} style={StyleSheet.absoluteFill} />}
+      <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,.18)', palette.dark.background]} locations={[0, .35, .79]} style={[styles.gradient, { paddingHorizontal: gutter, paddingBottom: wide ? 64 : 46 }]}>
         <Animated.View style={[styles.content, contentStyle]}>
           {anime.featuredLabel && <View style={[styles.badge, { backgroundColor: colors.buttonBg }]}><Ionicons name="play-circle" size={14} color={colors.buttonText} /><Text style={[styles.badgeText, { color: colors.buttonText }]}>{anime.featuredLabel}</Text></View>}
-          <Text style={styles.title} numberOfLines={2}>{anime.title}</Text>
+          <Text accessibilityRole="header" style={[styles.title, wide && { fontSize: 44, lineHeight: 50 }]} numberOfLines={2}>{anime.title}</Text>
           <Text style={styles.metadata}>{[anime.year > 1900 ? String(anime.year) : '', ...anime.genres.slice(0, 3)].filter(Boolean).join(' · ')}</Text>
-          <Text style={styles.description} numberOfLines={3}>{anime.synopsis.replace(/<[^>]*>/g, '').trim()}</Text>
+          <Text style={[styles.description, wide && { maxWidth: 560 }]} numberOfLines={3}>{anime.synopsis.replace(/<[^>]*>/g, '').trim()}</Text>
           <View style={styles.actions}>
-            <MotionPressable onPress={() => onOpen(anime.id)} accessibilityLabel={`Découvrir ${anime.title}`} style={[styles.button, { backgroundColor: colors.buttonBg }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={[styles.buttonText, { color: colors.buttonText }]}>Découvrir l’anime</Text></MotionPressable>
-            <MotionPressable disabled={!watchlistEnabled} onPress={() => onToggleWatchlist(anime)} accessibilityState={{ selected: saved, disabled: !watchlistEnabled }} accessibilityLabel={`${saved ? 'Retirer' : 'Ajouter'} ${anime.title} ${saved ? 'de' : 'à'} la Watchlist`} style={[styles.watchlist, { borderColor: colors.primary }]}><Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={24} color={colors.primary} /></MotionPressable>
+            {episode && onResume
+              ? <MotionPressable onPress={() => onResume(episode)} accessibilityLabel={`Reprendre ${anime.title}`} style={[styles.button, { backgroundColor: colors.buttonBg }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={[styles.buttonText, { color: colors.buttonText }]}>Reprendre</Text></MotionPressable>
+              : <MotionPressable onPress={() => onOpen(anime.id)} accessibilityLabel={`Découvrir ${anime.title}`} style={[styles.button, { backgroundColor: colors.buttonBg }]}><Ionicons name="play" size={20} color={colors.buttonText} /><Text style={[styles.buttonText, { color: colors.buttonText }]}>Découvrir</Text></MotionPressable>}
+            {episode && onResume && <MotionPressable onPress={() => onOpen(anime.id)} accessibilityLabel={`Voir la fiche de ${anime.title}`} style={styles.glass}><Ionicons name="information-circle-outline" size={20} color="#FFF" /><Text style={styles.glassText}>Fiche</Text></MotionPressable>}
+            <MotionPressable disabled={!watchlistEnabled} onPress={() => onToggleWatchlist(anime)} accessibilityState={{ selected: saved, disabled: !watchlistEnabled }} accessibilityLabel={`${saved ? 'Retirer' : 'Ajouter'} ${anime.title} ${saved ? 'de' : 'à'} la Watchlist`} style={styles.glass}><Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={20} color="#FFF" />{wide && <Text style={styles.glassText}>{saved ? 'Dans ma liste' : 'Ma liste'}</Text>}</MotionPressable>
           </View>
         </Animated.View>
       </LinearGradient>
@@ -141,7 +153,7 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
       onMomentumScrollEnd={onMomentumEnd}
       renderItem={renderItem}
     />
-    {count > 1 && <View style={styles.indicators}>
+    {count > 1 && <View style={[styles.indicators, { left: gutter }]}>
       {items.map((anime, index) => {
         const active = index === slide;
         return <Pressable key={anime.id} hitSlop={{ top: 20, bottom: 20, left: 3, right: 3 }} onPress={() => goTo(index)} accessibilityRole="button" accessibilityState={{ selected: active }} accessibilityLabel={`Afficher ${anime.title}, ${index + 1} sur ${count}`} style={styles.track}>
@@ -153,17 +165,19 @@ export default function HeroCarousel({ items, width, height, colors, isInWatchli
 }
 
 const styles = StyleSheet.create({
-  gradient: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 46 },
+  gradient: { flex: 1, justifyContent: 'flex-end' },
   content: { gap: 12, maxWidth: 700 },
-  title: { color: '#FFF', fontSize: 32, fontWeight: '800', lineHeight: 37, textShadowColor: '#000', textShadowRadius: 6 },
+  title: { ...typography.hero, color: '#FFF', textShadowColor: 'rgba(0,0,0,.6)', textShadowRadius: 8 },
   badge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, paddingHorizontal: 10, height: 26, borderRadius: radii.pill },
   badgeText: { fontSize: 12, fontWeight: '700' },
-  metadata: { color: '#AAA', fontSize: 12 },
-  description: { color: '#DDD', fontSize: 14, lineHeight: 21 },
+  metadata: { color: '#C9CAD6', fontSize: 13, fontWeight: '600', letterSpacing: 0.3 },
+  description: { color: '#E2E2EA', fontSize: 15, lineHeight: 22 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   button: { flexDirection: 'row', gap: 9, alignItems: 'center', paddingHorizontal: 17, height: 46, borderRadius: radii.pill },
   buttonText: { fontSize: 14, fontWeight: '700' },
-  watchlist: { height: 46, width: 46, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: radii.pill },
+  // Bouton secondaire « verre » : lisible sur toute illustration.
+  glass: { flexDirection: 'row', gap: 8, height: 46, minWidth: 46, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', borderRadius: radii.pill, backgroundColor: 'rgba(255,255,255,.14)', borderWidth: 1, borderColor: 'rgba(255,255,255,.22)' },
+  glassText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
   indicators: { position: 'absolute', left: 18, bottom: 18, flexDirection: 'row', gap: 6 },
   track: { width: 28, height: 4, borderRadius: 2, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,.32)' },
   fill: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, transformOrigin: 'left' },
