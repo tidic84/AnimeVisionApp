@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getScanMangaAddress, saveScanMangaAddress, getScanMangaStatus, getScanMangaUpdates, ScanMangaStatus, ScanMangaUpdate } from '../../services/comics/scanmanga';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, LayoutChangeEvent, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, FlatList, LayoutChangeEvent, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +12,7 @@ import { palette } from '../../theme/palette';
 import { radii } from '../../theme/shape';
 import { MotionPressable } from '../../components/Motion';
 import SectionHeader from '../../components/SectionHeader';
+import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/SkeletonCard';
 import { gutterFor, typography } from '../../theme/tokens';
 import AuthImage from '../../components/AuthImage';
 import CustomModal from '../../components/CustomModal';
@@ -320,7 +321,7 @@ export default function ComicCatalogScreen({ navigation, route }: MainTabScreenP
     <FlatList key={columns} data={groups} numColumns={columns} keyExtractor={group => `${group.comic.provider}-${group.comic.id}`} columnWrapperStyle={{ gap: 14, paddingHorizontal: gutter }} contentContainerStyle={{ paddingBottom: 24 }} style={{ flex: 1 }}
       ListHeaderComponent={header}
       renderItem={({ item: { comic: item, also } }) => <MotionPressable hoverScale={1.03} accessibilityLabel={`Ouvrir ${item.title}`} onPress={() => open(item)} style={{ width: cardWidth, marginBottom: 24 }}>{cover(item.coverThumb || also.find(other => other.coverThumb)?.coverThumb, cardWidth)}<Text numberOfLines={2} style={[styles.cardTitle, { color: colors.text }]}>{item.title}</Text><Text numberOfLines={1} style={[styles.meta, { color: colors.textSecondary }]}>{local ? item.synopsis : [STATUS_LABELS[item.status], ...item.genres.slice(0, 2)].join(' · ')}</Text>{(also.length > 0 || item.provider !== onlineProvider.id) && !local && <Text numberOfLines={1} style={[styles.meta, { color: colors.primary }]}>{[item, ...also].map(sourceName).join(' + ')}</Text>}</MotionPressable>}
-      ListEmptyComponent={loading ? <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} /> : error ? undefined : <View style={styles.empty}><Ionicons name={local ? 'folder-open-outline' : 'book-outline'} size={42} color={colors.textSecondary} /><Text style={{ color: colors.text, fontSize: 18, marginTop: 14 }}>{local ? (server ? 'Aucune série sur ce serveur' : 'Aucun fichier importé') : 'Aucun titre trouvé'}</Text><Text style={{ color: colors.textSecondary, marginTop: 8, textAlign: 'center' }}>{local ? (server ? 'Vérifiez l’adresse du catalogue OPDS ou la recherche.' : 'Importez un CBZ, un ZIP d’images ou un PDF, ou ajoutez votre serveur OPDS (Komga, Kavita…).') : 'Essayez une autre recherche, d’autres filtres ou une autre langue.'}</Text></View>}
+      ListEmptyComponent={loading ? <SkeletonGroup><View accessibilityLabel="Chargement du catalogue" style={[styles.skeletonGrid, { paddingHorizontal: gutter }]}>{Array.from({ length: columns * 2 }, (_, index) => <View key={index} style={{ width: cardWidth, marginBottom: 24 }}><SkeletonBlock width={cardWidth} height={cardWidth * 1.45} /><SkeletonBlock width={cardWidth * 0.85} height={16} style={{ marginTop: 10 }} /><SkeletonBlock width={cardWidth * 0.6} height={12} style={{ marginTop: 8 }} /></View>)}</View></SkeletonGroup> : error ? undefined : <View style={styles.empty}><Ionicons name={local ? 'folder-open-outline' : 'book-outline'} size={42} color={colors.textSecondary} /><Text style={{ color: colors.text, fontSize: 18, marginTop: 14 }}>{local ? (server ? 'Aucune série sur ce serveur' : 'Aucun fichier importé') : 'Aucun titre trouvé'}</Text><Text style={{ color: colors.textSecondary, marginTop: 8, textAlign: 'center' }}>{local ? (server ? 'Vérifiez l’adresse du catalogue OPDS ou la recherche.' : 'Importez un CBZ, un ZIP d’images ou un PDF, ou ajoutez votre serveur OPDS (Komga, Kavita…).') : 'Essayez une autre recherche, d’autres filtres ou une autre langue.'}</Text></View>}
       ListFooterComponent={items.length > 0 && loading ? <ActivityIndicator color={colors.primary} style={{ margin: 20 }} /> : <Text style={{ color: colors.textTertiary, fontSize: 11, paddingHorizontal: gutter, paddingVertical: 16 }}>{provider.credit}</Text>}
       onEndReachedThreshold={0.6} onEndReached={() => { if (!loading && !error && canMore) void load(items.length, next); }}
     />
@@ -376,6 +377,7 @@ const styles = StyleSheet.create({
   importBox: { marginHorizontal: 16, marginBottom: 8, padding: 16, gap: 10, borderRadius: radii.panel, borderWidth: 1 },
   importButton: { flexDirection: 'row', alignSelf: 'flex-start', alignItems: 'center', gap: 8, borderRadius: radii.pill, paddingHorizontal: 18, paddingVertical: 11 },
   empty: { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 24 },
+  skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
   sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 14 },
   sectionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 12, marginTop: 16 },
   apply: { borderRadius: radii.pill, marginHorizontal: 16, marginTop: 16, padding: 15, alignItems: 'center' },

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Linking, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, FlatList, Linking, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +10,7 @@ import { radii } from '../../theme/shape';
 import AuthImage from '../../components/AuthImage';
 import { dialog } from '../../components/Dialog';
 import UndoBar from '../../components/UndoBar';
+import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/SkeletonCard';
 import databaseService, { ComicProgress } from '../../services/databaseService';
 import { getComicLanguage, saveComicLanguage } from '../../services/preferences';
 import { Comic, ComicChapter, LanguageInfo, allProviders, chapterLabel, getChaptersCached, getLanguageInfoCached, getProvider } from '../../services/comics';
@@ -20,6 +21,7 @@ import { STATUS_LABELS } from './ComicCatalogScreen';
 import { pickEquivalentChapter } from './equivalentChapter';
 
 type Availability = LanguageInfo | 'loading' | 'error';
+const KIND_LABELS: Record<Comic['kind'], string> = { manga: 'Manga', manhwa: 'Manhwa', manhua: 'Manhua' };
 
 export default function ComicDetailScreen({ route, navigation }: RootStackScreenProps<'ComicDetail'>) {
   const { provider, comicId } = route.params;
@@ -170,7 +172,21 @@ export default function ComicDetailScreen({ route, navigation }: RootStackScreen
     <TouchableOpacity accessibilityRole="button" onPress={() => setAttempt(value => value + 1)} style={[styles.primary, { backgroundColor: colors.buttonBg }]}><Text style={styles.primaryText}>Réessayer</Text></TouchableOpacity>
     <TouchableOpacity accessibilityRole="button" onPress={() => navigation.goBack()} style={{ padding: 14 }}><Text style={{ color: colors.primary }}>Retour</Text></TouchableOpacity>
   </View>;
-  if (!comic) return <View style={[styles.center, { backgroundColor: colors.background }]}><ActivityIndicator size="large" color={colors.primary} /></View>;
+  if (!comic) {
+    const skeletonCover = wide ? 220 : 140;
+    return <View accessibilityLabel="Chargement du titre" style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
+      <SkeletonGroup><View style={{ width: '100%', maxWidth: 1100, alignSelf: 'center', paddingHorizontal: 16 }}>
+        <View style={[styles.top, !wide && { flexDirection: 'column', alignItems: 'center' }]}>
+          <SkeletonBlock width={skeletonCover} height={skeletonCover * 1.45} />
+          <View style={{ flex: wide ? 1 : undefined, width: wide ? undefined : '100%', gap: 12, alignItems: wide ? 'flex-start' : 'center' }}>
+            <SkeletonBlock width="70%" height={30} /><SkeletonBlock width="45%" height={14} /><SkeletonBlock width={200} height={44} />
+          </View>
+        </View>
+        <View style={{ gap: 10, marginTop: 22 }}><SkeletonBlock height={14} /><SkeletonBlock height={14} /><SkeletonBlock width="80%" height={14} /></View>
+        <View style={{ gap: 14, marginTop: 30 }}>{[0, 1, 2, 3, 4].map(key => <SkeletonBlock key={key} height={40} />)}</View>
+      </View></SkeletonGroup>
+    </View>;
+  }
 
   const coverWidth = wide ? 220 : 140;
   const languageLabel = language ? languageName(language) : '';
@@ -197,7 +213,7 @@ export default function ComicDetailScreen({ route, navigation }: RootStackScreen
       {comic.cover ? <AuthImage uri={comic.cover} accessibilityLabel={`Couverture de ${comic.title}`} style={{ width: coverWidth, height: coverWidth * 1.45, borderRadius: radii.card, backgroundColor: colors.surface }} resizeMode="cover" /> : <View style={[styles.cover, { width: coverWidth, height: coverWidth * 1.45, backgroundColor: colors.surface }]}><Ionicons name="book-outline" size={40} color={colors.textSecondary} /></View>}
       <View style={{ flex: wide ? 1 : undefined, gap: 10, alignItems: wide ? 'flex-start' : 'center' }}>
         <Text accessibilityRole="header" style={[styles.title, { color: colors.text, textAlign: wide ? 'left' : 'center' }]}>{comic.title}</Text>
-        <Text style={{ color: colors.textSecondary, textAlign: wide ? 'left' : 'center' }}>{[comic.kind === 'manga' ? 'Manga' : 'Manhwa', comic.status !== 'unknown' && STATUS_LABELS[comic.status], comic.year, !local && `Source : ${source.name}`].filter(Boolean).join(' · ')}</Text>
+        <Text style={{ color: colors.textSecondary, textAlign: wide ? 'left' : 'center' }}>{[KIND_LABELS[comic.kind], comic.status !== 'unknown' && STATUS_LABELS[comic.status], comic.year, !local && `Source : ${source.name}`].filter(Boolean).join(' · ')}</Text>
         {comic.genres.length > 0 && <View style={[styles.wrap, !wide && { justifyContent: 'center' }]}>{comic.genres.map(genre => <View key={genre} style={[styles.tag, { backgroundColor: colors.surface }]}><Text style={{ color: colors.text, fontSize: 12 }}>{genre}</Text></View>)}</View>}
         <View style={[styles.actions, !wide && { justifyContent: 'center' }]}>
           {chaptersLoading ? <ActivityIndicator color={colors.primary} /> : resume ? <TouchableOpacity accessibilityRole="button" onPress={() => navigation.navigate('ComicReader', { provider, comicId, chapterId: resume.chapterId, language: language!, page: resume.page, offset: resume.offset })} style={[styles.primary, { backgroundColor: colors.buttonBg }]}><Ionicons name="play" size={18} color="#fff" /><Text style={styles.primaryText}>Reprendre · {resume.chapterNumber ? `ch. ${resume.chapterNumber} ` : ''}p. {resume.page + 1}</Text></TouchableOpacity>

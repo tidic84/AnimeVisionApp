@@ -326,7 +326,7 @@ export default function ComicReaderScreen({ route, navigation }: RootStackScreen
       // Mémoire : seules quelques pages autour de l'écran restent montées.
       initialNumToRender={3} maxToRenderPerBatch={2} windowSize={5} removeClippedSubviews={Platform.OS === 'android'}
       onScroll={onScroll} scrollEventThrottle={64} onScrollBeginDrag={() => { interacted.current = true; }}
-      ListFooterComponent={<View style={styles.footer}>
+      ListFooterComponent={<View style={[styles.footer, { paddingBottom: 40 + insets.bottom }]}>
         <Text style={styles.muted}>Fin : {title}</Text>
         {nextChapter ? <TouchableOpacity accessibilityRole="button" onPress={() => goToChapter(nextChapter, 0)} style={[styles.pill, { backgroundColor: colors.buttonBg }]}><Text style={styles.pillText}>{chapterLabel(nextChapter)} →</Text></TouchableOpacity> : <Text style={styles.muted}>Dernier chapitre disponible.</Text>}
         <Text style={styles.credit}>{credit}</Text>
@@ -371,7 +371,7 @@ export default function ComicReaderScreen({ route, navigation }: RootStackScreen
       <Text style={styles.subtitle}>{settings?.direction === 'rtl' ? 'Sens de lecture : droite → gauche' : 'Sens de lecture : gauche → droite'}</Text>
       {icon(settings?.direction === 'rtl' ? 'chevron-back' : 'chevron-forward', 'Page suivante', () => turn(1))}
     </View>}
-    <CustomModal visible={sheet} onRequestClose={() => setSheet(false)} alignment="bottom">{settings && <ScrollView style={{ maxHeight: 560 }} contentContainerStyle={{ padding: 18, paddingBottom: 18 + insets.bottom, gap: 10 }}>
+    <CustomModal visible={sheet} onRequestClose={() => setSheet(false)} alignment="bottom">{settings && <ScrollView style={{ maxHeight: 560, backgroundColor: colors.surface }} contentContainerStyle={{ padding: 18, paddingBottom: 18 + insets.bottom, gap: 10 }}>
       <View style={styles.sheetHeader}><Text style={styles.sheetTitle}>Réglages de lecture</Text>{icon('close', 'Fermer', () => setSheet(false))}</View>
       <Text style={styles.label}>Mode</Text>
       <View style={styles.row}>{option('Page simple', mode === 'single', () => update({ mode: 'single' }))}{option('Double page', mode === 'double', () => update({ mode: 'double' }))}{option('Défilement vertical', mode === 'vertical', () => update({ mode: 'vertical' }))}</View>
