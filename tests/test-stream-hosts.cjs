@@ -21,7 +21,9 @@ assert.equal(resolveUrl('720/index.m3u8', 'https://x/hls/'), 'https://x/hls/720/
 
 // hostOf: by domain, never by the anime-sama server name.
 assert.equal(hostOf('https://voe.sx/e/abc').id, 'voe');
-assert.equal(hostOf('https://ANSEMBED.xyz/embed-1.html').id, 'oneupload');
+assert.equal(hostOf('https://ANSEMBED.net/embed-1.html').id, 'vidmoly', 'ansembed.net is a Vidmoly mirror');
+assert.equal(hostOf('https://vidmoly.biz/embed-1.html').id, 'vidmoly');
+assert.equal(hostOf('https://oneupload.to/embed-1.html').id, 'oneupload');
 assert.equal(hostOf('https://minochinos.com/v/1').id, 'vidhide');
 assert.equal(hostOf('https://vk.com/video_ext.php?oid=1').id, 'vk');
 assert.equal(hostOf('https://notvk.com/x').id, 'notvk.com', 'vk only matches vk.com and its subdomains');
@@ -68,7 +70,13 @@ assert.equal(decodeVoe('<html></html>'), null);
   const dead = async (url, reason) => assert.deepEqual(await probeServer(server(url)), { status: 'dead', reason });
 
   await dead('https://video.sibnet.ru/shell.php?videoid=', 'Lien du lecteur incomplet');
+  // Embed4me: web player only when its page answers; a dead domain (anime-sama marks it dead) is not « working ».
+  pages.set('https://embed4me.com/p#abc', { body: '<html><div id="app"></div></html>' });
   assert.deepEqual(await probeServer(server('https://embed4me.com/p#abc')), { status: 'embed', reason: 'Lecteur web uniquement' });
+  pages.set('https://lpayer.embed4me.com/#hlw16', Object.assign(new Error('aborted'), { name: 'AbortError' }));
+  await dead('https://lpayer.embed4me.com/#hlw16', 'Le lecteur ne répond pas');
+  assert.equal(hosts.isWebOnlyHost('https://lpayer.embed4me.com/#hlw16'), true);
+  assert.equal(hosts.isWebOnlyHost('https://ansembed.net/embed-1.html'), false);
   pages.set('https://vidmoly.to/embed-gone.html', { status: 410, body: '' });
   await dead('https://vidmoly.to/embed-gone.html', 'Vidéo supprimée');
   pages.set('https://video.sibnet.ru/shell.php?videoid=403', { status: 403, body: '' });
@@ -97,6 +105,14 @@ assert.equal(decodeVoe('<html></html>'), null);
   assert.equal(hls.qualities[1].url, 'https://cdn/ok/1080/index.m3u8');
   assert.equal(hls.thumbnails, 'https://vidmoly.to/thumbs.vtt');
 
+  // Vidmoly through its ansembed.net mirror (anime-sama, 11/2026): single-quoted jwplayer source, master playlist.
+  pages.set('https://ansembed.net/embed-qmt17aovk5w3.html', { body: "<script>player.setup({ sources: [{ file: 'https://prx.vmpx.online/hls2/04/qmt17aovk5w3_n/master.m3u8?t=a&s=1&e=43200' }], image: 'x.jpg' });</script>" });
+  pages.set('https://prx.vmpx.online/hls2/04/qmt17aovk5w3_n/master.m3u8?t=a&s=1&e=43200', { body: '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1,RESOLUTION=1920x1080\nindex-v1-a1.m3u8\n' });
+  const vidmoly = await probeServer(server('https://ansembed.net/embed-qmt17aovk5w3.html'));
+  assert.equal(vidmoly.status, 'ok');
+  assert.equal(vidmoly.height, 1080);
+  assert.equal(vidmoly.headers.Referer, 'https://ansembed.net/');
+
   // Voe: JavaScript redirect to the current mirror, then the encrypted configuration.
   pages.set('https://voe.sx/e/abcdefghijkl', { body: "<script>window.location.href = 'https://mirror.example/e/abcdefghijkl';</script>" });
   pages.set('https://mirror.example/e/abcdefghijkl', { body: voePage });
@@ -113,6 +129,6 @@ assert.equal(decodeVoe('<html></html>'), null);
   pages.set('https://uqload.to/embed-slow.html', Object.assign(new Error('aborted'), { name: 'AbortError' }));
   await dead('https://uqload.to/embed-slow.html', 'Le lecteur ne répond pas');
   pages.set('https://uqload.to/embed-offline.html', new TypeError('Network request failed'));
-  assert.deepEqual(await probeServer(server('https://uqload.to/embed-offline.html')), { status: 'embed', reason: 'Lecteur injoignable' });
+  await dead('https://uqload.to/embed-offline.html', 'Hébergeur injoignable');
   console.log('stream hosts tests passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

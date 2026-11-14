@@ -19,7 +19,7 @@ import * as malSync from '../../services/mal/malSync';
 import { getFavoriteHosts } from '../../services/preferences';
 import { getBackgroundPlayback } from '../../services/preferences';
 import { AppState } from 'react-native';
-import { hostOf, orderServers, probeServer, StreamProbe } from '../../services/streamHosts';
+import { hostOf, isWebOnlyHost, orderServers, probeServer, StreamProbe } from '../../services/streamHosts';
 import WebViewVideoPlayer from '../../components/WebViewVideoPlayer';
 import useReducedMotion from '../../hooks/useReducedMotion';
 import { MotionPressable } from '../../components/Motion';
@@ -167,11 +167,20 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     const id = ++pick.current;
     const sessionId = session.current;
     let fallback: StreamingServer | undefined;
+    // Un lecteur web uniquement (Embed4me) ne passe jamais avant un flux natif : on ne l'attend pas (il peut mettre
+    // tout le délai à échouer) et il ne sert qu'en dernier recours, s'il répond.
+    const webOnly: StreamingServer[] = [];
     for (const server of order.current) {
+      if (isWebOnlyHost(server.url)) { webOnly.push(server); continue; }
       const result = await probe(server);
       if (pick.current !== id || session.current !== sessionId) return null;
       if (result.status === 'ok') { start(server, result); return true; }
       if (result.status === 'embed' && !fallback) fallback = server;
+    }
+    for (const server of fallback ? [] : webOnly) {
+      const result = await probe(server);
+      if (pick.current !== id || session.current !== sessionId) return null;
+      if (result.status !== 'dead') { fallback = server; break; }
     }
     if (fallback) { start(fallback, { status: 'embed', reason: '' }); return true; }
     return false;
