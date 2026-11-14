@@ -67,18 +67,46 @@ const latestEntry = (entries: WatchHistory[], local: Episode[]) => {
     .reduce<WatchHistory>((best, entry) => (numbers.get(entry.episodeId) ?? -1) > (numbers.get(best.episodeId) ?? -1) ? entry : best, entries[0]);
 };
 
-/** Dernier épisode ouvert de l'animé (historique du plus récent au plus ancien). */
+/** Rang saison → épisode de chaque épisode de l'animé ; sans saisons connues, le numéro local seul. */
+const episodePositions = async (animeId: string, local: Episode[]) => {
+  const seasons = await animeSeasons(animeId).catch(() => [] as Season[]);
+  const lists = await Promise.all(seasons.map(season => seasonEpisodes(season.id, animeId).catch(() => [] as Episode[])));
+  const positions = new Map<string, [number, number]>();
+  if (!seasons.length) local.forEach(episode => positions.set(episode.id, [0, episode.number]));
+  lists.forEach((list, index) => list.forEach(episode => positions.set(episode.id, [index, episode.number])));
+  return positions;
+};
+
+/**
+ * Point de reprise : l'épisode le plus avancé (saison → épisode) ouvert ou terminé, pas le premier non vu ni le
+ * dernier ouvert — commencer par le dernier épisode sorti vaut « tout vu avant », sans rien marquer.
+ * Un revisionnage (l'épisode le plus récent était déjà vu) suit le dernier épisode ouvert.
+ */
+const referenceEntry = async (animeId: string, entries: WatchHistory[], local: Episode[]) => {
+  const latest = latestEntry(entries, local);
+  if (entries.length < 2 || entries[0].rewatchProgress !== undefined) return latest;
+  const positions = await episodePositions(animeId, local);
+  const after = (a: [number, number], b: [number, number]) => a[0] - b[0] || a[1] - b[1];
+  let best = positions.has(latest.episodeId) ? latest : null;
+  for (const entry of entries) {
+    const position = positions.get(entry.episodeId);
+    if (position && (!best || after(position, positions.get(best.episodeId)!) > 0)) best = entry;
+  }
+  return best ?? latest;
+};
+
+/** Épisode de référence de l'animé (historique du plus récent au plus ancien), celui de « Reprendre ». */
 export const lastOpenedEpisode = async (animeId: string, entries: WatchHistory[]): Promise<Episode | null> => {
   if (!entries.length) return null;
   const local = await databaseService.getAnimeEpisodes(animeId).catch(() => [] as Episode[]);
-  return findEpisode(latestEntry(entries, local).episodeId, local);
+  return findEpisode((await referenceEntry(animeId, entries, local)).episodeId, local);
 };
 
 /** Historique d'un seul animé, du plus récent au plus ancien. */
 export const resolveContinue = async (animeId: string, entries: WatchHistory[]): Promise<ContinueItem | null> => {
   if (!entries.length) return null;
   const local = await databaseService.getAnimeEpisodes(animeId).catch(() => [] as Episode[]);
-  const latest = latestEntry(entries, local);
+  const latest = await referenceEntry(animeId, entries, local);
   const latestAt = entries[0].lastWatchedAt.getTime();
   const current = await findEpisode(latest.episodeId, local);
   if (!current) return null;
