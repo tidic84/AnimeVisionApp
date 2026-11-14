@@ -33,11 +33,20 @@ const reset = () => { clearContinueCache(); calls.length = 0; Object.assign(data
   // From 90 %: the next episode of the same language, from its start.
   item = await resolveContinue('a', [entry(a1, 90, 0)]);
   assert.equal(item.kind, 'next'); assert.equal(item.episode.id, a2.id); assert.equal(item.episode.watchProgress, 0);
-  // Next episode already started: resume it; already watched: offered again from the start.
+  // Next episode already started: resume it; rewatching, the next one already watched is offered again from the start.
   item = await resolveContinue('a', [entry(a1, 100, 10), entry(a2, 30, 0)]);
   assert.equal(item.episode.id, a2.id); assert.equal(item.episode.watchProgress, 30);
+  item = await resolveContinue('a', [entry(a1, 100, 10, { rewatchProgress: 100 }), entry(a2, 95, 0)]);
+  assert.equal(item.kind, 'next'); assert.equal(item.episode.id, a2.id); assert.equal(item.episode.watchProgress, 0);
+  item = await resolveContinue('a', [entry(a1, 100, 10, { rewatchProgress: 100 }), entry(a3, 100, 0)]);
+  assert.equal(item.episode.id, a2.id, 'a rewatch follows the last episode opened, not the furthest one');
+
+  // First viewing started from a later episode: the furthest one counts, the earlier ones stay as they are.
   item = await resolveContinue('a', [entry(a1, 100, 10), entry(a2, 95, 0)]);
-  assert.equal(item.episode.id, a2.id); assert.equal(item.episode.watchProgress, 0);
+  assert.equal(item.episode.id, a3.id, 'episode 2 watched, then episode 1: go on with episode 3');
+  item = await resolveContinue('a', [entry(a1, 40, 10), entry(a2, 30, 0)]);
+  assert.equal(item.kind, 'resume'); assert.equal(item.episode.id, a2.id); assert.equal(item.episode.watchProgress, 30);
+  assert.equal((await lastOpenedEpisode('a', [entry(a1, 40, 10), entry(a3, 30, 0)])).id, a3.id);
   // A rewatch in progress overrides the finished first viewing.
   item = await resolveContinue('a', [entry(a2, 100, 0, { rewatchProgress: 25 })]);
   assert.equal(item.kind, 'resume'); assert.equal(item.episode.watchProgress, 25);
@@ -46,7 +55,9 @@ const reset = () => { clearContinueCache(); calls.length = 0; Object.assign(data
   item = await resolveContinue('a', [entry(a1, 100, 4), entry(a3, 100, 3), entry(a2, 100, 0)]);
   assert.equal(item, null, 'episode 3 is the last of the only season');
   item = await resolveContinue('a', [entry(a1, 100, 30), entry(a3, 100, 0)]);
-  assert.equal(item.episode.id, a2.id, 'more than 5 s apart: the most recent one counts');
+  assert.equal(item, null, 'last episode watched first, then episode 1: everything before counts as seen');
+  item = await resolveContinue('a', [entry(a1, 30, 30), entry(a3, 100, 0)]);
+  assert.equal(item, null, 'an earlier episode opened later does not become the resume point');
 
   // End of season: first episode of the next season with the same language (a VF-only season is skipped).
   clearContinueCache(); // the season list was cached empty above
@@ -57,6 +68,10 @@ const reset = () => { clearContinueCache(); calls.length = 0; Object.assign(data
   item = await resolveContinue('a', [entry(a3, 100, 0)]);
   assert.equal(item.episode.id, s3e1.id);
   assert.equal(item.episode.animeTitle, 'A');
+  // The furthest episode is ranked by season first, then by number.
+  data.remote[s3e1.id] = s3e1;
+  item = await resolveContinue('a', [entry(a3, 100, 20), entry(s3e1, 100, 0)]);
+  assert.equal(item.episode.id, s3e2.id, 'season 3 episode 1 comes after season 1 episode 3');
   assert.equal(await isEpisodeBefore('a', a3, s3e1), true);
   assert.equal(await isEpisodeBefore('a', s3e1, a3), false);
   assert.equal(await isEpisodeBefore('a', a1, a2), true);
