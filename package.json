@@ -14,7 +14,7 @@
     "desktop:dev": "npm --prefix desktop run dev",
     "desktop:build": "node scripts/build-desktop.cjs",
     "release": "node scripts/release.cjs",
-    "test": "node tests/test-download-management.cjs && node tests/test-download-flow.cjs && node tests/test-video-url-extractor.cjs && node tests/test-hls-downloader.cjs && node tests/test-load-scheduler.cjs && node tests/test-logger.cjs && node tests/test-connectivity.cjs && node tests/test-apk-integrity.cjs && node tests/test-stream-hosts.cjs && node tests/test-watch-progress.cjs && node tests/test-skip-times.cjs && node tests/test-season-mapping.cjs && node tests/test-seek-preview.cjs && node tests/test-continue-watching.cjs && node tests/test-accessibility.cjs && node tests/test-recommendations.cjs && node tests/test-home-shelves.cjs && node tests/test-watch-stats.cjs && node tests/test-comics-mangadex.cjs && node tests/test-comics-poseidon.cjs && node tests/test-comics-federated-timeout.cjs && node tests/test-comic-planning.cjs && node tests/test-comic-reader.cjs && node tests/test-comic-languages.cjs && node tests/test-comic-catalog.cjs && node tests/test-comic-sources.cjs",
+    "test": "node tests/test-download-management.cjs && node tests/test-download-flow.cjs && node tests/test-video-url-extractor.cjs && node tests/test-hls-downloader.cjs && node tests/test-load-scheduler.cjs && node tests/test-logger.cjs && node tests/test-connectivity.cjs && node tests/test-apk-integrity.cjs && node tests/test-stream-hosts.cjs && node tests/test-watch-progress.cjs && node tests/test-skip-times.cjs && node tests/test-season-mapping.cjs && node tests/test-seek-preview.cjs && node tests/test-continue-watching.cjs && node tests/test-accessibility.cjs && node tests/test-recommendations.cjs && node tests/test-home-shelves.cjs && node tests/test-watch-stats.cjs && node tests/test-comics-mangadex.cjs && node tests/test-comics-poseidon.cjs && node tests/test-comics-federated-timeout.cjs && node tests/test-comic-planning.cjs && node tests/test-comic-reader.cjs && node tests/test-comic-languages.cjs && node tests/test-comic-catalog.cjs && node tests/test-comic-sources.cjs && node tests/test-player-gestures.cjs",
     "catalog:start": "npm --prefix catalog-server start",
     "catalog:sync": "npm --prefix catalog-server run sync",
     "catalog:test": "npm --prefix catalog-server test"
@@ -29,6 +29,7 @@
     "buffer": "^6.0.3",
     "expo": "~58.0.23",
     "expo-asset": "~58.0.20",
+    "expo-brightness": "~58.0.3",
     "expo-build-properties": "~58.0.12",
     "expo-constants": "~58.0.15",
     "expo-crypto": "~58.0.7",
@@ -59,6 +60,7 @@
     "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.11.1",
     "react-native-screens": "~4.30.1",
+    "react-native-volume-manager": "^2.2.0",
     "react-native-web": "^0.21.2",
     "react-native-webview": "14.0.1",
     "react-native-worklets": "0.13.0"

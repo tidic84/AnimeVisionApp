@@ -29,6 +29,8 @@ import PlayerDetails from './PlayerDetails';
 import PlayerSettingsSheet, { Page, ServerChoice } from './PlayerSettingsSheet';
 import useStutterDetector from './useStutterDetector';
 import SeekPreview from './SeekPreview';
+import usePlayerGestures from './usePlayerGestures';
+import { BoostBadge, LevelIndicator } from './GestureIndicators';
 import { loadStoryboard, Storyboard } from '../../services/seekPreview';
 import { pickSkips, SkipResult } from '../../utils/skipTimes';
 
@@ -105,7 +107,6 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const dragValue = useRef<number | null>(null);
   // Après un seek, le lecteur renvoie encore quelques timeUpdate avec l'ancienne position : on les ignore pour que le curseur ne saute pas en arrière.
   const pendingSeek = useRef<{ target: number; until: number } | null>(null);
-  const trackArea = useRef(1);
   const progressRef = useRef({ time: 0, duration: 0 });
   const lastSave = useRef(0);
   // Secondes réellement lues dans cette session (hors sauts et reprise).
@@ -399,6 +400,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     if (hintTimer.current) clearTimeout(hintTimer.current);
     hintTimer.current = setTimeout(() => setSeekHint(null), 700);
   };
+  // Glissement vertical à gauche (luminosité) ou à droite (volume), appui long en x2 ; les bords restent au système (barre de gestes, retour, notifications).
+  const gestures = usePlayerGestures({ player, speed, focused, edges: fullscreen ? { top: 40, bottom: 56, side: 24 } : { top: 12, bottom: 12, side: 24 }, onTap: handleTap, onSwipeStart: () => { if (controls) hide(); } });
   const closeSettings = () => { setSettings(false); setTouchLock(true); setTimeout(() => setTouchLock(false), 500); };
   const ui = fullscreen ? { side: 48, title: 20, subtitle: 15, icon: 30, skip: 44, play: 72, gap: 120 } : { side: 12, title: 15, subtitle: 12, icon: 24, skip: 34, play: 52, gap: 44 };
   const control = (name: React.ComponentProps<typeof MaterialIcons>['name'], label: string, action: () => void, size = ui.icon) => <MotionPressable pressedScale={0.88} accessibilityLabel={label} onPress={() => { action(); show(); }} hitSlop={8} style={styles.control}><MaterialIcons name={name} color="white" size={size} /></MotionPressable>;
@@ -440,7 +443,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       {/* Une seule VideoView pour toute la séance : la démonter pendant un chargement laissait parfois la surface de la nouvelle vue masquée (écran noir, son présent). */}
       {!embed && <VideoView key={viewKey} player={player} style={StyleSheet.absoluteFill} nativeControls={false} fullscreenOptions={{ enable: false }} contentFit="contain" allowsPictureInPicture={background} startsPictureInPictureAutomatically={background} onFirstFrameRender={() => setFrame(true)} />}
       {loading ? <View style={[StyleSheet.absoluteFill, styles.empty, styles.cover]}><ActivityIndicator size="large" color={colors.primary} />{!!ordered.length && <Text style={styles.error}>{active ? `Ouverture de ${labelOf(active)}…` : 'Recherche d’un lecteur disponible…'}</Text>}</View> : embed ? (focused ? <WebViewVideoPlayer key={embed} embedUrl={embed} background={background} onDead={reason => failRef.current(reason)} /> : null) : !source && <View style={[StyleSheet.absoluteFill, styles.empty, styles.cover]}><Ionicons name="videocam-off-outline" color={colors.textSecondary} size={36} /><Text style={[styles.error, { textAlign: 'center' }]}>{error || 'Aucun lecteur disponible.'}</Text><View style={styles.emptyActions}>{choices.length > 1 && <TouchableOpacity accessibilityRole="button" onPress={openServers} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Changer de lecteur</Text></TouchableOpacity>}<TouchableOpacity accessibilityRole="button" onPress={() => setAttempt(value => value + 1)} style={styles.retry}><Text style={{ color: 'white', fontWeight: '600' }}>Réessayer</Text></TouchableOpacity></View></View>}
-      {!embed && source && !loading && <View accessible accessibilityLabel={controls ? 'Masquer les commandes' : 'Afficher les commandes'} accessibilityRole="button" onAccessibilityTap={() => controls ? hide() : show()} style={StyleSheet.absoluteFill} onStartShouldSetResponder={() => true} onResponderRelease={event => handleTap(event.nativeEvent.locationX, trackArea.current)} onLayout={event => { trackArea.current = event.nativeEvent.layout.width; }} />}
+      {!embed && source && !loading && <View accessible accessibilityLabel={controls ? 'Masquer les commandes' : 'Afficher les commandes'} accessibilityRole="button" onAccessibilityTap={() => controls ? hide() : show()} style={StyleSheet.absoluteFill} {...gestures.handlers} />}
+      {gestures.level && <LevelIndicator side={gestures.level.side} value={gestures.level.value} large={fullscreen} inset={(fullscreen ? 48 : 16) + (fullscreen ? (gestures.level.side === 'brightness' ? insets.left : insets.right) : 0)} />}
       {seekHint && <View pointerEvents="none" style={[styles.seekHint, seekHint.side === 'left' ? { left: 0 } : { right: 0 }]}><MaterialIcons name={seekHint.side === 'left' ? 'fast-rewind' : 'fast-forward'} color="white" size={32} /><Text style={styles.seekHintText}>{seekHint.side === 'left' ? '-' : '+'}{seekHint.amount} s</Text></View>}
       {(embed || loading || !source) ? <View pointerEvents="box-none" style={[styles.staticBar, { paddingLeft: ui.side + (fullscreen ? insets.left : 0), paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6 }]}><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']} style={StyleSheet.absoluteFill} />{topBar}</View> : <Animated.View pointerEvents={controls ? 'box-none' : 'none'} style={[styles.overlay, { opacity, paddingLeft: barLeft, paddingRight: ui.side + (fullscreen ? insets.right : 0), paddingTop: fullscreen ? 20 : 6, paddingBottom: barBottom }]}>
         <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.scrim]} /><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)']} style={styles.scrimTop} /><LinearGradient pointerEvents="none" colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.75)']} style={styles.scrimBottom} />
@@ -459,6 +463,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
       {skip && <Animated.View pointerEvents="box-none" style={[styles.skipWrap, { right: ui.side + (fullscreen ? insets.right : 0), bottom: skipBottom, opacity: skipIn, transform: [{ translateX: Animated.add(skipIn.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }), opacity.interpolate({ inputRange: [0, 1], outputRange: [0, -skipShift] })) }, { translateY: opacity.interpolate({ inputRange: [0, 1], outputRange: [0, -skipLift] }) }] }]}>
         <MotionPressable pressedScale={0.94} accessibilityRole="button" accessibilityLabel={skipLabel} onPress={() => { if (skipToNext && next) navigateEpisode(next); else seek(skip.end, false); }} hitSlop={8} style={[styles.skip, fullscreen ? { height: 40, paddingHorizontal: 18 } : { height: 30, paddingHorizontal: 12 }]}><Text style={[styles.skipText, fullscreen && { fontSize: 14 }]}>{skipLabel}</Text><MaterialIcons name={skipToNext ? 'skip-next' : 'fast-forward'} color="white" size={fullscreen ? 20 : 16} /></MotionPressable>
       </Animated.View>}
+      {/* Badge au-dessus des commandes : elles peuvent rester affichées pendant l'appui long. */}
+      {gestures.boosting && <BoostBadge top={fullscreen ? 24 : 10} />}
       {/* Rendue ici, par-dessus tout le lecteur, plutôt que dans la barre de 44 px : elle n'y apparaissait pas sur Android. */}
       {drag !== null && <SeekPreview time={drag} label={clock(drag)} x={barLeft + fraction * trackWidth.current} barLeft={barLeft} barWidth={trackWidth.current} bottom={barBottom + 36} storyboard={storyboard} headers={streamHeaders.current} large={fullscreen} />}
     </View>
