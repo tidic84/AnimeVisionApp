@@ -8,9 +8,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppColorScheme } from '../../contexts/ThemeContext';
 import HeroCarousel from './HeroCarousel';
+import { HeroSkeleton, RowSkeleton, TitleSkeleton } from './HomeSkeletons';
 import { palette } from '../../theme/palette';
-import { FadeIn, MotionPressable, LoadingSwap } from '../../components/Motion';
-import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/SkeletonCard';
+import { MotionPressable, LoadingSwap } from '../../components/Motion';
 import AnimeCard from '../../components/AnimeCard/AnimeCard';
 import EpisodeCard from '../../components/EpisodeCard/EpisodeCard';
 import ApiGuard from '../../components/ApiGuard';
@@ -19,11 +19,12 @@ import databaseService from '../../services/databaseService';
 import * as malSync from '../../services/mal/malSync';
 import { clearContinueCache, getContinueWatching } from '../../services/continueWatching';
 import { clearRecommendationsCache, getRecommendationShelf, RecommendationShelf } from '../../services/recommendations';
-import { getGenreShelves } from '../../services/homeShelves';
+import { GenreShelf, getGenreShelves, SHELF_COUNT } from '../../services/homeShelves';
 import { Anime, Episode, ScraperStatus } from '../../types/anime';
 import { elapsedSince } from '../../utils/relativeTime';
 
-type Shelf = { title: string; subtitle?: string; items: Anime[] };
+/** `undefined` while a section is loading (it shows its skeleton), `[]` once it turned out empty (it is hidden). */
+type Loaded<T> = T[] | undefined;
 export default function HomeScreen() {
   return <ApiGuard><HomeContent /></ApiGuard>;
 }
@@ -34,24 +35,36 @@ function HomeContent() {
   const focused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [featured, setFeatured] = useState<Anime[]>([]);
-  const [latest, setLatest] = useState<Episode[]>([]);
-  const [resume, setResume] = useState<Episode[]>([]);
-  const [watchlist, setWatchlist] = useState<Anime[]>([]);
+  const [featured, setFeatured] = useState<Loaded<Anime>>();
+  const [latest, setLatest] = useState<Loaded<Episode>>();
+  const [trending, setTrending] = useState<Loaded<Anime>>();
+  const [discover, setDiscover] = useState<Loaded<Anime>>();
+  const [genres, setGenres] = useState<GenreShelf[]>();
+  const [genreItems, setGenreItems] = useState<Record<string, Anime[]>>({});
+  const [resume, setResume] = useState<Loaded<Episode>>();
+  const [watchlist, setWatchlist] = useState<Loaded<Anime>>();
   const [watchlistId, setWatchlistId] = useState<string | null>(null);
-  const [shelves, setShelves] = useState<Shelf[]>([]);
-  const [recommended, setRecommended] = useState<RecommendationShelf | null>(null);
+  const [recommended, setRecommended] = useState<RecommendationShelf | null | undefined>();
   const recommendedEpoch = useRef(0);
-  const [loading, setLoading] = useState(true);
+  const loadEpoch = useRef(0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [scraper, setScraper] = useState<ScraperStatus | null>(null);
+  // undefined tant que l'état du scraper n'est pas connu : son bandeau fait partie de la section « Nouveaux épisodes ».
+  const [scraper, setScraper] = useState<ScraperStatus | null | undefined>();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [headerSolid, setHeaderSolid] = useState(false);
   const openAnime = (id: string) => navigation.navigate('AnimeDetail', { animeId: id });
   const openEpisode = (episode: Episode) => navigation.navigate('VideoPlayer', { episodeId: episode.id, animeId: episode.animeId, autoPlay: true });
 
+  const loadWatchlist = useCallback(async () => {
+    const lists = await databaseService.getAnimeLists();
+    const defaultList = lists.find(l => l.isDefault);
+    setWatchlistId(defaultList?.id ?? null);
+    setWatchlist(defaultList ? await databaseService.getAnimesInList(defaultList.id) : []);
+  }, []);
   const loadPersonal = useCallback(async () => {
+    // Chaque section personnelle se remplit dès que ses données sont prêtes, sans attendre les autres.
+    void loadWatchlist().catch(() => setWatchlist(previous => previous ?? []));
     try {
       // Tout l'historique : un animé fini doit revenir dès la sortie de l'épisode suivant, même ancien.
       const history = await databaseService.getWatchHistory(5000);
@@ -61,62 +74,79 @@ function HomeContent() {
         .then(([all, tracked]) => getRecommendationShelf(history, [...all.flatMap(l => l.animeIds), ...tracked]))
         .catch(() => null)
         .then(result => { if (token === recommendedEpoch.current) setRecommended(result); });
-      const episodes = (await getContinueWatching(history)).map(item => item.episode);
-      setResume(episodes);
-      const lists = await databaseService.getAnimeLists();
-      const defaultList = lists.find(l => l.isDefault);
-      setWatchlistId(defaultList?.id ?? null);
-      setWatchlist(defaultList ? await databaseService.getAnimesInList(defaultList.id) : []);
-    } catch { /* Personal data may be unavailable while SQLite initializes. */ }
-  }, []);
+      setResume(history.length ? (await getContinueWatching(history)).map(item => item.episode) : []);
+    } catch {
+      // Personal data may be unavailable while SQLite initializes.
+      setResume(previous => previous ?? []);
+      setRecommended(previous => previous === undefined ? null : previous);
+    }
+  }, [loadWatchlist]);
   useFocusEffect(useCallback(() => { void loadPersonal(); }, [loadPersonal]));
   const toggleWatchlist = async (anime: Anime) => {
     if (!watchlistId) return;
     try {
       await databaseService.saveAnime(anime);
-      if (watchlist.some(item => item.id === anime.id)) await databaseService.removeAnimeFromList(watchlistId, anime.id);
+      if (watchlist?.some(item => item.id === anime.id)) await databaseService.removeAnimeFromList(watchlistId, anime.id);
       else { await databaseService.addAnimeToList(watchlistId, anime.id); void malSync.watchlistAdded(anime); }
-      await loadPersonal();
+      await loadWatchlist();
     } catch { setError('Impossible de mettre à jour la Watchlist. Réessayez.'); }
   };
 
   const load = useCallback(async (refresh = false) => {
+    const token = ++loadEpoch.current;
+    const current = () => token === loadEpoch.current;
     setError('');
-    if (refresh) { setRefreshing(true); clearContinueCache(); clearRecommendationsCache(); } else setLoading(true);
-    void apiService.getScraperStatus().then(setScraper);
-    try {
-      // Lancé en parallèle de l'accueil (lecture SQLite locale) pour ne pas le retarder.
-      const genreShelves = getGenreShelves();
-      // Carrousel : sélection d'anime-sama ; à défaut, les mieux notés.
-      const [home, picks] = await Promise.all([apiService.getMobileHome(), apiService.getFeaturedAnimes(8).catch(() => [] as Anime[])]);
-      setFeatured(picks.length ? picks : home.popular_animes.slice(0, 5));
-      setLatest(home.latest_episodes);
-      const genres = await genreShelves;
-      const requests = await Promise.allSettled([
-        apiService.getTrendingAnimes(12),
-        apiService.getLatestAnimes(12),
-        ...genres.map(genre => apiService.getAnimesByGenre(genre.genre, 12)),
-      ]);
-      const names = ['Tendances du moment', 'À découvrir', ...genres.map(genre => genre.title)];
-      setShelves(requests.flatMap((result, index) => result.status === 'fulfilled' && result.value.length ? [{ title: names[index], items: result.value }] : []));
-      await loadPersonal();
-    } catch (e) { setError('Impossible de charger l’accueil. Vérifiez votre connexion, puis réessayez.'); }
-    finally { setLoading(false); setRefreshing(false); }
+    if (refresh) { setRefreshing(true); clearContinueCache(); clearRecommendationsCache(); void loadPersonal(); }
+    // Chaque section a sa requête et se remplit à sa place. Une section déjà affichée garde
+    // son contenu si son rafraîchissement échoue ; jamais chargée, elle disparaît.
+    const fill = <T,>(request: Promise<T[]>, set: React.Dispatch<React.SetStateAction<Loaded<T>>>) => request.then(
+      value => { if (current()) set(value); return true; },
+      () => { if (current()) set(previous => previous ?? []); return false; },
+    );
+    // Lancées dans l'ordre d'affichage : le planificateur (deux requêtes à la fois) sert d'abord le haut de l'écran.
+    // Carrousel : sélection d'anime-sama ; à défaut, les plus populaires.
+    const hero = fill(apiService.getFeaturedAnimes(8).catch(() => [] as Anime[]).then(picks => picks.length ? picks : apiService.getPopularAnimes(5)), setFeatured);
+    const top = fill(apiService.getTrendingAnimes(12), setTrending);
+    const status = apiService.getScraperStatus().then(value => { if (current()) setScraper(value); });
+    const episodes = fill(apiService.getLatestEpisodes(20, 'vostfr'), setLatest);
+    const more = fill(apiService.getLatestAnimes(12), setDiscover);
+    // Étagères par genre : lecture SQLite locale, puis une requête par genre.
+    const byGenre = getGenreShelves().then(async picked => {
+      if (!current()) return;
+      setGenres(picked);
+      await Promise.all(picked.map(({ genre }) => apiService.getAnimesByGenre(genre, 12).then(
+        items => { if (current()) setGenreItems(previous => ({ ...previous, [genre]: items })); },
+        () => { if (current()) setGenreItems(previous => previous[genre] ? previous : { ...previous, [genre]: [] }); },
+      )));
+    });
+    const [heroOk, topOk, episodesOk] = await Promise.all([hero, top, episodes, more, status, byGenre]);
+    if (!current()) return;
+    if (!heroOk && !topOk && !episodesOk) setError('Impossible de charger l’accueil. Vérifiez votre connexion, puis réessayez.');
+    setRefreshing(false);
   }, [loadPersonal]);
   useEffect(() => { void load(); }, [load]);
 
-  const shelf = (title: string, items: Anime[], subtitle?: string) => items.length > 0 && (
-    <FadeIn key={title} style={styles.section}>
-      <View style={styles.sectionHeading}><Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text></View>
-      {subtitle && <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>}
-      <FlatList horizontal data={items} keyExtractor={a => a.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} renderItem={({ item }) => <AnimeCard anime={item} size="medium" onPress={openAnime} />} />
-    </FadeIn>
+  const heading = (title?: string, subtitle?: string) => <>
+    <View style={styles.sectionHeading}>{title ? <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text> : <TitleSkeleton />}</View>
+    {subtitle && <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>}
+  </>;
+  // Une section en chargement réserve sa place (titre + rangée de cartes fantômes), puis se remplit sur place.
+  const shelf = (key: string, title: string | undefined, items: Loaded<Anime>, subtitle?: string) => items?.length === 0 ? null : (
+    <View key={key} style={styles.section}>
+      {heading(title, subtitle)}
+      <LoadingSwap loading={!items} skeleton={<RowSkeleton kind="anime" width={width} />}>
+        {items && <FlatList horizontal data={items} keyExtractor={a => a.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} renderItem={({ item }) => <AnimeCard anime={item} size="medium" onPress={openAnime} />} />}
+      </LoadingSwap>
+    </View>
   );
-  const episodes = (title: string, items: Episode[]) => items.length > 0 && (
-    <FadeIn style={styles.section}>
-      <View style={styles.sectionHeading}><Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text></View>
-      <FlatList horizontal data={items.slice(0, 12)} keyExtractor={e => e.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} renderItem={({ item }) => <EpisodeCard episode={item} onPress={openEpisode} />} />
-    </FadeIn>
+  const episodeShelf = (title: string, items: Loaded<Episode>, banner?: React.ReactNode) => items?.length === 0 ? null : (
+    <View style={styles.section}>
+      {items && banner}
+      {heading(title)}
+      <LoadingSwap loading={!items} skeleton={<RowSkeleton kind="episode" width={width} />}>
+        {items && <FlatList horizontal data={items.slice(0, 12)} keyExtractor={e => e.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} renderItem={({ item }) => <EpisodeCard episode={item} onPress={openEpisode} />} />}
+      </LoadingSwap>
+    </View>
   );
   const heroHeight = Math.min(660, Math.max(470, height * .69));
   const barHeight = insets.top + 56;
@@ -125,39 +155,44 @@ function HomeContent() {
   const solidTo = Math.max(solidFrom + 1, heroHeight - barHeight);
   const barOpacity = scrollY.interpolate({ inputRange: [solidFrom, solidTo], outputRange: [0, 1], extrapolate: 'clamp' });
   const barFade = barOpacity.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
-  const hasHero = featured.length > 0 || loading;
+  const hasHero = featured === undefined || featured.length > 0;
   useEffect(() => {
     const id = scrollY.addListener(({ value }) => setHeaderSolid(value >= solidTo));
     return () => scrollY.removeListener(id);
   }, [scrollY, solidTo]);
-  const isSaved = (anime: Anime) => watchlist.some(item => item.id === anime.id);
+  const isSaved = (anime: Anime) => !!watchlist?.some(item => item.id === anime.id);
+  const staleBanner = scraper?.stale && scraper.latest ? <View style={[styles.staleBanner, { borderColor: colors.warning }]}>
+    <Ionicons name="time-outline" size={18} color={colors.warning} />
+    <Text style={[styles.staleText, { color: colors.textSecondary }]}>
+      {scraper.latest.last_success_at
+        ? `Les nouveaux épisodes ne sont plus mis à jour depuis ${elapsedSince(scraper.latest.last_success_at)}.`
+        : 'Les nouveaux épisodes ne sont plus mis à jour pour le moment.'}
+    </Text>
+  </View> : null;
+  // Tant que la liste des genres n'est pas connue, les étagères par genre gardent leur place sans titre.
+  const genreShelves = genres ?? Array.from({ length: SHELF_COUNT }, () => undefined);
   return <View style={[styles.container, { backgroundColor: colors.background }]}>
     {focused && <StatusBar style={headerSolid && scheme === 'light' ? 'dark' : 'light'} />}
     <Animated.ScrollView
       onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: Platform.OS !== 'web' })}
       scrollEventThrottle={16}
+      // Une section qui disparaît au-dessus de l'écran ne fait pas sauter ce que l'on regarde (le carrousel visible n'est pas concerné).
+      maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} progressViewOffset={barHeight} />}
       contentContainerStyle={{ paddingBottom: 28, paddingTop: hasHero ? 0 : barHeight }}>
+      {hasHero && <View style={styles.hero}>
+        <LoadingSwap loading={!featured} skeleton={<HeroSkeleton width={width} height={heroHeight} />}>
+          {!!featured?.length && <HeroCarousel items={featured} width={width} height={heroHeight} colors={colors} isInWatchlist={isSaved} watchlistEnabled={!!watchlistId} onOpen={openAnime} onToggleWatchlist={toggleWatchlist} />}
+        </LoadingSwap>
+      </View>}
       {error ? <View style={styles.error}><Text style={{ color: colors.textSecondary, textAlign: 'center' }}>{error}</Text><MotionPressable onPress={() => load()} style={[styles.retry, { borderColor: colors.primary }]}><Text style={{ color: colors.primary }}>Réessayer</Text></MotionPressable></View> : null}
-      <LoadingSwap loading={loading && !featured.length} skeleton={<SkeletonGroup><View style={{ height: heroHeight + 32, paddingHorizontal: 18 }}><SkeletonBlock height={heroHeight * .6} style={{ marginHorizontal: -18 }} /><View style={{ paddingTop: 22, gap: 12 }}><SkeletonBlock width="75%" height={37} /><SkeletonBlock width="55%" height={14} /><SkeletonBlock height={20} /><SkeletonBlock width="85%" height={20} /><SkeletonBlock width={220} height={46} /></View></View></SkeletonGroup>}>
-      {featured.length > 0 && <View style={styles.hero}>
-        <HeroCarousel items={featured} width={width} height={heroHeight} colors={colors} isInWatchlist={isSaved} watchlistEnabled={!!watchlistId} onOpen={openAnime} onToggleWatchlist={toggleWatchlist} />
-      </View>}
-      </LoadingSwap>
-      {episodes('Reprendre', resume)}
-      {shelves[0] && shelf(shelves[0].title, shelves[0].items)}
-      {scraper?.stale && scraper.latest && <View style={[styles.staleBanner, { borderColor: colors.warning }]}>
-        <Ionicons name="time-outline" size={18} color={colors.warning} />
-        <Text style={[styles.staleText, { color: colors.textSecondary }]}>
-          {scraper.latest.last_success_at
-            ? `Les nouveaux épisodes ne sont plus mis à jour depuis ${elapsedSince(scraper.latest.last_success_at)}.`
-            : 'Les nouveaux épisodes ne sont plus mis à jour pour le moment.'}
-        </Text>
-      </View>}
-      {episodes('Nouveaux épisodes', latest)}
-      {shelf('Votre Watchlist', watchlist)}
-      {recommended && shelf(recommended.title, recommended.items)}
-      {shelves.slice(1).map(s => shelf(s.title, s.items, s.subtitle))}
+      {episodeShelf('Reprendre', resume)}
+      {shelf('trending', 'Tendances du moment', trending)}
+      {episodeShelf('Nouveaux épisodes', scraper === undefined ? undefined : latest, staleBanner)}
+      {shelf('watchlist', 'Votre Watchlist', watchlist)}
+      {recommended !== null && shelf('recommended', recommended?.title, recommended?.items)}
+      {shelf('discover', 'À découvrir', discover)}
+      {genreShelves.map((genre, index) => shelf(`genre-${index}`, genre?.title, genre ? genreItems[genre.genre] : undefined))}
       <MotionPressable accessibilityLabel="Explorer tous les animés" onPress={() => navigation.navigate('Catalog')} style={[styles.browse, { borderColor: colors.primary }]}><Text style={{ color: colors.primary, fontWeight: '700' }}>EXPLORER TOUS LES ANIME</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} /></MotionPressable>
     </Animated.ScrollView>
     <View pointerEvents="box-none" style={[styles.topBar, { height: barHeight + 40 }]}>
@@ -182,7 +217,7 @@ const styles = StyleSheet.create({
   hero: { marginBottom: 28 },
   section: { marginBottom: 30 },
   sectionHeading: { paddingHorizontal: 18, marginBottom: 14 },
-  sectionTitle: { fontSize: 21, fontWeight: '700' },
+  sectionTitle: { fontSize: 21, lineHeight: 26, fontWeight: '700' },
   sectionSubtitle: { paddingHorizontal: 18, marginBottom: 14, fontSize: 14 },
   row: { paddingHorizontal: 18 },
   staleBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 18, marginBottom: 16, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radii.card, borderWidth: 1 },
