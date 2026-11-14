@@ -16,12 +16,16 @@ export type RootStackParamList = {
   };
   Search: { query?: string };
   Stats: undefined;
+  ComicDetail: { provider: string; comicId: string };
+  /** `page`/`offset` : position à rouvrir (reprise) ; absents, le lecteur reprend la position enregistrée. */
+  ComicReader: { provider: string; comicId: string; chapterId: string; language: string; page?: number; offset?: number };
 };
 
 export type MainTabParamList = {
   Home: undefined;
   Lists: { tab?: 'Téléchargements' } | undefined;
   Catalog: undefined;
+  Scans: { section?: 'all' | 'manga' | 'manhwa' | 'manhua' | 'local' } | undefined;
   Planning: undefined;
   Settings: undefined;
 };

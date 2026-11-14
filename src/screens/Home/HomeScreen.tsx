@@ -22,6 +22,8 @@ import { clearRecommendationsCache, getRecommendationShelf, RecommendationShelf 
 import { GenreShelf, getGenreShelves, SHELF_COUNT } from '../../services/homeShelves';
 import { Anime, Episode, ScraperStatus } from '../../types/anime';
 import { elapsedSince } from '../../utils/relativeTime';
+import SectionHeader from '../../components/SectionHeader';
+import { gutterFor } from '../../theme/tokens';
 
 /** `undefined` while a section is loading (it shows its skeleton), `[]` once it turned out empty (it is hidden). */
 type Loaded<T> = T[] | undefined;
@@ -126,16 +128,14 @@ function HomeContent() {
   }, [loadPersonal]);
   useEffect(() => { void load(); }, [load]);
 
-  const heading = (title?: string, subtitle?: string) => <>
-    <View style={styles.sectionHeading}>{title ? <Text style={[styles.sectionTitle, { color: colors.text }]}>{title}</Text> : <TitleSkeleton />}</View>
-    {subtitle && <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>}
-  </>;
   // Une section en chargement réserve sa place (titre + rangée de cartes fantômes), puis se remplit sur place.
+  const heading = (title?: string, subtitle?: string) => title ? <SectionHeader title={title} subtitle={subtitle} gutter={gutter} /> : <TitleSkeleton gutter={gutter} />;
+  const rowStyle = () => ({ paddingHorizontal: gutter, paddingVertical: 6 });
   const shelf = (key: string, title: string | undefined, items: Loaded<Anime>, subtitle?: string) => items?.length === 0 ? null : (
     <View key={key} style={styles.section}>
       {heading(title, subtitle)}
-      <LoadingSwap loading={!items} skeleton={<RowSkeleton kind="anime" width={width} />}>
-        {items && <FlatList horizontal data={items} keyExtractor={a => a.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} renderItem={({ item }) => <AnimeCard anime={item} size="medium" onPress={openAnime} />} />}
+      <LoadingSwap loading={!items} skeleton={<RowSkeleton kind="anime" width={width} gutter={gutter} />}>
+        {items && <FlatList horizontal data={items} keyExtractor={a => a.id} showsHorizontalScrollIndicator={false} contentContainerStyle={rowStyle()} renderItem={({ item }) => <AnimeCard anime={item} size="medium" onPress={openAnime} />} />}
       </LoadingSwap>
     </View>
   );
@@ -143,11 +143,12 @@ function HomeContent() {
     <View style={styles.section}>
       {items && banner}
       {heading(title)}
-      <LoadingSwap loading={!items} skeleton={<RowSkeleton kind="episode" width={width} />}>
-        {items && <FlatList horizontal data={items.slice(0, 12)} keyExtractor={e => e.id} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} renderItem={({ item }) => <EpisodeCard episode={item} onPress={openEpisode} />} />}
+      <LoadingSwap loading={!items} skeleton={<RowSkeleton kind="episode" width={width} gutter={gutter} />}>
+        {items && <FlatList horizontal data={items.slice(0, 12)} keyExtractor={e => e.id} showsHorizontalScrollIndicator={false} contentContainerStyle={rowStyle()} renderItem={({ item }) => <EpisodeCard episode={item} onPress={openEpisode} />} />}
       </LoadingSwap>
     </View>
   );
+  const gutter = gutterFor(width);
   const heroHeight = Math.min(660, Math.max(470, height * .69));
   const barHeight = insets.top + 56;
   // The top bar is only a scrim over the hero; it turns opaque once the hero scrolls away.
@@ -161,7 +162,7 @@ function HomeContent() {
     return () => scrollY.removeListener(id);
   }, [scrollY, solidTo]);
   const isSaved = (anime: Anime) => !!watchlist?.some(item => item.id === anime.id);
-  const staleBanner = scraper?.stale && scraper.latest ? <View style={[styles.staleBanner, { borderColor: colors.warning }]}>
+  const staleBanner = scraper?.stale && scraper.latest ? <View style={[styles.staleBanner, { borderColor: colors.warning, marginHorizontal: gutter }]}>
     <Ionicons name="time-outline" size={18} color={colors.warning} />
     <Text style={[styles.staleText, { color: colors.textSecondary }]}>
       {scraper.latest.last_success_at
@@ -181,19 +182,19 @@ function HomeContent() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={colors.primary} progressViewOffset={barHeight} />}
       contentContainerStyle={{ paddingBottom: 28, paddingTop: hasHero ? 0 : barHeight }}>
       {hasHero && <View style={styles.hero}>
-        <LoadingSwap loading={!featured} skeleton={<HeroSkeleton width={width} height={heroHeight} />}>
-          {!!featured?.length && <HeroCarousel items={featured} width={width} height={heroHeight} colors={colors} isInWatchlist={isSaved} watchlistEnabled={!!watchlistId} onOpen={openAnime} onToggleWatchlist={toggleWatchlist} />}
+        <LoadingSwap loading={!featured} skeleton={<HeroSkeleton width={width} height={heroHeight} gutter={gutter} />}>
+          {!!featured?.length && <HeroCarousel items={featured} width={width} height={heroHeight} gutter={gutter} colors={colors} resumeFor={anime => resume?.find(episode => episode.animeId === anime.id)} onResume={openEpisode} isInWatchlist={isSaved} watchlistEnabled={!!watchlistId} onOpen={openAnime} onToggleWatchlist={toggleWatchlist} />}
         </LoadingSwap>
       </View>}
       {error ? <View style={styles.error}><Text style={{ color: colors.textSecondary, textAlign: 'center' }}>{error}</Text><MotionPressable onPress={() => load()} style={[styles.retry, { borderColor: colors.primary }]}><Text style={{ color: colors.primary }}>Réessayer</Text></MotionPressable></View> : null}
-      {episodeShelf('Reprendre', resume)}
-      {shelf('trending', 'Tendances du moment', trending)}
-      {episodeShelf('Nouveaux épisodes', scraper === undefined ? undefined : latest, staleBanner)}
+      {episodeShelf('Continuer', resume)}
+      {shelf('trending', 'Tendances', trending)}
+      {episodeShelf('Nouveautés', scraper === undefined ? undefined : latest, staleBanner)}
       {shelf('watchlist', 'Votre Watchlist', watchlist)}
       {recommended !== null && shelf('recommended', recommended?.title, recommended?.items)}
       {shelf('discover', 'À découvrir', discover)}
       {genreShelves.map((genre, index) => shelf(`genre-${index}`, genre?.title, genre ? genreItems[genre.genre] : undefined))}
-      <MotionPressable accessibilityLabel="Explorer tous les animés" onPress={() => navigation.navigate('Catalog')} style={[styles.browse, { borderColor: colors.primary }]}><Text style={{ color: colors.primary, fontWeight: '700' }}>EXPLORER TOUS LES ANIME</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} /></MotionPressable>
+      <MotionPressable accessibilityLabel="Explorer tous les animés" onPress={() => navigation.navigate('Catalog')} style={[styles.browse, { borderColor: colors.primary, marginHorizontal: gutter }]}><Text style={{ color: colors.primary, fontWeight: '700' }}>Explorer tous les animés</Text><Ionicons name="arrow-forward" size={20} color={colors.primary} /></MotionPressable>
     </Animated.ScrollView>
     <View pointerEvents="box-none" style={[styles.topBar, { height: barHeight + 40 }]}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: barFade }]}><LinearGradient colors={['rgba(0,0,0,.6)', 'rgba(0,0,0,0)']} style={StyleSheet.absoluteFill} /></Animated.View>
@@ -214,15 +215,11 @@ const styles = StyleSheet.create({
   topBarRow: { paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' },
   search: { borderRadius: radii.pill, padding: 8 },
   searchSolid: { position: 'absolute', top: 8, left: 8 },
-  hero: { marginBottom: 28 },
-  section: { marginBottom: 30 },
-  sectionHeading: { paddingHorizontal: 18, marginBottom: 14 },
-  sectionTitle: { fontSize: 21, lineHeight: 26, fontWeight: '700' },
-  sectionSubtitle: { paddingHorizontal: 18, marginBottom: 14, fontSize: 14 },
-  row: { paddingHorizontal: 18 },
-  staleBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 18, marginBottom: 16, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radii.card, borderWidth: 1 },
+  hero: { marginBottom: 32 },
+  section: { marginBottom: 36 },
+  staleBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radii.card, borderWidth: 1 },
   staleText: { flex: 1, fontSize: 13 },
   error: { padding: 28, alignItems: 'center', gap: 16 },
   retry: { borderRadius: radii.pill, borderWidth: 1, padding: 12 },
-  browse: { borderRadius: radii.pill, borderWidth: 1, padding: 18, marginHorizontal: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12 },
+  browse: { borderRadius: radii.pill, borderWidth: 1, padding: 18, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12 },
 });

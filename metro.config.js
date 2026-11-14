@@ -3,6 +3,11 @@ const { getDefaultConfig } = require('expo/metro-config');
 const config = getDefaultConfig(__dirname);
 // Expo SQLite's web worker loads its database engine as a WASM asset.
 config.resolver.assetExts.push('wasm');
+// pdf.js (rendu des PDF importés) est chargé comme ressource, pas comme module du bundle.
+config.resolver.assetExts.push('pdfjs');
+// La coque Windows (desktop/) a ses propres dépendances Electron : hors du bundle de l'app.
+const desktopDir = require('path').join(__dirname, 'desktop');
+config.resolver.blockList = [new RegExp(`^${desktopDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\\\/]`)];
 const previousMiddleware = config.server.enhanceMiddleware;
 config.server.enhanceMiddleware = (middleware, server) => {
   const enhanced = previousMiddleware ? previousMiddleware(middleware, server) : middleware;
