@@ -21,7 +21,9 @@ assert.equal(resolveUrl('720/index.m3u8', 'https://x/hls/'), 'https://x/hls/720/
 
 // hostOf: by domain, never by the anime-sama server name.
 assert.equal(hostOf('https://voe.sx/e/abc').id, 'voe');
-assert.equal(hostOf('https://ANSEMBED.xyz/embed-1.html').id, 'oneupload');
+assert.equal(hostOf('https://ANSEMBED.net/embed-1.html').id, 'vidmoly', 'ansembed.net is a Vidmoly mirror');
+assert.equal(hostOf('https://vidmoly.biz/embed-1.html').id, 'vidmoly');
+assert.equal(hostOf('https://oneupload.to/embed-1.html').id, 'oneupload');
 assert.equal(hostOf('https://minochinos.com/v/1').id, 'vidhide');
 assert.equal(hostOf('https://vk.com/video_ext.php?oid=1').id, 'vk');
 assert.equal(hostOf('https://notvk.com/x').id, 'notvk.com', 'vk only matches vk.com and its subdomains');

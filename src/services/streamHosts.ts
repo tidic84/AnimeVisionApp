@@ -35,11 +35,12 @@ export function hostOf(url: string): { id: string; label: string } {
   const known = (id: StreamHostId) => STREAM_HOSTS.find(item => item.id === id)!;
   if (host.includes('voe')) return known('voe');
   if (host.includes('uqload')) return known('uqload');
-  if (host.includes('oneupload') || host.includes('ansembed')) return known('oneupload');
+  // ansembed.net est un miroir de Vidmoly (anime-sama le nomme ainsi dans `lecteursInfos`), pas de OneUpload.
+  if (host.includes('vidmoly') || host.includes('ansembed')) return known('vidmoly');
+  if (host.includes('oneupload')) return known('oneupload');
   if (host.includes('vidhide') || host.includes('minochinos') || host.includes('callistanise')) return known('vidhide');
   if (host.includes('sibnet')) return known('sibnet');
   if (host.includes('sendvid')) return known('sendvid');
-  if (host.includes('vidmoly')) return known('vidmoly');
   if (host === 'vk.com' || host.endsWith('.vk.com') || host.includes('vkvideo')) return known('vk');
   if (host.includes('embed4me')) return known('embed4me');
   // Les miroirs de Voe changent de domaine sans cesse (susanexpectcare.com, shannoncoldalready.com…) mais gardent /e/<code>.
