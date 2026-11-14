@@ -58,11 +58,15 @@ const hlsResult = url => ({ success: true, urls: [{ url, type: 'hls', extractedA
   // HLS is preferred even when a direct MP4 comes first; ids are download_<episode>_<quality>.
   {
     const { service, hlsCalls, gates, dbUpdates } = harness({ 7: { success: true, urls: [{ url: 'https://h/v.mp4', type: 'mp4' }, { url: 'https://h/master.m3u8', type: 'hls' }] } });
-    const seen = [];
+    const seen = [], heard = [];
+    // Screens subscribe to every download, not only the ones they started.
+    const unsubscribe = service.subscribe(progress => heard.push(progress));
     await service.startDownload(episode('7'), Q.MEDIUM, progress => seen.push(progress));
     assert.deepEqual([...service.downloads.keys()], ['download_7_720p']);
-    assert.equal(seen[0].status, 'downloading'); assert.equal(seen[0].progress, 0);
+    assert.equal(seen[0].status, 'queued'); assert.equal(seen[0].progress, 0);
     await until(() => hlsCalls.length === 1, 'HLS download should start');
+    // Leaving the queue is reported before the total size is known.
+    assert.equal(seen.at(-1).status, 'downloading'); assert.equal(seen.at(-1).totalSegments, undefined);
     assert.equal(hlsCalls[0].url, 'https://h/master.m3u8'); assert.equal(hlsCalls[0].ep.id, '7');
     assert.equal(service.downloads.get('download_7_720p').status, S.DOWNLOADING);
     gates[0].onProgress({ downloadId: 'x', totalSegments: 4, completedSegments: 1, totalBytes: 10, status: 'downloading' });
@@ -77,11 +81,14 @@ const hlsResult = url => ({ success: true, urls: [{ url, type: 'hls', extractedA
     assert.equal(done.filePath, '/app/downloads/Episode_7.ts'); assert.equal(done.progress.progress, 100); assert.equal(done.progress.status, 'completed');
     assert.equal(typeof done.downloadedAt?.getTime, 'function');
     assert.equal(seen.at(-1).status, 'completed');
+    assert.deepEqual(heard.map(progress => progress.status), seen.map(progress => progress.status));
+    unsubscribe(); const heardCount = heard.length;
     assert.deepEqual(dbUpdates.at(-1), ['7', S.DOWNLOADED, '/app/downloads/Episode_7.ts']);
     assert.ok(!service.downloadCallbacks.has('download_7_720p'), 'callback is released once finished');
     // Starting the same episode/quality again is a no-op.
     await service.startDownload(episode('7'), Q.MEDIUM);
     await tick(); assert.equal(hlsCalls.length, 1);
+    assert.equal(heard.length, heardCount, 'an unsubscribed listener hears nothing');
     // Starting another episode keeps the finished HLS download (its playlist exists)...
     await service.startDownload(episode('70'), Q.MEDIUM);
     assert.equal(service.downloads.get('download_7_720p')?.status, S.DOWNLOADED);
