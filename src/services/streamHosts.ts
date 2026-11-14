@@ -56,6 +56,11 @@ export function isBrokenEmbed(url: string): boolean {
     || /embed-\.html$/i.test(parsed.pathname) || (parsed.hostname.includes('embed4me') && parsed.hash.length < 2);
 }
 
+/** Hébergeur sans flux extractible (Embed4me) : au mieux un lecteur web, jamais préférable à un flux natif. */
+export function isWebOnlyHost(url: string): boolean {
+  return hostOf(url).id === 'embed4me';
+}
+
 export type StreamQuality = { label: string; url: string; height?: number };
 export type StreamProbe =
   | { status: 'ok'; url: string; headers: Record<string, string>; qualities: StreamQuality[]; height?: number; thumbnails?: string }
@@ -166,7 +171,6 @@ async function hlsVariants(url: string, headers: Record<string, string>): Promis
 export async function probeServer(server: StreamingServer): Promise<StreamProbe> {
   if (isBrokenEmbed(server.url)) return { status: 'dead', reason: 'Lien du lecteur incomplet' };
   const host = hostOf(server.url).id;
-  if (host === 'embed4me') return { status: 'embed', reason: 'Lecteur web uniquement' };
   try {
     // Sans Referer : Uqload refuse les pages demandées depuis anime-sama (« Video embed restricted for this domain »).
     let page = await get(server.url);
@@ -178,6 +182,8 @@ export async function probeServer(server: StreamingServer): Promise<StreamProbe>
     if (page.status === 403) return { status: 'dead', reason: 'Accès refusé par l’hébergeur' };
     if (page.status >= 400) return { status: 'dead', reason: `Erreur ${page.status}` };
     if (DEAD_TEXT.test(page.text.slice(0, 200000))) return { status: 'dead', reason: 'Vidéo supprimée ou privée' };
+    // Embed4me ne livre sa vidéo qu'à son lecteur web : la page a répondu, on ne peut pas en savoir plus.
+    if (isWebOnlyHost(server.url)) return { status: 'embed', reason: 'Lecteur web uniquement' };
     const origin = new URL(page.url).origin;
     const headers = { 'User-Agent': STREAM_USER_AGENT, Referer: `${origin}/` };
     const thumbnails = thumbnailTrack(host, page.text, page.url);
@@ -192,7 +198,9 @@ export async function probeServer(server: StreamingServer): Promise<StreamProbe>
     }
     return { status: 'embed', reason: 'Flux non extractible' };
   } catch (error) {
-    return error instanceof Error && error.name === 'AbortError' ? { status: 'dead', reason: 'Le lecteur ne répond pas' } : { status: 'embed', reason: 'Lecteur injoignable' };
+    // L'appareil n'atteint pas l'hébergeur (délai, domaine mort, connexion refusée) : son lecteur web n'y arrivera pas
+    // davantage. Embed4me, marqué mort par anime-sama, passait ainsi pour « lecteur web » valide sans rien lire.
+    return { status: 'dead', reason: error instanceof Error && error.name === 'AbortError' ? 'Le lecteur ne répond pas' : 'Hébergeur injoignable' };
   }
 }
 
