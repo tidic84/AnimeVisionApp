@@ -61,7 +61,7 @@ const EpisodeCard: React.FC<EpisodeCardProps> = ({
   };
 
   return (
-    <MotionPressable
+    <MotionPressable hoverScale={1.03}
       style={[
         styles.container,
         { backgroundColor: colors.background, borderColor: colors.background, width: sizeStyles.width }

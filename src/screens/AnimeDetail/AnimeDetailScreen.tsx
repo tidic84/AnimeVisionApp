@@ -1,6 +1,6 @@
 import { radii } from '../../theme/shape';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Image, NativeScrollEvent, NativeSyntheticEvent, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
@@ -11,8 +11,9 @@ import { palette } from '../../theme/palette';
 import { useAppColorScheme } from '../../contexts/ThemeContext';
 import apiService from '../../services/apiService';
 import databaseService from '../../services/databaseService';
-import downloadService from '../../services/downloadService';
+import downloadService, { DownloadProgress } from '../../services/downloadService';
 import CustomModal from '../../components/CustomModal';
+import DownloadProgressRing from '../../components/DownloadProgressRing';
 import { SkeletonBlock, SkeletonGroup } from '../../components/SkeletonCard/SkeletonCard';
 import { LoadingSwap } from '../../components/Motion';
 import { getPreferredLanguage } from '../../services/preferences';
@@ -24,6 +25,10 @@ import { dialog } from '../../components/Dialog';
 
 const seasonTitle = (season: Season) => season.titre_saison?.trim() || (season.num_saison > 0 && season.num_saison < 100 ? `Saison ${season.num_saison}` : season.type || 'Épisodes');
 const mergeLocal = (episode: Episode, cached?: Episode): Episode => ({ ...episode, watchProgress: cached?.watchProgress ?? episode.watchProgress, isWatched: cached?.isWatched ?? episode.isWatched, downloadStatus: cached?.downloadStatus ?? episode.downloadStatus });
+
+// Téléchargement en file ou en cours : progression en %, ou null tant que la taille totale est inconnue.
+type LiveDownload = { status: DownloadStatus.QUEUED | DownloadStatus.DOWNLOADING; progress: number | null };
+const liveDownload = (queued: boolean, progress: DownloadProgress): LiveDownload => ({ status: queued ? DownloadStatus.QUEUED : DownloadStatus.DOWNLOADING, progress: progress.totalSegments ? progress.progress : null });
 
 const progressByEpisode = (history: WatchHistory[], animeId: string) => Object.fromEntries(history.filter(entry => entry.animeId === animeId).map(entry => [entry.episodeId, entry.progress]));
 
@@ -50,12 +55,17 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   const [descending, setDescending] = useState(false);
   const [language, setLanguage] = useState(''); // '' = choix automatique
   const [preferredLanguage, setPreferredLanguage] = useState('VOSTFR');
-  const [episodeLimit, setEpisodeLimit] = useState(24);
+  // Rendu progressif : tous les épisodes s'affichent, par tranches ajoutées automatiquement à l'approche du bas
+  // (évite de monter d'un coup ~1100 lignes avec images sur les longues séries).
+  const [episodeLimit, setEpisodeLimit] = useState(EPISODE_BATCH);
+  const viewportHeight = useRef(0);
+  const scrollOffset = useRef(0);
   // Même règle que « Reprendre » sur l'accueil : dernier épisode consulté, ou le suivant s'il est fini.
   const [continueItem, setContinueItem] = useState<ContinueItem | null>(null);
   const resumeId = continueItem?.episode.id || '';
   const [historyProgress, setHistoryProgress] = useState<Record<string, number>>({});
   const [batchBusy, setBatchBusy] = useState(false);
+  const [liveDownloads, setLiveDownloads] = useState<Partial<Record<string, LiveDownload>>>({});
   const [malActive, setMalActive] = useState(false);
   const [malBusy, setMalBusy] = useState(false);
   const detailEpoch = useRef(0);
@@ -144,7 +154,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
     if (seasonId) loadSeason(seasonId);
     return () => { seasonEpoch.current += 1; };
   }, [seasonId, animeId]);
-  useEffect(() => { setEpisodeLimit(24); }, [animeId, seasonId, language, descending]);
+  useEffect(() => { setEpisodeLimit(EPISODE_BATCH); }, [animeId, seasonId, language, descending]);
 
   useFocusEffect(useCallback(() => {
     let active = true;
@@ -241,13 +251,32 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       navigation.navigate('VideoPlayer', { episodeId, animeId, autoPlay: true });
     } catch { dialog.alert('Lecture', 'Impossible de préparer cet épisode. Réessayez.'); }
   };
+  // Progression de tous les téléchargements, y compris ceux lancés avant d'ouvrir la fiche.
+  useEffect(() => downloadService.subscribe(progress => {
+    const { episodeId } = progress;
+    if (progress.status === 'completed' || progress.status === 'error') {
+      const status = progress.status === 'completed' ? DownloadStatus.DOWNLOADED : DownloadStatus.FAILED;
+      setLiveDownloads(previous => { if (!(episodeId in previous)) return previous; const next = { ...previous }; delete next[episodeId]; return next; });
+      setEpisodes(previous => previous.some(item => item.id === episodeId) ? previous.map(item => item.id === episodeId ? { ...item, downloadStatus: status } : item) : previous);
+      return;
+    }
+    setLiveDownloads(previous => ({ ...previous, [episodeId]: liveDownload(progress.status === 'queued', progress) }));
+  }), []);
+  useFocusEffect(useCallback(() => {
+    if (Platform.OS === 'web') return;
+    let active = true;
+    downloadService.getAllDownloads().then(items => {
+      if (!active) return;
+      const running = items.filter(item => item.status === DownloadStatus.QUEUED || item.status === DownloadStatus.DOWNLOADING);
+      setLiveDownloads(Object.fromEntries(running.map(item => [item.episode.id, liveDownload(item.status === DownloadStatus.QUEUED, item.progress)])));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []));
+  const downloadStatusOf = (episode: Episode): DownloadStatus => liveDownloads[episode.id]?.status ?? episode.downloadStatus;
   const enqueueDownload = async (episode: Episode) => {
     if (!episode.streamingUrls.length && !(episode.streaming_servers || []).length) throw new Error('Aucun serveur disponible pour cet épisode.');
     const quality = episode.streamingUrls.some(source => source.quality === VideoQuality.HIGH) ? VideoQuality.HIGH : episode.streamingUrls[0]?.quality || VideoQuality.HIGH;
-    await downloadService.startDownload(episode, quality, progress => {
-      const status = progress.status === 'completed' ? DownloadStatus.DOWNLOADED : progress.status === 'error' ? DownloadStatus.FAILED : DownloadStatus.DOWNLOADING;
-      setEpisodes(previous => previous.map(item => item.id === episode.id ? { ...item, downloadStatus: status } : item));
-    });
+    await downloadService.startDownload(episode, quality);
     const downloads = await downloadService.getAllDownloads();
     const item = downloads.find(download => download.episode.id === episode.id);
     if (item) setEpisodes(previous => previous.map(existing => existing.id === episode.id ? { ...existing, downloadStatus: item.status } : existing));
@@ -263,6 +292,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
       if (episode.downloadStatus === DownloadStatus.DOWNLOADING) return;
       if (episode.downloadStatus === DownloadStatus.QUEUED) {
         await downloadService.cancelDownload(episode.id);
+        setLiveDownloads(previous => { const next = { ...previous }; delete next[episode.id]; return next; });
         setEpisodes(previous => previous.map(item => item.id === episode.id ? { ...item, downloadStatus: DownloadStatus.NOT_DOWNLOADED } : item));
         return;
       }
@@ -279,8 +309,19 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   const inOrder = [...visibleEpisodes].sort((a, b) => a.number - b.number);
   const primaryEpisode = resumeId || inOrder.find(episode => !isWatched(episode))?.id || inOrder[0]?.id;
   const primaryLabel = continueItem?.kind === 'resume' ? 'Reprendre la lecture' : continueItem ? `Regarder l’épisode ${continueItem.episode.number}` : primaryEpisode ? 'Commencer à regarder' : 'Aucun épisode disponible';
+  const hasMoreEpisodes = tab === 'episodes' && !episodesLoading && visibleEpisodes.length > episodeLimit;
+  const revealMoreIfNearEnd = (contentHeight: number) => {
+    if (!hasMoreEpisodes || !viewportHeight.current) return;
+    if (scrollOffset.current + viewportHeight.current * 2.5 >= contentHeight) setEpisodeLimit(limit => Math.min(limit + EPISODE_BATCH, visibleEpisodes.length));
+  };
+  const onDetailScroll = ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollOffset.current = nativeEvent.contentOffset.y;
+    viewportHeight.current = nativeEvent.layoutMeasurement.height;
+    revealMoreIfNearEnd(nativeEvent.contentSize.height);
+  };
+
   const batchDownload = () => {
-    const candidates = visibleEpisodes.filter(episode => ![DownloadStatus.DOWNLOADED, DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(episode.downloadStatus) && (episode.streamingUrls.length || episode.streaming_servers?.length));
+    const candidates = visibleEpisodes.filter(episode => ![DownloadStatus.DOWNLOADED, DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(downloadStatusOf(episode)) && (episode.streamingUrls.length || episode.streaming_servers?.length));
     if (!candidates.length) { dialog.alert('Téléchargements', 'Aucun nouvel épisode disponible au téléchargement.'); return; }
     dialog.alert('Télécharger la sélection', `Ajouter ${candidates.length} épisodes à la file de téléchargement ?`, [{ text: 'Annuler', style: 'cancel' }, { text: 'Télécharger', onPress: async () => {
       setBatchBusy(true);
@@ -295,7 +336,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   const pageSkeleton = <SkeletonGroup><ScrollView contentContainerStyle={{ paddingBottom: 100 }}><SkeletonBlock width="100%" height={heroHeight} /><View style={{ padding: 16, gap: 20 }}><SkeletonBlock width="80%" height={32} /><SkeletonBlock width="50%" height={18} /><SkeletonBlock width="100%" height={72} /><SkeletonBlock width="100%" height={45} />{episodeSkeleton}</View></ScrollView></SkeletonGroup>;
   return <View style={{ flex: 1, backgroundColor: colors.background }}>
     <LoadingSwap loading={loading} skeleton={pageSkeleton} style={{ flex: 1 }}>
-      {anime ? <ScrollView contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
+      {anime ? <ScrollView contentContainerStyle={{ paddingBottom: 28 }} showsVerticalScrollIndicator={false} scrollEventThrottle={100} onScroll={onDetailScroll} onLayout={event => { viewportHeight.current = event.nativeEvent.layout.height; }} onContentSizeChange={(_, contentHeight) => revealMoreIfNearEnd(contentHeight)}>
         <View style={{ height: heroHeight, backgroundColor: colors.surface }}>
           {(anime.banner || anime.thumbnail) && <Image source={{ uri: anime.banner || anime.thumbnail }} style={StyleSheet.absoluteFill} resizeMode="cover" />}
           <LinearGradient colors={['rgba(0,0,0,0.06)', 'rgba(0,0,0,0.15)', colors.background]} locations={[0, 0.45, 1]} style={StyleSheet.absoluteFill} />
@@ -313,12 +354,15 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
           {!!episodeError && visibleEpisodes.length > 0 &&<Text style={{ color: colors.warning, marginBottom: 16 }}>{episodeError}</Text>}<LoadingSwap loading={episodesLoading} skeleton={<SkeletonGroup>{episodeSkeleton}</SkeletonGroup>}>
             {episodeError && !visibleEpisodes.length ? <TouchableOpacity accessibilityRole="button" accessibilityHint="Touchez pour réessayer" onPress={() => seasonId ? loadSeason(seasonId) : loadDetails()}><Text style={{ color: colors.error, paddingVertical: 24 }}>{episodeError}</Text></TouchableOpacity> : visibleEpisodes.length ? visibleEpisodes.slice(0, episodeLimit).map(episode => {
               const image = episode.thumbnail && !episode.thumbnail.includes('placeholder') ? episode.thumbnail : anime.banner || anime.thumbnail;
-              const downloading = [DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(episode.downloadStatus);
+              const downloadStatus = downloadStatusOf(episode);
+              const downloading = [DownloadStatus.DOWNLOADING, DownloadStatus.QUEUED].includes(downloadStatus);
+              const transferring = downloadStatus === DownloadStatus.DOWNLOADING;
+              const downloadPercent = transferring ? liveDownloads[episode.id]?.progress ?? null : null;
               const progress = historyProgress[episode.id] ?? episode.watchProgress ?? 0;
               const watched = isWatched(episode);
-              return <View key={episode.id} style={styles.episodeRow}><TouchableOpacity onPress={() => play(episode.id)} onLongPress={() => episodeMenu(episode)} accessibilityRole="button" accessibilityHint="Appui long pour marquer comme vu ou non vu" accessibilityLabel={`Lire l’${episodeLabel(episode, { withAnime: false, progress })}`} style={{ width: 138, height: 78, borderRadius: radii.card, overflow: 'hidden', backgroundColor: colors.surface }}>{image ? <Image source={{ uri: image }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}<View style={[styles.playOverlay, watched && { backgroundColor: colors.overlay }]}><Ionicons name={watched ? 'refresh' : 'play'} size={26} color="#fff" /></View>{!watched && progress > 0 && <View style={styles.progressOverlay}><View style={[styles.progressTrack, { backgroundColor: colors.border }]}><View style={[styles.progressFill, { backgroundColor: colors.buttonBg, width: `${Math.min(100, Math.max(0, progress))}%` }]} /></View></View>}</TouchableOpacity><TouchableOpacity onPress={() => play(episode.id)} onLongPress={() => episodeMenu(episode)} accessible={false} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ flex: 1 }}><Text numberOfLines={2} style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>{`E${episode.number} · ${episode.title}`}</Text><Text numberOfLines={1} style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8 }}>{[episodeLanguage(episode), episode.duration > 0 ? `${Math.round(episode.duration / 60)} min` : '', watched ? 'Regardé' : ''].filter(Boolean).join(' · ')}</Text></TouchableOpacity>{Platform.OS !== 'web' && <TouchableOpacity disabled={episode.downloadStatus === DownloadStatus.DOWNLOADING} accessibilityRole="button" accessibilityState={{ disabled: episode.downloadStatus === DownloadStatus.DOWNLOADING }} accessibilityLabel={`${episode.downloadStatus === DownloadStatus.DOWNLOADING ? 'Téléchargement en cours de l’épisode' : downloading ? 'Annuler le téléchargement de l’épisode' : episode.downloadStatus === DownloadStatus.DOWNLOADED ? 'Lire hors ligne l’épisode' : 'Télécharger l’épisode'} ${episode.number}`} onPress={() => download(episode)} hitSlop={hitSlopFor(30, 44)} style={styles.downloadButton}><Ionicons name={episode.downloadStatus === DownloadStatus.DOWNLOADED ? 'checkmark-circle' : downloading ? 'close-circle-outline' : 'download-outline'} size={23} color={downloading || episode.downloadStatus === DownloadStatus.DOWNLOADED ? colors.primary : colors.textSecondary} /></TouchableOpacity>}</View>;
+              return <View key={episode.id} style={styles.episodeRow}><TouchableOpacity onPress={() => play(episode.id)} onLongPress={() => episodeMenu(episode)} accessibilityRole="button" accessibilityHint="Appui long pour marquer comme vu ou non vu" accessibilityLabel={`Lire l’${episodeLabel(episode, { withAnime: false, progress })}`} style={{ width: 138, height: 78, borderRadius: radii.card, overflow: 'hidden', backgroundColor: colors.surface }}>{image ? <Image source={{ uri: image }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}<View style={[styles.playOverlay, watched && { backgroundColor: colors.overlay }]}><Ionicons name={watched ? 'refresh' : 'play'} size={26} color="#fff" /></View>{!watched && progress > 0 && <View style={styles.progressOverlay}><View style={[styles.progressTrack, { backgroundColor: colors.border }]}><View style={[styles.progressFill, { backgroundColor: colors.buttonBg, width: `${Math.min(100, Math.max(0, progress))}%` }]} /></View></View>}</TouchableOpacity><TouchableOpacity onPress={() => play(episode.id)} onLongPress={() => episodeMenu(episode)} accessible={false} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ flex: 1 }}><Text numberOfLines={2} style={{ color: colors.text, fontSize: 14, lineHeight: 20 }}>{`E${episode.number} · ${episode.title}`}</Text><Text numberOfLines={1} style={{ color: colors.textSecondary, fontSize: 12, marginTop: 8 }}>{[episodeLanguage(episode), episode.duration > 0 ? `${Math.round(episode.duration / 60)} min` : '', watched ? 'Regardé' : ''].filter(Boolean).join(' · ')}</Text></TouchableOpacity>{Platform.OS !== 'web' && <TouchableOpacity disabled={transferring} accessibilityRole="button" accessibilityState={{ disabled: transferring, busy: downloading }} accessibilityValue={downloadPercent !== null ? { min: 0, max: 100, now: Math.round(downloadPercent) } : undefined} accessibilityLabel={`${transferring ? 'Téléchargement en cours de l’épisode' : downloading ? 'Annuler le téléchargement en attente de l’épisode' : downloadStatus === DownloadStatus.DOWNLOADED ? 'Lire hors ligne l’épisode' : 'Télécharger l’épisode'} ${episode.number}${downloadPercent !== null ? `, ${Math.round(downloadPercent)} %` : ''}`} onPress={() => download({ ...episode, downloadStatus })} hitSlop={hitSlopFor(30, 44)} style={styles.downloadButton}>{downloading ? <DownloadProgressRing progress={transferring ? downloadPercent : 0} color={colors.primary} trackColor={colors.border}><Ionicons name={transferring ? 'arrow-down' : 'close'} size={12} color={colors.primary} /></DownloadProgressRing> : <Ionicons name={downloadStatus === DownloadStatus.DOWNLOADED ? 'checkmark-circle' : 'download-outline'} size={23} color={downloadStatus === DownloadStatus.DOWNLOADED ? colors.primary : colors.textSecondary} />}</TouchableOpacity>}</View>;
             }) : <Text style={{ color: colors.textSecondary, paddingVertical: 32 }}>Aucun épisode disponible pour cette sélection.</Text>}
-            {!episodesLoading && visibleEpisodes.length > episodeLimit && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Afficher 24 épisodes supplémentaires" onPress={() => setEpisodeLimit(limit => limit + 24)} style={{ paddingVertical: 16, alignItems: 'center', borderTopWidth: 1, borderTopColor: colors.border }}><Text style={{ color: colors.primary, fontWeight: '600' }}>Afficher plus d’épisodes</Text><Text style={{ color: colors.textSecondary, marginTop: 6, fontSize: 12 }}>{Math.min(episodeLimit, visibleEpisodes.length)} / {visibleEpisodes.length} épisodes</Text></TouchableOpacity>}
+            {hasMoreEpisodes && <ActivityIndicator accessibilityLabel={`${episodeLimit} épisodes affichés sur ${visibleEpisodes.length}, chargement de la suite`} color={colors.textSecondary} style={{ paddingVertical: 20 }} />}
           </LoadingSwap>
         </View> : <View style={styles.similarGrid}>{similar.length ? similar.map(item => <TouchableOpacity key={item.id} accessibilityRole="button" accessibilityLabel={`Découvrir ${item.title}`} onPress={() => navigation.push('AnimeDetail', { animeId: item.id })} style={{ width: Math.min(200, (width - 40) / 2), marginBottom: 16 }}><Image source={{ uri: item.thumbnail }} style={{ width: '100%', aspectRatio: 2 / 3, borderRadius: radii.card, backgroundColor: colors.surface }} /><Text numberOfLines={2} style={{ color: colors.text, marginTop: 10, lineHeight: 21 }}>{item.title}</Text></TouchableOpacity>) : <Text style={{ color: colors.textSecondary, paddingVertical: 24 }}>Aucun titre similaire renseigné.</Text>}</View>}
       </ScrollView> : <View style={styles.error}><Text style={{ color: colors.text, fontSize: 20 }}>Fiche indisponible</Text><Text style={{ color: colors.textSecondary, lineHeight: 23, marginTop: 12 }}>{error}</Text><TouchableOpacity accessibilityRole="button" onPress={loadDetails} style={[styles.retry, { backgroundColor: colors.buttonBg }]}><Text style={{ color: colors.buttonText }}>Réessayer</Text></TouchableOpacity></View>}
@@ -329,6 +373,7 @@ export default function AnimeDetailScreen({ navigation, route }: RootStackScreen
   </View>;
 }
 
+const EPISODE_BATCH = 40;
 // Boutons à icône de 42 px : 1 px de marge tactile de chaque côté pour atteindre 44 px.
 const ICON_SLOP = hitSlopFor(42);
 

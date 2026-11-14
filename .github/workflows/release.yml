@@ -73,3 +73,43 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # Installateur Windows (export web Expo dans Electron, NSIS), joint à la même release.
+  windows:
+    needs: apk
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - run: npm ci
+
+      - run: npm ci --no-audit --no-fund
+        working-directory: desktop
+
+      - name: Configuration de l'app (.env)
+        shell: bash
+        run: |
+          printf 'API_ADDRESS=%s\nMAL_CLIENT_ID=%s\n' "$API_ADDRESS" "$MAL_CLIENT_ID" > .env
+        env:
+          API_ADDRESS: ${{ vars.API_ADDRESS }}
+          MAL_CLIENT_ID: ${{ secrets.MAL_CLIENT_ID }}
+
+      - run: node scripts/build-desktop.cjs
+
+      - name: Joindre l'installateur à la release
+        shell: bash
+        run: |
+          exe="dist-desktop/AnimeVision-Setup-${GITHUB_REF_NAME#v}.exe"
+          sha256sum "$exe" > "$exe.sha256"
+          gh release upload "$GITHUB_REF_NAME" "$exe" "$exe.sha256" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

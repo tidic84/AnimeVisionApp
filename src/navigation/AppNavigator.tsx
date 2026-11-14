@@ -8,7 +8,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { View, Easing } from 'react-native';
+import { View, Easing, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RootStackParamList, MainTabParamList, RootStackScreenProps } from '../types/navigation';
@@ -22,13 +22,16 @@ import SettingsScreen from '../screens/Settings/SettingsScreen';
 import AnimeDetailScreen from '../screens/AnimeDetail/AnimeDetailScreen';
 import VideoPlayerScreen from '../screens/VideoPlayer/VideoPlayerScreen';
 import StatsScreen from '../screens/Stats/StatsScreen';
+import ComicCatalogScreen from '../screens/Comics/ComicCatalogScreen';
+import ComicDetailScreen from '../screens/Comics/ComicDetailScreen';
+import ComicReaderScreen from '../screens/Comics/ComicReaderScreen';
 import ErrorBoundary from '../components/ErrorBoundary';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const updateLoadPriority = () => {
   const name: string | undefined = navigationRef.getCurrentRoute()?.name;
-  const group: LoadGroup = name === 'Home' ? 'home' : name === 'Catalog' || name === 'Planning' ? 'catalog' : name === 'AnimeDetail' ? 'detail' : name === 'VideoPlayer' ? 'player' : 'local';
+  const group: LoadGroup = name === 'Home' ? 'home' : name === 'Catalog' || name === 'Planning' ? 'catalog' : name === 'AnimeDetail' || name === 'ComicDetail' ? 'detail' : name === 'VideoPlayer' ? 'player' : 'local';
   loadScheduler.setActiveGroup(group);
 };
 
@@ -74,6 +77,8 @@ function MainTabNavigator() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
+  // Grand écran (PC, tablette paysage) : onglets dans une barre latérale.
+  const sidebar = useWindowDimensions().width >= 1024;
 
   // Déterminer la route initiale en fonction de la disponibilité de l'API
   const getInitialRouteName = (): keyof MainTabParamList => {
@@ -94,6 +99,8 @@ function MainTabNavigator() {
             iconName = focused ? 'bookmark' : 'bookmark-outline';
           } else if (route.name === 'Catalog') {
             iconName = focused ? 'grid' : 'grid-outline';
+          } else if (route.name === 'Scans') {
+            iconName = focused ? 'book' : 'book-outline';
           } else if (route.name === 'Planning') {
             iconName = focused ? 'calendar' : 'calendar-outline';
           } else if (route.name === 'Settings') {
@@ -118,8 +125,10 @@ function MainTabNavigator() {
         sceneStyle: { backgroundColor: colors.background },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.tabBarInactive,
-        tabBarLabelPosition: 'below-icon',
-        tabBarStyle: {
+        tabBarPosition: sidebar ? 'left' : 'bottom',
+        tabBarVariant: sidebar ? 'material' : 'uikit',
+        tabBarLabelPosition: sidebar ? 'beside-icon' : 'below-icon',
+        tabBarStyle: sidebar ? { backgroundColor: colors.tabBar, width: 232, borderRightWidth: 1, borderRightColor: colors.border, paddingTop: 24 + insets.top, paddingHorizontal: 10 } : {
           backgroundColor: colors.tabBar,
           height: 74 + insets.bottom,
           paddingBottom: 8 + insets.bottom,
@@ -130,8 +139,11 @@ function MainTabNavigator() {
           shadowOpacity: 0,
           elevation: 0,
         },
+        // Barre latérale : onglet actif en pastille violette douce.
+        tabBarActiveBackgroundColor: sidebar ? colors.accentSoft : undefined,
+        tabBarItemStyle: sidebar ? { borderRadius: 12, marginVertical: 2, height: 48 } : undefined,
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: sidebar ? 14 : 11,
           fontWeight: '600',
         },
         headerStyle: {
@@ -166,9 +178,10 @@ function MainTabNavigator() {
           name="Catalog"
           component={CatalogScreen}
           options={{
-            title: 'Naviguer',
+            // Animes, puis Scans (mangas et manhwas) juste à côté.
+            title: 'Animes',
             headerShown: false,
-            tabBarStyle: {
+            tabBarStyle: sidebar ? { backgroundColor: colors.tabBar, width: 232, borderRightWidth: 1, borderRightColor: colors.border, paddingTop: 24 + insets.top, paddingHorizontal: 10 } : {
               position: 'relative',
               backgroundColor: colors.tabBar,
               height: 74 + insets.bottom,
@@ -181,6 +194,14 @@ function MainTabNavigator() {
             },
           }}
         />
+      <Tab.Screen
+        name="Scans"
+        component={ComicCatalogScreen}
+        options={{
+          title: 'Scans',
+          headerShown: false,
+        }}
+      />
       <Tab.Screen
         name="Planning"
         component={PlanningScreen}
@@ -278,6 +299,16 @@ export default function AppNavigator() {
             headerShown: false,
             animation: reducedMotion ? 'none' : 'fade',
           }}
+        />
+        <Stack.Screen
+          name="ComicDetail"
+          component={ComicDetailScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="ComicReader"
+          component={ComicReaderScreen}
+          options={{ headerShown: false, animation: reducedMotion ? 'none' : 'fade' }}
         />
         <Stack.Screen
           name="Stats"

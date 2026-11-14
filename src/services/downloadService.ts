@@ -25,7 +25,7 @@ export interface DownloadProgress {
   timeRemaining: number; // seconds
   totalSegments?: number;
   completedSegments?: number;
-  status?: 'downloading' | 'completed' | 'error';
+  status?: 'queued' | 'downloading' | 'completed' | 'error';
 }
 
 export interface DownloadItem {
@@ -42,6 +42,7 @@ export interface DownloadItem {
 export class DownloadService {
   private downloads: Map<string, DownloadItem> = new Map();
   private downloadCallbacks: Map<string, (progress: DownloadProgress) => void> = new Map();
+  private progressListeners = new Set<(progress: DownloadProgress) => void>();
   private maxConcurrentDownloads = 1; // Limiter à 1 téléchargement concurrent
   private downloadQueue: string[] = [];
   private activeDownloads = 0;
@@ -75,6 +76,22 @@ export class DownloadService {
       speed: 0,
       timeRemaining: 0
     };
+  }
+
+  /**
+   * Suit la progression de tous les téléchargements, y compris ceux lancés
+   * depuis un autre écran. Renvoie la fonction de désabonnement.
+   */
+  subscribe(listener: (progress: DownloadProgress) => void): () => void {
+    this.progressListeners.add(listener);
+    return () => { this.progressListeners.delete(listener); };
+  }
+
+  private notify(progress: DownloadProgress, onProgress?: (progress: DownloadProgress) => void): void {
+    onProgress?.(progress);
+    this.progressListeners.forEach(listener => {
+      try { listener(progress); } catch (error) { logger.warn('[Download] Écouteur de progression en échec:', error); }
+    });
   }
 
   /**
@@ -112,12 +129,12 @@ export class DownloadService {
 
     try {
       const downloadId = this.generateDownloadId(episode, quality);
-      // L'item part en attente ; la progression « downloading » affiche « En cours » tout de suite.
+      // L'item part en attente ; il passe à « downloading » en sortant de la file.
       const downloadItem: DownloadItem = {
         episode,
         quality,
         url: '',
-        progress: { ...this.createProgressObject(episode, downloadId), status: 'downloading' },
+        progress: { ...this.createProgressObject(episode, downloadId), status: 'queued' },
         status: DownloadStatus.QUEUED
       };
       this.downloads.set(downloadId, downloadItem);
@@ -127,7 +144,7 @@ export class DownloadService {
       }
       await this.saveDownloadsToStorage();
       logger.debug(`[Download] 📋 Téléchargement ajouté à la file d'attente (position ${this.downloadQueue.length})`);
-      onProgress?.(downloadItem.progress);
+      this.notify(downloadItem.progress, onProgress);
 
       await this.processQueue();
     } catch (error) {
@@ -194,8 +211,10 @@ export class DownloadService {
     try {
       downloadItem.status = DownloadStatus.DOWNLOADING;
       downloadItem.url = '';
-      downloadItem.progress = this.createProgressObject(episode, downloadId);
+      downloadItem.progress = { ...this.createProgressObject(episode, downloadId), status: 'downloading' };
       await this.saveDownloadsToStorage();
+      // Sortie de la file : l'épisode n'est plus annulable, la taille reste inconnue.
+      this.notify(downloadItem.progress, onProgress);
 
       const extractionResult = await this.videoUrlExtractor.extractHLSForEpisode(episode.id);
       if (!extractionResult.success || extractionResult.urls.length === 0) {
@@ -222,7 +241,7 @@ export class DownloadService {
           completedSegments: progress.completedSegments,
           status: progress.status
         };
-        onProgress?.(downloadItem.progress);
+        this.notify(downloadItem.progress, onProgress);
       });
 
       downloadItem.status = DownloadStatus.DOWNLOADED;
@@ -233,14 +252,14 @@ export class DownloadService {
       await this.saveDownloadsToStorage();
       await this.updateEpisodeDownloadStatus(episode.id, DownloadStatus.DOWNLOADED, filePath);
       logger.debug(`[Download] ✅ Téléchargement terminé: ${episode.title} (${filePath}${downloadItem.fileSize ? `, ${this.formatFileSize(downloadItem.fileSize)}` : ''})`);
-      onProgress?.(downloadItem.progress);
+      this.notify(downloadItem.progress, onProgress);
     } catch (error) {
       logger.error('[Download] ❌ Erreur téléchargement:', error instanceof Error ? error.message : error);
       downloadItem.status = DownloadStatus.FAILED;
       downloadItem.progress.status = 'error';
       await this.saveDownloadsToStorage();
       await this.updateEpisodeDownloadStatus(episode.id, DownloadStatus.FAILED);
-      onProgress?.(downloadItem.progress);
+      this.notify(downloadItem.progress, onProgress);
       throw error;
     } finally {
       this.downloadCallbacks.delete(downloadId);

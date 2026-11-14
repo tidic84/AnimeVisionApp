@@ -49,13 +49,19 @@ export function LoadingSwap({ loading, skeleton, children, style }: React.PropsW
   </View>;
 }
 
-export function MotionPressable({ children, style, pressedScale = 0.98, ...props }: Omit<PressableProps, 'style' | 'children'> & { style?: StyleProp<ViewStyle>; children: React.ReactNode; pressedScale?: number }) {
+/** `hoverScale` : léger agrandissement au survol de la souris (Windows / web), pour les cartes. */
+export function MotionPressable({ children, style, pressedScale = 0.98, hoverScale = 1, ...props }: Omit<PressableProps, 'style' | 'children'> & { style?: StyleProp<ViewStyle>; children: React.ReactNode; pressedScale?: number; hoverScale?: number }) {
   const reduced = useReducedMotion();
   const scale = useRef(new Animated.Value(1)).current;
+  const hovered = useRef(false);
   const animate = (value: number) => {
     if (reduced || props.disabled) return;
     Animated.spring(scale, { toValue: value, stiffness: 420, damping: 32, mass: 0.7, overshootClamping: true, useNativeDriver: nativeDriver }).start();
   };
+  const rest = () => hovered.current ? hoverScale : 1;
   useEffect(() => { if (reduced) scale.setValue(1); return () => scale.stopAnimation(); }, [reduced, scale]);
-  return <Animated.View style={{ transform: [{ scale }] }}><Pressable accessibilityRole="button" {...props} style={style} onPressIn={event => { animate(pressedScale); props.onPressIn?.(event); }} onPressOut={event => { animate(1); props.onPressOut?.(event); }}>{children}</Pressable></Animated.View>;
+  return <Animated.View style={{ transform: [{ scale }] }}><Pressable accessibilityRole="button" {...props} style={style}
+    onHoverIn={event => { hovered.current = true; animate(hoverScale); props.onHoverIn?.(event); }}
+    onHoverOut={event => { hovered.current = false; animate(1); props.onHoverOut?.(event); }}
+    onPressIn={event => { animate(pressedScale); props.onPressIn?.(event); }} onPressOut={event => { animate(rest()); props.onPressOut?.(event); }}>{children}</Pressable></Animated.View>;
 }

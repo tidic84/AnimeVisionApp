@@ -38,6 +38,12 @@ assert.deepEqual(pick([skip('ed', 1250, 1340, 1460)], 1400), [{ kind: 'outro', s
 // The opening stays anchored on the start whatever the gap.
 assert.deepEqual(pick([skip('op', 30, 120, 1460)], 1400), [{ kind: 'intro', start: 30, end: 120 }]);
 
+// Hand-entered ending stopping short of the end (Tanaka-kun: 1330-1410 for a credits ending at 1423 in a
+// 1426 s video): the last 20 s are only credits and the end card, the skip goes to the end.
+assert.deepEqual(pick([skip('ed', 1330, 1410, 1426)], 1426), [{ kind: 'outro', start: 1330, end: 1426 }]);
+// More than 20 s left after the ending (preview, post-credits scene): kept.
+assert.deepEqual(pick([skip('ed', 1300, 1395, 1426)], 1426), [{ kind: 'outro', start: 1300, end: 1395 }]);
+
 // Nonsense positions: an opening in the second half, an ending in the first half.
 assert.deepEqual(pick([skip('op', 800, 890, 1420), skip('ed', 100, 190, 1420)], 1420), []);
 // End beyond the video and nothing left once clamped.

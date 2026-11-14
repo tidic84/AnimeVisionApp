@@ -1,0 +1,16 @@
+{
+  "name": "animevision-comics-catalog",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.19.0" },
+  "scripts": {
+    "start": "node src/main.mjs",
+    "interactive": "node src/main.mjs --interactive",
+    "sync": "node src/cli.mjs sync",
+    "catalog": "node src/cli.mjs catalog",
+    "browser": "node src/cli.mjs browser",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": { "cheerio": "^1.1.2", "playwright": "^1.56.0" }
+}
