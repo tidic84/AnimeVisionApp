@@ -66,7 +66,7 @@ function patchNetwork() {
 function createWindow() {
   const window = new BrowserWindow({
     width: 1360, height: 860, minWidth: 420, minHeight: 560,
-    backgroundColor: '#0F1016', title: 'AnimeVision', autoHideMenuBar: true, show: false,
+    backgroundColor: '#0F1016', title: 'Shiori', autoHideMenuBar: true, show: false,
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
   });

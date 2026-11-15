@@ -2,7 +2,7 @@
   "name": "animevision-desktop",
   "productName": "AnimeVision",
   "version": "1.0.4",
-  "description": "AnimeVision pour Windows",
+  "description": "Shiori pour Windows",
   "author": "tidic84",
   "license": "MIT",
   "private": true,
@@ -58,7 +58,7 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "AnimeVision",
+      "shortcutName": "Shiori",
       "artifactName": "AnimeVision-Setup-${version}.exe"
     }
   }

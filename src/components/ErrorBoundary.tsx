@@ -58,7 +58,7 @@ interface FallbackProps {
 function ErrorFallback({ error, title = 'Un problème est survenu', message = 'L’application a rencontré une erreur inattendue. Vous pouvez réessayer ; si le problème persiste, partagez le rapport pour aider à le corriger.', actionLabel, onAction, onRetry }: FallbackProps) {
   const colors = palette[useOptionalColorScheme() ?? 'dark'];
   const shareReport = () => {
-    Share.share({ title: 'Rapport d’erreur AnimeVision', message: formatRecentErrors() }).catch(() => {});
+    Share.share({ title: 'Rapport d’erreur Shiori', message: formatRecentErrors() }).catch(() => {});
   };
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
