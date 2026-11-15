@@ -26,6 +26,7 @@ import ComicCatalogScreen from '../screens/Comics/ComicCatalogScreen';
 import ComicDetailScreen from '../screens/Comics/ComicDetailScreen';
 import ComicReaderScreen from '../screens/Comics/ComicReaderScreen';
 import ErrorBoundary from '../components/ErrorBoundary';
+import { keepUniqueScreens } from './uniqueScreens';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
@@ -264,6 +265,12 @@ export default function AppNavigator() {
     >
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       <Stack.Navigator
+        UNSTABLE_router={original => ({
+          getStateForAction(state, action, options) {
+            const next = original.getStateForAction(state, action, options);
+            return next && next !== state && next.stale === false ? keepUniqueScreens(state, next) : next;
+          },
+        })}
         screenOptions={{
           animation: reducedMotion ? 'none' : 'slide_from_right',
           animationDuration: 280,
