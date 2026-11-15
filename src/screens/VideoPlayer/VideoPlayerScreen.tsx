@@ -33,6 +33,7 @@ import usePlayerGestures from './usePlayerGestures';
 import { BoostBadge, LevelIndicator } from './GestureIndicators';
 import { loadStoryboard, Storyboard } from '../../services/seekPreview';
 import { pickSkips, SkipResult } from '../../utils/skipTimes';
+import { createPlaybackGate, playerVisible } from '../../utils/playbackGate';
 
 const colors = palette.dark;
 const clock = (seconds: number) => `${Math.floor(Math.max(0, seconds) / 60)}:${Math.floor(Math.max(0, seconds) % 60).toString().padStart(2, '0')}`;
@@ -113,6 +114,12 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   const played = useRef(0);
   const resumePercent = useRef(0);
   const player = useVideoPlayer(null, video => { video.timeUpdateEventInterval = 0.25; });
+  // Lus au moment où un chargement aboutit, pas au rendu où il a commencé.
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  const appActive = useRef(AppState.currentState === 'active');
+  const backgroundRef = useRef(false);
+  const gate = useRef(createPlaybackGate(() => playerVisible(focusedRef.current, appActive.current, backgroundRef.current))).current;
   const current = episodes.findIndex(item => item.id === episodeId);
   const next = current >= 0 ? episodes[current + 1] : undefined;
   // Un même lien apparaît souvent sous plusieurs noms (« Serveur 2 », « OneUpload »…) : une ligne par lien, nommée d'après l'hébergeur.
@@ -334,7 +341,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     if (startTimer.current) clearTimeout(startTimer.current);
     setFrame(false); remounts.current = 0; setStatus(source ? 'loading' : 'idle');
     if (source && activeRef.current) startTimer.current = setTimeout(() => { startTimer.current = null; if (active) failRef.current('Délai de lecture dépassé'); }, START_TIMEOUT);
-    void player.replaceAsync(source).then(() => { if (active && source) { player.playbackRate = speed; if (autoPlay || manualChoice.current) player.play(); } }).catch(() => { if (!active || !source) return; if (activeRef.current) failRef.current('Source illisible'); else setError('Le lecteur n’a pas pu ouvrir cette source. Essayez un autre serveur.'); });
+    gate.cancel();
+    void player.replaceAsync(source).then(() => { if (active && source) { player.playbackRate = speed; if ((autoPlay || manualChoice.current) && gate.request()) player.play(); } }).catch(() => { if (!active || !source) return; if (activeRef.current) failRef.current('Source illisible'); else setError('Le lecteur n’a pas pu ouvrir cette source. Essayez un autre serveur.'); });
     return () => { active = false; if (startTimer.current) { clearTimeout(startTimer.current); startTimer.current = null; } };
   }, [source, player]);
   useEffect(() => { player.playbackRate = speed; }, [player, speed]);
@@ -345,7 +353,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
     return () => clearTimeout(timer);
   }, [source, embed, frame, playing, viewKey]);
   // Changer de page laisse cet écran monté dans la pile : sans pause, le son continue en arrière-plan.
-  useEffect(() => { if (!focused) { player.pause(); saveProgress(); } }, [focused, player, saveProgress]);
+  // Un flux fini de charger pendant l'absence n'a pas démarré (voir gate) : il démarre au retour.
+  useEffect(() => { if (!focused) { player.pause(); saveProgress(); } else if (gate.resume()) player.play(); }, [focused, player, saveProgress, gate]);
   // Plein écran : barre de navigation (poignée ou boutons) masquée en immersif ; un balayage depuis le bord la fait réapparaître un instant. Seule la visibilité est touchée, pour ne pas imposer de style aux menus.
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -354,12 +363,12 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   }, [fullscreen, focused]);
   // Option relue au retour sur l'écran (elle a pu changer dans les Paramètres).
   useEffect(() => { if (focused) void getBackgroundPlayback().then(setBackground); }, [focused]);
-  useEffect(() => { player.staysActiveInBackground = background; player.showNowPlayingNotification = background; }, [player, background]);
+  useEffect(() => { backgroundRef.current = background; player.staysActiveInBackground = background; player.showNowPlayingNotification = background; }, [player, background]);
   // Hors de l'app (écran verrouillé, autre app), la vidéo se met en pause sauf si la lecture en arrière-plan est autorisée.
   useEffect(() => {
-    const listener = AppState.addEventListener('change', state => { if (state !== 'active' && !background) { player.pause(); saveProgress(); } });
+    const listener = AppState.addEventListener('change', state => { appActive.current = state === 'active'; if (state !== 'active' && !background) { player.pause(); saveProgress(); } else if (state === 'active' && gate.resume()) player.play(); });
     return () => listener.remove();
-  }, [player, background, saveProgress]);
+  }, [player, background, saveProgress, gate]);
   useEffect(() => () => { if (tapTimer.current) clearTimeout(tapTimer.current); if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
   useEffect(() => {
     const listeners = [
