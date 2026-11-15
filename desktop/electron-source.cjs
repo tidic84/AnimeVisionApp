@@ -79,7 +79,7 @@ function createSourceContext() {
     async newPage() {
       const window = new BrowserWindow({
         show: false, width: 1280, height: 900, autoHideMenuBar: true,
-        title: 'Scan-Manga — AnimeVision',
+        title: 'Scan-Manga — Shiori',
         webPreferences: { session: sourceSession, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
       });
       windows.add(window);

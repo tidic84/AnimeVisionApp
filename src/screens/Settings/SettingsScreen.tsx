@@ -236,7 +236,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     setUpdateStatus('Recherche…');
     try {
       const update = await updates.checkForUpdate();
-      if (!update) dialog.alert('Mise à jour', `AnimeVision ${updates.currentVersion()} est la dernière version.`);
+      if (!update) dialog.alert('Mise à jour', `Shiori ${updates.currentVersion()} est la dernière version.`);
       else if (updates.canSelfUpdate()) updates.promptUpdate(update);
       else dialog.alert('Mise à jour', `La version ${update.version} est disponible. Elle s’installe depuis l’APK Android ; Expo Go se met à jour en relançant le serveur.`, [
         { text: 'Fermer', style: 'cancel' },
@@ -249,10 +249,10 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
   // Journal local des dernières erreurs, à joindre à un signalement de bug.
   const shareErrorLog = () => {
-    const report = `AnimeVision v${updates.currentVersion()}
+    const report = `Shiori v${updates.currentVersion()}
 
 ${formatRecentErrors()}`;
-    Share.share({ title: 'Journal d’erreurs AnimeVision', message: report }).catch(async error => {
+    Share.share({ title: 'Journal d’erreurs Shiori', message: report }).catch(async error => {
       // Navigateur sans partage natif : copie dans le presse-papiers à la place.
       const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
       if (!clipboard) { log.warn('Partage du journal impossible:', error); return; }
@@ -727,7 +727,7 @@ ${formatRecentErrors()}`;
             {renderSettingRow(
               'information-circle',
               'Rechercher une mise à jour',
-              `AnimeVision v${updates.currentVersion()}`,
+              `Shiori v${updates.currentVersion()}`,
               updateStatus || undefined,
               checkUpdate
             )}
