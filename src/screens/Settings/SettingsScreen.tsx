@@ -135,6 +135,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const [malUser, setMalUser] = useState<string | null>(null);
   const [malBusy, setMalBusy] = useState('');
   const [updateStatus, setUpdateStatus] = useState('');
+  const [updateProgress, setUpdateProgress] = useState(updates.getUpdateProgress());
+  useEffect(() => updates.subscribeUpdateProgress(setUpdateProgress), []);
 
   useEffect(() => { mal.getUser().then(user => setMalUser(user?.name ?? null)).catch(() => {}); }, []);
 
@@ -232,7 +234,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   };
 
   const checkUpdate = async () => {
-    if (updateStatus) return;
+    if (updateStatus || updates.getUpdateProgress()) return;
     setUpdateStatus('Recherche…');
     try {
       const update = await updates.checkForUpdate();
@@ -724,7 +726,25 @@ ${formatRecentErrors()}`;
         {/* À propos */}
         {renderSection('À propos', (
           <>
-            {renderSettingRow(
+            {updateProgress ? (
+              <View
+                style={[styles.settingRow, styles.updateProgressRow, { borderBottomColor: colors.border }]}
+                accessible
+                accessibilityRole="progressbar"
+                accessibilityLabel={`Téléchargement de Shiori v${updateProgress.version}`}
+                accessibilityValue={{ min: 0, max: 100, now: updateProgress.percent }}
+              >
+                <View style={styles.updateProgressHeader}>
+                  <Text style={[styles.settingTitle, { color: colors.text }]}>
+                    {updateProgress.verifying ? `Vérification de Shiori v${updateProgress.version}…` : `Téléchargement de Shiori v${updateProgress.version}`}
+                  </Text>
+                  <Text style={[styles.settingValue, { color: colors.textSecondary }]}>{updateProgress.percent} %</Text>
+                </View>
+                <View style={[styles.updateProgressTrack, { backgroundColor: colors.border }]}>
+                  <View style={[styles.updateProgressFill, { width: `${updateProgress.percent}%`, backgroundColor: colors.primary }]} />
+                </View>
+              </View>
+            ) : renderSettingRow(
               'information-circle',
               'Rechercher une mise à jour',
               `Shiori v${updates.currentVersion()}`,
@@ -822,6 +842,26 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderWidth: 0,
     overflow: 'hidden',
+  },
+  updateProgressRow: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: 10,
+  },
+  updateProgressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  updateProgressTrack: {
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  updateProgressFill: {
+    height: '100%',
+    borderRadius: 2,
   },
   settingRow: {
     flexDirection: 'row',
