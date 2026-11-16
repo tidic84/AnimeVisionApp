@@ -35,9 +35,54 @@ export function loadStoryboard(url: string, headers: Record<string, string> = {}
     const sizes: Storyboard['sizes'] = {};
     await Promise.all([...new Set(cues.map(cue => cue.url))].map(image => new Promise<void>(done =>
       Image.getSizeWithHeaders(image, headers, (width, height) => { sizes[image] = { width, height }; done(); }, () => done()))));
-    return { cues: cues.filter(cue => sizes[cue.url]), sizes };
+    const fitted = fitStoryboard(cues, sizes);
+    return fitted.length ? { cues: fitted, sizes } : null;
   })().catch(() => null);
   return cache[url];
+}
+
+// Écart toléré entre l'agrandissement horizontal et vertical d'une planche (arrondis des tailles de vignettes).
+const SCALE_TOLERANCE = 0.05;
+
+/**
+ * Ramène chaque vignette dans les pixels réels de son image, ou l'écarte si on ne peut pas la découper proprement.
+ * Certains hébergeurs (Vidmoly) décrivent une planche plus petite que l'image servie : 15×15 vignettes de 162×90
+ * (2430×1350) pour une image de 5040×2820 (vignettes de 336×188). Pris tels quels, les `xywh` tombent à cheval sur
+ * plusieurs vignettes ; on les met donc à l'échelle de l'image, axe par axe, d'après l'étendue décrite par le VTT.
+ * Des facteurs différents selon l'axe ne sont admis que si la planche décrite tient dans l'image (cases vides en bordure).
+ * Sans `xywh`, l'image n'est gardée que si elle a la forme d'une seule vignette (sinon c'est une planche entière).
+ */
+export function fitStoryboard(cues: StoryboardCue[], sizes: Storyboard['sizes']): StoryboardCue[] {
+  const extents: Record<string, { width: number; height: number }> = {};
+  for (const cue of cues) {
+    if (!(cue.w > 0 && cue.h > 0)) continue;
+    const extent = extents[cue.url] ??= { width: 0, height: 0 };
+    extent.width = Math.max(extent.width, cue.x + cue.w);
+    extent.height = Math.max(extent.height, cue.y + cue.h);
+  }
+  const fitted: StoryboardCue[] = [];
+  for (const cue of cues) {
+    const size = sizes[cue.url];
+    if (!size || !(size.width > 0 && size.height > 0)) continue;
+    const extent = extents[cue.url];
+    const boxed = cue.w > 0 && cue.h > 0;
+    if (!boxed) {
+      // Une image entière sans découpage : acceptable seulement si elle ressemble à une vignette (ex. 16:9, 4:3).
+      const ratio = size.width / size.height;
+      if (extent || ratio < 1 || ratio > 2.5) continue;
+      fitted.push({ ...cue, x: 0, y: 0, w: size.width, h: size.height });
+      continue;
+    }
+    let scaleX = size.width / extent.width, scaleY = size.height / extent.height;
+    if (Math.abs(scaleX / scaleY - 1) > SCALE_TOLERANCE) {
+      // Facteurs différents : soit une planche juste bordée de cases vides (on garde les xywh tels quels),
+      // soit un VTT qui ne décrit pas cette image, et mieux vaut alors ne rien montrer qu'un aperçu cassé.
+      if (extent.width > size.width + 1 || extent.height > size.height + 1) continue;
+      scaleX = scaleY = 1;
+    }
+    fitted.push({ ...cue, x: cue.x * scaleX, y: cue.y * scaleY, w: cue.w * scaleX, h: cue.h * scaleY });
+  }
+  return fitted;
 }
 
 export function cueAt(cues: StoryboardCue[], time: number): StoryboardCue | undefined {
