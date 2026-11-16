@@ -1,4 +1,4 @@
-import { Linking, Platform } from 'react-native';
+import { AppState, Linking, PermissionsAndroid, Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import { File } from 'expo-file-system';
@@ -7,6 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { dialog } from '../components/Dialog';
 import { createLogger } from '../utils/logger';
 import { checkApk, extractSha256, parseSha256 } from '../utils/apkIntegrity';
+import { createProgressThrottle } from '../utils/progressThrottle';
+import { updateNotification } from '../../modules/update-notification';
 
 const log = createLogger('Update');
 
@@ -14,6 +16,8 @@ const log = createLogger('Update');
 const RELEASES_URL = 'https://api.github.com/repos/tidic84/AnimeVisionApp/releases/latest';
 const LAST_CHECK_KEY = 'update:lastCheck';
 const SKIPPED_KEY = 'update:skippedVersion';
+/** Version de la notification « prêt à installer », retirée au démarrage une fois installée. */
+const READY_KEY = 'update:readyVersion';
 const CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 
 export interface AppUpdate {
@@ -64,18 +68,91 @@ export async function checkForUpdate(): Promise<AppUpdate | null> {
   };
 }
 
-/** Télécharge l'APK puis ouvre l'installateur Android, qui demande confirmation à l'utilisateur. */
+/** Téléchargement en cours, pour l'afficher dans l'app (Paramètres). */
+export interface UpdateProgress {
+  version: string;
+  /** 0 à 100. */
+  percent: number;
+  /** Contrôle d'intégrité après le téléchargement. */
+  verifying?: boolean;
+}
+
+let progressState: UpdateProgress | null = null;
+const progressListeners = new Set<(progress: UpdateProgress | null) => void>();
+function setProgress(progress: UpdateProgress | null) {
+  progressState = progress;
+  progressListeners.forEach(listener => listener(progress));
+}
+export const getUpdateProgress = () => progressState;
+export function subscribeUpdateProgress(listener: (progress: UpdateProgress | null) => void) {
+  progressListeners.add(listener);
+  return () => { progressListeners.delete(listener); };
+}
+
+/** Android 13+ : la notification de progression demande POST_NOTIFICATIONS, demandée au moment du téléchargement. */
+async function ensureNotificationPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android' || !updateNotification.available) return false;
+  if (Number(Platform.Version) < 33) return true;
+  try {
+    const permission = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
+    if (await PermissionsAndroid.check(permission)) return true;
+    return await PermissionsAndroid.request(permission) === PermissionsAndroid.RESULTS.GRANTED;
+  } catch (error) {
+    log.warn('Permission de notification indisponible:', error);
+    return false;
+  }
+}
+
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Installation impossible';
+
+/**
+ * Télécharge l'APK (progression dans une notification et dans l'app), le vérifie puis ouvre
+ * l'installateur Android, qui demande confirmation. La notification finale « prêt à installer »
+ * relance l'installateur au toucher, utile si l'app était en arrière-plan ou l'installateur fermé.
+ */
 export async function installUpdate(update: AppUpdate, onProgress?: (fraction: number) => void) {
-  const target = `${FileSystem.cacheDirectory}AnimeVision-${update.version}.apk`;
-  await FileSystem.deleteAsync(target, { idempotent: true });
-  const download = FileSystem.createDownloadResumable(update.apkUrl, target, {}, ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
-    const total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : update.size;
-    if (total > 0) onProgress?.(Math.min(1, totalBytesWritten / total));
-  });
-  const result = await download.downloadAsync();
-  if (!result || result.status !== 200) throw new Error('Téléchargement de la mise à jour interrompu');
-  await verifyDownload(update, result.uri);
-  const contentUri = await FileSystem.getContentUriAsync(result.uri);
+  const notified = await ensureNotificationPermission();
+  if (!notified) dialog.alert('Téléchargement en cours', `Shiori v${update.version} se télécharge. La progression s’affiche dans Paramètres > À propos ; l’installateur s’ouvrira à la fin.`);
+  const title = `Téléchargement de Shiori v${update.version}`;
+  const throttle = createProgressThrottle(2);
+  const report = (fraction: number) => {
+    const percent = throttle(fraction);
+    if (percent === null) return;
+    setProgress({ version: update.version, percent });
+    updateNotification.progress(title, `${percent} %`, percent);
+    onProgress?.(percent / 100);
+  };
+  setProgress({ version: update.version, percent: 0 });
+  updateNotification.progress(title, 'Connexion…', -1);
+
+  let contentUri: string;
+  try {
+    const target = `${FileSystem.cacheDirectory}AnimeVision-${update.version}.apk`;
+    await FileSystem.deleteAsync(target, { idempotent: true });
+    const download = FileSystem.createDownloadResumable(update.apkUrl, target, {}, ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
+      const total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : update.size;
+      if (total > 0) report(Math.min(1, totalBytesWritten / total));
+    });
+    const result = await download.downloadAsync();
+    if (!result || result.status !== 200) throw new Error('Téléchargement de la mise à jour interrompu');
+    setProgress({ version: update.version, percent: 100, verifying: true });
+    updateNotification.progress(`Vérification de Shiori v${update.version}`, 'Contrôle de l’intégrité du fichier…', -1);
+    await verifyDownload(update, result.uri);
+    contentUri = await FileSystem.getContentUriAsync(result.uri);
+  } catch (error) {
+    updateNotification.failed(`Échec de la mise à jour v${update.version}`, errorMessage(error));
+    throw error;
+  } finally {
+    setProgress(null);
+  }
+
+  updateNotification.ready(`Shiori v${update.version} prêt à installer`, 'Touchez pour installer la mise à jour', contentUri);
+  await AsyncStorage.setItem(READY_KEY, update.version).catch(() => {});
+  // En arrière-plan, Android bloque l'ouverture d'une activité : la notification prend le relais.
+  if (AppState.currentState !== 'active') {
+    if (!notified) log.warn('Mise à jour prête mais app en arrière-plan sans notification');
+    return;
+  }
   await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
     data: contentUri,
     type: 'application/vnd.android.package-archive',
@@ -128,7 +205,7 @@ export function promptUpdate(update: AppUpdate, options: { allowSkip?: boolean }
     installing = true;
     try { await installUpdate(update); }
     catch (error) {
-      dialog.alert('Mise à jour', `${error instanceof Error ? error.message : 'Installation impossible'}.\n\nVous pouvez réessayer ou télécharger l'APK depuis GitHub.`, [
+      dialog.alert('Mise à jour', `${errorMessage(error)}.\n\nVous pouvez réessayer ou télécharger l'APK depuis GitHub.`, [
         { text: 'Fermer', style: 'cancel' },
         { text: 'Ouvrir GitHub', onPress: () => void Linking.openURL(update.pageUrl) },
         { text: 'Réessayer', onPress: () => void install() },
@@ -147,6 +224,12 @@ export function promptUpdate(update: AppUpdate, options: { allowSkip?: boolean }
 export async function checkOnLaunch() {
   if (!canSelfUpdate()) return;
   try {
+    // Notification « prêt à installer » d'une version désormais installée : on la retire.
+    const ready = await AsyncStorage.getItem(READY_KEY);
+    if (ready && compareVersions(ready, currentVersion()) <= 0) {
+      updateNotification.cancel();
+      await AsyncStorage.removeItem(READY_KEY);
+    }
     const last = Number(await AsyncStorage.getItem(LAST_CHECK_KEY)) || 0;
     if (Date.now() - last < CHECK_INTERVAL) return;
     const update = await checkForUpdate();

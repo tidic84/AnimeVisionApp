@@ -128,6 +128,10 @@ de Windows) puis l'attache à la release. Pour un tag déjà poussé :
 L'app installée vérifie la dernière release au démarrage (au plus toutes les 6 h) et propose
 de télécharger puis d'installer l'APK. Paramètres > À propos > « Rechercher une mise à jour »
 force la vérification. Expo Go et le web ne s'auto-mettent pas à jour.
+Pendant le téléchargement, une notification Android affiche la progression (module natif local
+`modules/update-notification`, la permission de notification étant demandée à ce moment-là),
+puis devient « prêt à installer » (toucher = installer) ou « échec » ; Paramètres > À propos
+affiche aussi la progression.
 
 Le workflow utilise ces réglages du dépôt :
 - variables `API_ADDRESS` (adresse de l'API intégrée à l'APK) et `ANDROID_KEY_ALIAS` ;
