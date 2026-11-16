@@ -15,6 +15,10 @@ databaseService (SQLite local) : listes, historique, téléchargements
 Si l'API est injoignable, les écrans affichent leur message d'erreur et les épisodes
 téléchargés restent accessibles.
 
+« Signaler un problème » (bouton *Signaler* de la fiche, appui long sur un épisode, détails ou lecteur
+vide dans l'écran de lecture) envoie un signalement à l'API (`POST /api/report`, `src/services/reportService.ts`).
+Le scraper re-scrape ensuite l'animé ; une cible déjà signalée affiche son état au lieu du formulaire.
+
 ## 💻 Version Windows (10 et 11)
 
 L'application Windows réutilise tout le code de l'app : l'export web Expo (`dist-web`, React Native Web)
