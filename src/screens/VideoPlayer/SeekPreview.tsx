@@ -27,11 +27,10 @@ export default function SeekPreview({ time, label, x, barLeft, barWidth, bottom,
   const bubble = width ? width + 4 : large ? 72 : 60;
   const left = Math.max(barLeft, Math.min(barLeft + barWidth - bubble, x - bubble / 2));
   return <View pointerEvents="none" style={[styles.wrap, { left, bottom, width: bubble }]}>
-    {cue && size && <View style={[styles.frame, { width: width + 4, height: width * (cue.h || 9) / (cue.w || 16) + 4 }]}>
-      {/* La planche entière, agrandie puis décalée : seule la vignette du moment reste dans le cadre. */}
-      <Image fadeDuration={0} source={{ uri: cue.url, headers }} style={cue.w
-        ? { position: 'absolute', width: size.width * width / cue.w, height: size.height * width / cue.w, left: -cue.x * width / cue.w, top: -cue.y * width / cue.w }
-        : StyleSheet.absoluteFill} resizeMode={cue.w ? 'stretch' : 'cover'} />
+    {cue && size && <View style={[styles.frame, { width: width + 4, height: cue.h * width / cue.w + 4 }]}>
+      {/* La planche entière, agrandie puis décalée : seule la vignette du moment reste dans le cadre (xywh en pixels réels de l'image). */}
+      <Image fadeDuration={0} source={{ uri: cue.url, headers }} resizeMode="stretch"
+        style={{ position: 'absolute', width: size.width * width / cue.w, height: size.height * width / cue.w, left: -cue.x * width / cue.w, top: -cue.y * width / cue.w }} />
     </View>}
     <Text style={[styles.time, large && { fontSize: 15 }]}>{label}</Text>
   </View>;
