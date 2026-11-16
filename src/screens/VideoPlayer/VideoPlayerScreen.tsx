@@ -116,7 +116,8 @@ export default function VideoPlayerScreen({ route, navigation }: RootStackScreen
   // Secondes réellement lues dans cette session (hors sauts et reprise).
   const played = useRef(0);
   const resumePercent = useRef(0);
-  const player = useVideoPlayer(null, video => { video.timeUpdateEventInterval = 0.25; });
+  // expo-video Android ne corrige pas la hauteur du son par défaut (preservesPitch=false) : en x2 la voix devient aiguë.
+  const player = useVideoPlayer(null, video => { video.timeUpdateEventInterval = 0.25; video.preservesPitch = true; });
   // Lus au moment où un chargement aboutit, pas au rendu où il a commencé.
   const focusedRef = useRef(focused);
   focusedRef.current = focused;
