@@ -1,5 +1,5 @@
 // Publie une nouvelle version : `npm run release -- 1.2.0` (ou patch / minor / major).
-// Avec --local, l'APK est construit sur ce poste au lieu de GitHub Actions.
+// Avec --local, l'APK et l'installateur Windows sont construits sur ce poste au lieu de GitHub Actions.
 // Met à jour app.json et package.json, commite, crée le tag vX.Y.Z et pousse :
 // le workflow GitHub construit alors l'APK et l'attache à la release.
 const { execSync } = require('child_process');
@@ -31,5 +31,8 @@ run('git add app.json package.json');
 run(`git commit -m "chore: release v${next}"`);
 run(`git tag v${next}`);
 run(`git push origin HEAD v${next}`);
-if (local) run('node scripts/publish-apk.cjs');
+if (local) {
+  run('node scripts/publish-apk.cjs');
+  run('node scripts/publish-desktop.cjs');
+}
 else console.log(`\nv${next} poussée. Suivi du build : gh run watch -R tidic84/AnimeVisionApp`);

@@ -95,6 +95,12 @@ jobs:
       - run: npm ci --no-audit --no-fund
         working-directory: desktop
 
+      # Embarqué dans l'installateur (extraResources) ; Playwright en est exclu.
+      - run: npm ci --omit=dev --no-audit --no-fund
+        working-directory: catalog-server
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
       - name: Configuration de l'app (.env)
         shell: bash
         run: |
